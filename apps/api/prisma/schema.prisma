@@ -17,21 +17,194 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// Entities (minimal for step 1: needed for per-user entity scope).
-// The full entity master — currency, parent, holding %, ERP, GAAP — is added in the
-// configuration step.
+// Configuration: currencies, entities and group structure (step 2)
 // ---------------------------------------------------------------------------
 
-model Entity {
-  code      String   @id @db.VarChar(10)
-  name      String   @db.VarChar(200)
+model Currency {
+  /// ISO 4217 code, e.g. "INR".
+  code      String   @id @db.Char(3)
+  name      String   @db.VarChar(100)
+  symbol    String   @db.VarChar(10)
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  userScopes UserEntityScope[]
+  functionalFor Entity[]                   @relation("FunctionalCurrency")
+  reportingFor  Entity[]                   @relation("ReportingCurrency")
+  translatedFor EntityTranslatedCurrency[]
+  historicalFor EntityHistoricalRate[]
+
+  @@map("currency")
+}
+
+enum ErpSystem {
+  ZOHO
+  XERO
+  OTHER
+}
+
+enum Gaap {
+  IND_AS
+  IFRS
+  US_GAAP
+  UK_GAAP
+  OTHER
+}
+
+model Entity {
+  code               String    @id @db.VarChar(10)
+  legalName          String    @map("legal_name") @db.VarChar(200)
+  /// Used in lists and as the consolidation level name, e.g. "Veracity Services".
+  shortName          String    @map("short_name") @db.VarChar(60)
+  country            String    @db.VarChar(60)
+  functionalCurrency String    @map("functional_currency") @db.Char(3)
+  reportingCurrency  String    @map("reporting_currency") @db.Char(3)
+  parentCode         String?   @map("parent_code") @db.VarChar(10)
+  /// % of this entity held by its parent (0.01–100); null for the ultimate parent.
+  heldByParentPct    Decimal?  @map("held_by_parent_pct") @db.Decimal(7, 4)
+  erp                ErpSystem
+  gaap               Gaap
+  isActive           Boolean   @default(true) @map("is_active")
+  toBeConfirmed      Boolean   @default(false) @map("to_be_confirmed")
+  toBeConfirmedNote  String?   @map("to_be_confirmed_note") @db.VarChar(500)
+  /// Display order (lists, group tree, level members).
+  sortOrder          Int       @default(0) @map("sort_order")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  functional           Currency                   @relation("FunctionalCurrency", fields: [functionalCurrency], references: [code])
+  reporting            Currency                   @relation("ReportingCurrency", fields: [reportingCurrency], references: [code])
+  parent               Entity?                    @relation("EntityParent", fields: [parentCode], references: [code], onDelete: Restrict)
+  children             Entity[]                   @relation("EntityParent")
+  translatedCurrencies EntityTranslatedCurrency[]
+  historicalRates      EntityHistoricalRate[]
+  userScopes           UserEntityScope[]
 
   @@map("entity")
+}
+
+/// Currencies an entity's statements are translated into (never its functional currency).
+model EntityTranslatedCurrency {
+  entityCode   String @map("entity_code") @db.VarChar(10)
+  currencyCode String @map("currency_code") @db.Char(3)
+
+  entity   Entity   @relation(fields: [entityCode], references: [code])
+  currency Currency @relation(fields: [currencyCode], references: [code])
+
+  @@id([entityCode, currencyCode])
+  @@map("entity_translated_currency")
+}
+
+/// Historical rate for equity (share capital, premium): 1 unit of functional currency = rate target.
+model EntityHistoricalRate {
+  entityCode     String   @map("entity_code") @db.VarChar(10)
+  targetCurrency String   @map("target_currency") @db.Char(3)
+  rate           Decimal  @db.Decimal(20, 10)
+  toBeConfirmed  Boolean  @default(true) @map("to_be_confirmed")
+  note           String?  @db.VarChar(300)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entity   Entity   @relation(fields: [entityCode], references: [code])
+  currency Currency @relation(fields: [targetCurrency], references: [code])
+
+  @@id([entityCode, targetCurrency])
+  @@map("entity_historical_rate")
+}
+
+// ---------------------------------------------------------------------------
+// Financial-year calendar and due dates (step 2)
+// ---------------------------------------------------------------------------
+
+enum PeriodType {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum StatementType {
+  SFS
+  CFS
+}
+
+model FinancialYear {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Calendar year the FY starts in: 2026 = FY 2026-27 (April 2026 – March 2027).
+  startYear   Int      @unique @map("start_year")
+  label       String   @db.VarChar(20)
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy User?    @relation("FinancialYearCreatedBy", fields: [createdById], references: [id])
+  periods   Period[]
+
+  @@map("financial_year")
+}
+
+model Period {
+  id                String       @id @default(uuid()) @db.Uuid
+  financialYearId   String       @map("financial_year_id") @db.Uuid
+  type              PeriodType
+  /// 1–12 for months (1 = April), 1–4 for quarters, 1 for the year.
+  sequence          Int
+  label             String       @db.VarChar(30)
+  startDate         DateTime     @map("start_date") @db.Date
+  endDate           DateTime     @map("end_date") @db.Date
+  /// Closed periods cannot have new tasks.
+  status            PeriodStatus @default(OPEN)
+  statusChangedAt   DateTime?    @map("status_changed_at") @db.Timestamptz(3)
+  statusChangedById String?      @map("status_changed_by_id") @db.Uuid
+
+  financialYear    FinancialYear     @relation(fields: [financialYearId], references: [id])
+  statusChangedBy  User?             @relation("PeriodStatusChangedBy", fields: [statusChangedById], references: [id])
+  dueDateOverrides DueDateOverride[]
+
+  @@unique([financialYearId, type, sequence])
+  @@index([startDate])
+  @@map("period")
+}
+
+/// Working days after period end for each task type (e.g. monthly SFS = 7).
+model DueDateRule {
+  statementType StatementType @map("statement_type")
+  periodType    PeriodType    @map("period_type")
+  workingDays   Int           @map("working_days")
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([statementType, periodType])
+  @@map("due_date_rule")
+}
+
+/// Non-working days (in addition to Saturdays and Sundays).
+model Holiday {
+  id          String   @id @default(uuid()) @db.Uuid
+  date        DateTime @unique @db.Date
+  description String   @db.VarChar(200)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("holiday")
+}
+
+/// A due date set by hand for one period and statement type, with the reason.
+model DueDateOverride {
+  periodId      String        @map("period_id") @db.Uuid
+  statementType StatementType @map("statement_type")
+  dueDate       DateTime      @map("due_date") @db.Date
+  reason        String        @db.VarChar(500)
+  createdById   String        @map("created_by_id") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  period    Period @relation(fields: [periodId], references: [id])
+  createdBy User   @relation("DueDateOverrideCreatedBy", fields: [createdById], references: [id])
+
+  @@id([periodId, statementType])
+  @@map("due_date_override")
 }
 
 // ---------------------------------------------------------------------------
@@ -77,15 +250,19 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
+  financialYearsCreated FinancialYear[]   @relation("FinancialYearCreatedBy")
+  periodStatusChanges   Period[]          @relation("PeriodStatusChangedBy")
+  dueDateOverrides      DueDateOverride[] @relation("DueDateOverrideCreatedBy")
+
   @@map("app_user")
 }
 
 model Permission {
-  code        String   @id @db.VarChar(40)
-  description String   @db.VarChar(300)
+  code        String @id @db.VarChar(40)
+  description String @db.VarChar(300)
   /// UI grouping, e.g. "Administration", "Standalone statements".
-  area        String   @db.VarChar(60)
-  sortOrder   Int      @default(0) @map("sort_order")
+  area        String @db.VarChar(60)
+  sortOrder   Int    @default(0) @map("sort_order")
 
   users     UserPermission[]
   templates PermissionTemplatePermission[]

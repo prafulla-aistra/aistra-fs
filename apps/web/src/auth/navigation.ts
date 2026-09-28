@@ -29,7 +29,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Configuration',
     to: '/configuration',
     icon: Settings,
-    anyOf: [Permission.ConfigManage],
+    // Viewers (REPORTS_VIEW) see configuration read-only; CONFIG_MANAGE can edit.
+    anyOf: [Permission.ConfigManage, Permission.ReportsView],
   },
   { label: 'User management', to: '/users', icon: Users, anyOf: [Permission.UserAdmin] },
   { label: 'Audit trail', to: '/audit', icon: ClipboardList, anyOf: [Permission.UserAdmin] },

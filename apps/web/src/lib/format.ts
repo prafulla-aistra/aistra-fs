@@ -11,6 +11,19 @@ export function formatDateTime(iso: string | null | undefined): string {
   return iso ? dateTime.format(new Date(iso)) : '—';
 }
 
+const dateOnly = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** "Wed, 09 Sept 2026" for a calendar date "2026-09-09" (no time-zone shift). */
+export function formatDate(iso: string | null | undefined): string {
+  return iso ? dateOnly.format(new Date(`${iso}T00:00:00Z`)) : '—';
+}
+
 /** Random temporary password that satisfies the policy (letters + digits, 12 chars). */
 export function generateTemporaryPassword(): string {
   const letters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ'; // no look-alikes (l, I, O)

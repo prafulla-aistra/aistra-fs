@@ -116,6 +116,9 @@ export const api = {
     }),
   patch: <T>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    apiFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+  delete: <T = void>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 };
 
 /** Human-readable message for any error thrown by the API client. */

@@ -17,7 +17,7 @@ import { type AuthUser, SessionUserLoader } from './session-user';
  * Every endpoint must declare exactly one access policy:
  *   @Public()                      no login needed (health, login, refresh, logout)
  *   @Authenticated()               any signed-in user (e.g. "who am I")
- *   @RequirePermission('CODE')     signed-in user holding CODE (the master holds all)
+ *   @RequirePermission('A', 'B')   signed-in user holding A or B (the master holds all)
  * An endpoint with no policy is refused (deny by default), so a forgotten decorator can
  * never expose data.
  *
@@ -29,12 +29,13 @@ const POLICY = 'fc:access-policy';
 const ALLOW_PENDING = 'fc:allow-pending-password-change';
 
 type Policy =
-  { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permission'; code: PermissionCode };
+  { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permission'; anyOf: PermissionCode[] };
 
 export const Public = () => SetMetadata(POLICY, { kind: 'public' } satisfies Policy);
 export const Authenticated = () => SetMetadata(POLICY, { kind: 'authenticated' } satisfies Policy);
-export const RequirePermission = (code: PermissionCode) =>
-  SetMetadata(POLICY, { kind: 'permission', code } satisfies Policy);
+/** Allows users holding at least one of the given permissions. */
+export const RequirePermission = (...anyOf: [PermissionCode, ...PermissionCode[]]) =>
+  SetMetadata(POLICY, { kind: 'permission', anyOf } satisfies Policy);
 export const AllowPendingPasswordChange = () => SetMetadata(ALLOW_PENDING, true);
 
 export interface AuthenticatedRequest extends Request {
@@ -98,12 +99,16 @@ export class AccessGuard implements CanActivate {
       );
     }
 
-    if (policy.kind === 'permission' && !user.permissions.has(policy.code)) {
+    if (policy.kind === 'permission' && !policy.anyOf.some((c) => user.permissions.has(c))) {
+      const needed =
+        policy.anyOf.length === 1
+          ? `the ${policy.anyOf[0]} permission`
+          : `one of these permissions: ${policy.anyOf.join(', ')}`;
       throw new ApiError(
         HttpStatus.FORBIDDEN,
         ApiErrorCode.PermissionDenied,
-        `You don't have access to this. It needs the ${policy.code} permission — ask a user administrator.`,
-        { requiredPermission: policy.code },
+        `You don't have access to this. It needs ${needed} — ask a user administrator.`,
+        { requiredPermission: policy.anyOf.join(' or ') },
       );
     }
     return true;

@@ -3,7 +3,7 @@
  *
  * Idempotent (safe to run repeatedly): everything is upserted by its business code.
  *
- *   npm run db:seed                  permissions, templates, entities, master admin
+ *   npm run db:seed                  permissions, templates, configuration, master admin
  *   npm run master:reset-password    also resets the master password to MASTER_PASSWORD
  */
 import 'dotenv/config';
@@ -15,6 +15,7 @@ import {
   type PermissionCode,
 } from '@finance-close/shared';
 import { hashPassword, normaliseEmail } from '../src/auth/passwords';
+import { seedConfiguration } from './seed-configuration';
 
 const prisma = new PrismaClient();
 const resetMasterPassword = process.argv.includes('--reset-master-password');
@@ -89,17 +90,6 @@ const TEMPLATES: {
   },
 ];
 
-/** Group structure from CLAUDE.md (codes and names only in this step). */
-const ENTITIES: { code: string; name: string }[] = [
-  { code: 'US', name: 'Aistra Labs Inc (US)' },
-  { code: 'IN', name: 'Aistra GenAI India Pvt Ltd' },
-  { code: 'AE', name: 'Aistra Labs AI Software LLC (UAE)' },
-  { code: 'UK', name: 'Aistra Labs UK Ltd' },
-  { code: 'UC', name: 'Unconstrained INC' },
-  { code: 'VS', name: 'Veracity Services Pte (Singapore)' },
-  { code: 'VM', name: 'Veracity Managed Services (Sri Lanka)' },
-];
-
 async function seedReferenceData(): Promise<void> {
   for (const [i, p] of PERMISSIONS.entries()) {
     const data = { description: p.description, area: p.area, sortOrder: i + 1 };
@@ -123,10 +113,7 @@ async function seedReferenceData(): Promise<void> {
       }),
     ]);
   }
-  for (const e of ENTITIES) {
-    // Names are only set on creation: later edits in configuration win over the seed.
-    await prisma.entity.upsert({ where: { code: e.code }, create: e, update: {} });
-  }
+  await seedConfiguration(prisma);
 }
 
 async function seedMaster(): Promise<void> {
@@ -210,9 +197,7 @@ async function seedMaster(): Promise<void> {
 async function main(): Promise<void> {
   await seedReferenceData();
   await seedMaster();
-  console.log(
-    `Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates, ${ENTITIES.length} entities.`,
-  );
+  console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }
 
 main()

@@ -94,10 +94,20 @@
 - Permission templates: Preparer = SFS_PREPARE, CFS_PREPARE, REPORTS_VIEW; Reviewer =
   SFS_REVIEW, CFS_REVIEW, REPORTS_VIEW; Viewer = REPORTS_VIEW (to be confirmed).
 
+- Configuration (step 2): CONFIG_MANAGE edits, REPORTS_VIEW views; every change audited
+  with old/new values. Group rules, consolidation levels, periods and due dates are engine
+  functions (validateGroupStructure, deriveConsolidationLevels, generatePeriods,
+  calculateDueDate, missingHistoricalRates). Dates are ISO calendar strings (no time zone).
+- Configuration seed runs once (marker: audit_log SEED_APPLIED step2-configuration); after
+  that the UI owns the data and the seed must never overwrite it.
+
 ## Open questions (do not guess)
 - Exchange-rate source (website and which rate).
 - FCTR: confirm it is introduced as the translation balancing figure.
 - Elimination method: which reports are extracted and how.
+- Historical rates (seeded values are illustrative); which currencies require one;
+  per-country holiday calendars; whether closing a quarter/year requires its months closed;
+  per-level currency override.
 - Template contents (should Reviewers get EDIT_ACCESS_APPROVE?), session length (12 h),
   password expiry/reuse rules, and whether the master is subject to lockout (currently yes).
 

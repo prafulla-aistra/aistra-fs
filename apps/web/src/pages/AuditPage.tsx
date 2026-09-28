@@ -24,6 +24,30 @@ const ACTION_LABELS: Record<string, string> = {
   PERMISSION_CHANGE: 'Permissions changed',
   USER_DEACTIVATE: 'User deactivated',
   USER_REACTIVATE: 'User reactivated',
+  CURRENCY_CREATE: 'Currency added',
+  CURRENCY_UPDATE: 'Currency changed',
+  CURRENCY_DELETE: 'Currency deleted',
+  ENTITY_CREATE: 'Entity added',
+  ENTITY_UPDATE: 'Entity changed',
+  FINANCIAL_YEAR_CREATE: 'Financial year created',
+  PERIOD_CLOSE: 'Period closed',
+  PERIOD_REOPEN: 'Period reopened',
+  DUE_DATE_RULE_UPDATE: 'Due-date rule changed',
+  DUE_DATE_OVERRIDE_SET: 'Due date overridden',
+  DUE_DATE_OVERRIDE_CLEAR: 'Due date override removed',
+  HOLIDAY_CREATE: 'Holiday added',
+  HOLIDAY_UPDATE: 'Holiday changed',
+  HOLIDAY_DELETE: 'Holiday deleted',
+  SEED_APPLIED: 'Initial data loaded',
+};
+const SUBJECT_LABELS: Record<string, string> = {
+  CURRENCY: 'Currency',
+  ENTITY: 'Entity',
+  FINANCIAL_YEAR: 'Financial year',
+  PERIOD: 'Period',
+  DUE_DATE_RULE: 'Due-date rule',
+  HOLIDAY: 'Holiday',
+  SEED: 'Seed',
 };
 const label = (action: string) => ACTION_LABELS[action] ?? action;
 
@@ -65,7 +89,7 @@ export function AuditPage() {
     <>
       <PageHeader
         title="Audit trail"
-        description="Every sign-in, user change and permission change, newest first. Entries can never be edited or deleted."
+        description="Every sign-in, user, permission and configuration change, newest first. Entries can never be edited or deleted."
       />
 
       <form
@@ -149,7 +173,7 @@ export function AuditPage() {
             <Th>When</Th>
             <Th>Performed by</Th>
             <Th>Action</Th>
-            <Th>Affected user</Th>
+            <Th>Affects</Th>
             <Th>Details</Th>
             <Th>IP address</Th>
           </tr>
@@ -189,7 +213,9 @@ export function AuditPage() {
               <Td>
                 {row.entityType === 'USER'
                   ? (userName(row.entityId) ?? '—')
-                  : (row.entityType ?? '—')}
+                  : row.entityType
+                    ? `${SUBJECT_LABELS[row.entityType] ?? row.entityType} ${row.entityId ?? ''}`
+                    : '—'}
               </Td>
               <Td className="max-w-md">
                 <Details row={row} />

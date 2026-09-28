@@ -168,6 +168,21 @@ export const AuditAction = {
   PermissionChange: 'PERMISSION_CHANGE',
   UserDeactivate: 'USER_DEACTIVATE',
   UserReactivate: 'USER_REACTIVATE',
+  // Configuration (step 2)
+  CurrencyCreate: 'CURRENCY_CREATE',
+  CurrencyUpdate: 'CURRENCY_UPDATE',
+  CurrencyDelete: 'CURRENCY_DELETE',
+  EntityCreate: 'ENTITY_CREATE',
+  EntityUpdate: 'ENTITY_UPDATE',
+  FinancialYearCreate: 'FINANCIAL_YEAR_CREATE',
+  PeriodClose: 'PERIOD_CLOSE',
+  PeriodReopen: 'PERIOD_REOPEN',
+  DueDateRuleUpdate: 'DUE_DATE_RULE_UPDATE',
+  DueDateOverrideSet: 'DUE_DATE_OVERRIDE_SET',
+  DueDateOverrideClear: 'DUE_DATE_OVERRIDE_CLEAR',
+  HolidayCreate: 'HOLIDAY_CREATE',
+  HolidayUpdate: 'HOLIDAY_UPDATE',
+  HolidayDelete: 'HOLIDAY_DELETE',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

@@ -67,11 +67,12 @@ export class UsersService {
   }
 
   async entities(): Promise<EntityOptionDto[]> {
-    return this.prisma.entity.findMany({
+    const rows = await this.prisma.entity.findMany({
       where: { isActive: true },
-      select: { code: true, name: true },
-      orderBy: { code: 'asc' },
+      select: { code: true, legalName: true },
+      orderBy: { sortOrder: 'asc' },
     });
+    return rows.map((e) => ({ code: e.code, name: e.legalName }));
   }
 
   // ---------------------------------------------------------------- queries

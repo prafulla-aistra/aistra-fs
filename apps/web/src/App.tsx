@@ -4,6 +4,13 @@ import { navItem } from '@/auth/navigation';
 import { AppShell } from '@/components/AppShell';
 import { AuditPage } from '@/pages/AuditPage';
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage';
+import { CalendarTab } from '@/pages/configuration/CalendarTab';
+import { ComingNextStep } from '@/pages/configuration/common';
+import { ConfigurationLayout } from '@/pages/configuration/ConfigurationLayout';
+import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
+import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
+import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
+import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ComingSoonPage, NotFoundPage } from '@/pages/SimplePages';
@@ -22,7 +29,20 @@ export function App() {
             <Route path="/tasks/new" element={<ComingSoonPage title="New task" />} />
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/configuration').anyOf} />}>
-            <Route path="/configuration" element={<ComingSoonPage title="Configuration" />} />
+            <Route path="/configuration" element={<ConfigurationLayout />}>
+              <Route index element={<Navigate to="entities" replace />} />
+              <Route path="entities" element={<EntitiesTab />} />
+              <Route path="group" element={<GroupStructureTab />} />
+              <Route path="currencies" element={<CurrenciesTab />} />
+              <Route path="calendar" element={<CalendarTab />} />
+              <Route path="due-dates" element={<DueDatesTab />} />
+              <Route path="formats" element={<ComingNextStep title="Formats" />} />
+              <Route
+                path="chart-of-accounts"
+                element={<ComingNextStep title="Chart of accounts" />}
+              />
+              <Route path="exchange-rates" element={<ComingNextStep title="Exchange rates" />} />
+            </Route>
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/users').anyOf} />}>
             <Route path="/users" element={<UsersPage />} />

@@ -7,8 +7,9 @@ Standalone Financial Statements (SFS) and multi-level Consolidated Financial Sta
 - Project rules (accuracy, sign convention, translation, consolidation): [CLAUDE.md](CLAUDE.md)
 - As-Is process: [docs/Finance_Automation_Process_Flow_v1.docx](docs/Finance_Automation_Process_Flow_v1.docx)
 
-> **Status: step 1 — sign-in, users and permissions.** Business screens (configuration,
-> statements, consolidation) arrive in later steps.
+> **Status: step 2 — configuration** (currencies, entities, group structure, financial-year
+> calendar, due dates) on top of step 1 (sign-in, users, permissions). Formats, chart of
+> accounts and exchange rates come next; statements and consolidation after that.
 
 ---
 
@@ -142,6 +143,42 @@ Money stays exact: amounts are `NUMERIC(20,4)` and rates are `NUMERIC(20,10)`, r
 - **Entity scope:** a user can be restricted to specific entities (default: all). It is stored
   and shown now; data filtering by entity applies once entity data exists (later steps).
 
+### Configuration (step 2)
+
+Under **Configuration** in the left menu. Users with `CONFIG_MANAGE` can edit; users with
+`REPORTS_VIEW` see the same screens read-only. Every change is written to the audit trail
+with old and new values.
+
+- **Currencies:** seeded USD, INR, AED, GBP, SGD, LKR. A currency used by any entity cannot be
+  deleted (deactivate it instead). One used by an active entity cannot be deactivated.
+- **Entities:** the 7 group entities with legal and short name, country, functional and
+  reporting currency, translated currencies (never the functional currency), parent and
+  % held, ERP, GAAP, active flag and a "to be confirmed" flag with a note. VS and VM are
+  flagged: their currencies are to be confirmed.
+- **Historical rates for equity:** one row per target currency (1 unit of functional
+  currency = X target), used later to translate share capital and premium. The seeded values
+  are illustrative and each carries a "to be confirmed" badge. An entity is warned when it is
+  missing a rate for a translated currency, its parent's currency, or the currency of a
+  consolidation level it belongs to.
+- **Group rules** (checked on every save, in `packages/engine` `validateGroupStructure`):
+  exactly one ultimate parent, no circular parent chains, % held from 0.01 to 100, no % for
+  the ultimate parent, and no deactivating an entity that still has active subsidiaries.
+- **Group structure tab:** tree view plus the consolidation levels from
+  `deriveConsolidationLevels`. There is one level per entity with subsidiaries, deepest first.
+  Members are that entity plus all its descendants. The level currency defaults to that
+  entity's reporting currency. Nothing is hard-coded: changing a parent changes the levels.
+- **Financial years:** choose FY 2024-25 to FY 2027-28 (FY 2025-26 and FY 2026-27 are seeded).
+  Creating one generates 12 months, 4 quarters (Q1 Apr–Jun … Q4 Jan–Mar) and the annual period
+  (`generatePeriods`). Periods can be closed and reopened; closed periods cannot have new
+  tasks (enforced when tasks exist).
+- **Due dates:** rules in working days after period end (monthly/quarterly/annual SFS 7/10/30,
+  CFS 12/15/45). Working days are Monday–Friday excluding the holiday list
+  (`calculateDueDate`). Each period shows the calculated SFS and CFS due dates. A due date can
+  be overridden for one period with a mandatory reason, and cleared again with a reason. Both
+  are audited.
+- **Seed behaviour:** configuration is seeded once. After that the screens own the data, and
+  re-running the seed (`npm run dev` does this) never overwrites your edits.
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -244,7 +281,11 @@ MinIO for S3). Local development does not need it. To use its PostgreSQL, run
    CFS_PREPARE, REPORTS_VIEW; Reviewer = SFS_REVIEW, CFS_REVIEW, REPORTS_VIEW; Viewer =
    REPORTS_VIEW. Preparing and reviewing are kept apart (segregation of duties). Neither
    includes EDIT_ACCESS_APPROVE, CONFIG_MANAGE or USER_ADMIN.
-5. **Local infrastructure.** Embedded PostgreSQL 16 (`embedded-postgres`) and a local
+5. **Configuration defaults.** Reporting currency = functional currency for every seeded entity.
+   Translated currencies = the currencies of the consolidation levels each entity belongs to.
+   Holidays: one group-wide list, seeded with fixed-date Indian national holidays (Independence
+   Day, Gandhi Jayanti, Christmas, Republic Day) for the seeded years.
+6. **Local infrastructure.** Embedded PostgreSQL 16 (`embedded-postgres`) and a local
    uploads folder. No Docker. See [How local infrastructure works](#how-local-infrastructure-works).
 
 ## Open questions
@@ -262,6 +303,16 @@ These need confirmation from the process owners before the related features are 
 6. **Password and session policy.** Confirm the 12-hour session length, whether passwords
    should expire or not be reused, and whether the master should also be locked out after
    5 failed attempts (currently: yes, like everyone).
+7. **Historical rates.** The seeded historical rates are illustrative and flagged. Confirm the
+   actual rates at which share capital and premium were issued, per entity and currency.
+8. **Which historical rates are required.** Currently: every translated currency, the parent's
+   functional currency, and every consolidation-level currency the entity belongs to. Confirm.
+9. **Holiday calendars.** One group-wide list, or a list per country (India, UAE, UK, US,
+   Singapore, Sri Lanka)? Should holidays affect CFS and SFS due dates in the same way?
+10. **Closing periods.** Should closing a quarter or year require its months to be closed
+    first? Should anyone other than CONFIG_MANAGE users be allowed to close periods?
+11. **Level currency.** Levels default to the parent's reporting currency. Is a per-level
+    override needed (e.g. present L3 India in USD)?
 
 ## Known dependency warnings (clean-up later)
 
