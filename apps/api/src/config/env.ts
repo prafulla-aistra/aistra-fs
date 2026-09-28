@@ -16,6 +16,14 @@ export interface Env {
   STORAGE_DRIVER: StorageDriver;
   /** Folder for uploaded files when STORAGE_DRIVER=local (relative to the repo root). */
   STORAGE_LOCAL_DIR: string;
+  /** Secret for signing access tokens (HS256). At least 32 characters. */
+  JWT_SECRET: string;
+  /** Refresh-token (session) lifetime in hours. */
+  REFRESH_TOKEN_TTL_HOURS: number;
+  /** Send the refresh cookie only over HTTPS. true in any deployed environment. */
+  COOKIE_SECURE: boolean;
+  /** bcrypt cost factor (4–15). 12 in normal use; tests lower it for speed. */
+  BCRYPT_ROUNDS: number;
 }
 
 export function validateEnv(raw: Record<string, unknown>): Env {
@@ -48,6 +56,24 @@ export function validateEnv(raw: Record<string, unknown>): Env {
 
   const storageLocalDir = str(raw.STORAGE_LOCAL_DIR) || './data/uploads';
 
+  const jwtSecret = str(raw.JWT_SECRET);
+  if (jwtSecret.length < 32) {
+    errors.push(
+      'JWT_SECRET must be set to at least 32 random characters (see apps/api/.env.example)',
+    );
+  }
+
+  const refreshHours = intIn(raw.REFRESH_TOKEN_TTL_HOURS, 12, 1, 24 * 30);
+  if (refreshHours === undefined)
+    errors.push('REFRESH_TOKEN_TTL_HOURS must be an integer from 1 to 720');
+
+  const bcryptRounds = intIn(raw.BCRYPT_ROUNDS, 12, 4, 15);
+  if (bcryptRounds === undefined) errors.push('BCRYPT_ROUNDS must be an integer from 4 to 15');
+
+  const cookieSecureRaw = (str(raw.COOKIE_SECURE) || 'false').toLowerCase();
+  if (!['true', 'false'].includes(cookieSecureRaw))
+    errors.push('COOKIE_SECURE must be true or false');
+
   if (errors.length > 0) {
     throw new Error(`Invalid API configuration:\n  - ${errors.join('\n  - ')}`);
   }
@@ -58,9 +84,22 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     CORS_ORIGINS: corsOrigins,
     STORAGE_DRIVER: storageDriver as StorageDriver,
     STORAGE_LOCAL_DIR: storageLocalDir,
+    JWT_SECRET: jwtSecret,
+    REFRESH_TOKEN_TTL_HOURS: refreshHours ?? 12,
+    COOKIE_SECURE: cookieSecureRaw === 'true',
+    BCRYPT_ROUNDS: bcryptRounds ?? 12,
   };
 }
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Parses an optional integer setting; undefined = invalid. */
+function intIn(v: unknown, fallback: number, min: number, max: number): number | undefined {
+  const s = str(v);
+  if (!s) return fallback;
+  if (!/^\d+$/.test(s)) return undefined;
+  const n = Number.parseInt(s, 10);
+  return n >= min && n <= max ? n : undefined;
 }

@@ -1,6 +1,7 @@
 import { Controller, Get, HttpStatus, Logger, Res } from '@nestjs/common';
 import type { HealthResponse } from '@finance-close/shared';
 import type { Response } from 'express';
+import { Public } from '../auth/access-control';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DB_TIMEOUT_MS = 3000;
@@ -13,6 +14,7 @@ export class HealthController {
 
   /** GET /api/health — 200 {status:"ok", db:"ok"} when healthy, 503 otherwise. */
   @Get()
+  @Public()
   async check(@Res({ passthrough: true }) res: Response): Promise<HealthResponse> {
     const dbOk = await this.pingDatabase();
     if (!dbOk) res.status(HttpStatus.SERVICE_UNAVAILABLE);

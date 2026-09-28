@@ -3,11 +3,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './App';
+import { AuthProvider } from './auth/AuthContext';
 import './index.css';
+import { ApiError } from './lib/api';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
+    // Do not retry 4xx answers (no access, not found): they will not change on retry.
+    queries: {
+      retry: (count, err) => count < 1 && !(err instanceof ApiError && err.status < 500),
+      refetchOnWindowFocus: false,
+    },
   },
 });
 
@@ -17,9 +23,11 @@ if (!root) throw new Error('Root element #root not found');
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -65,6 +65,15 @@
   guessing on accounting treatment.
 - Auth is implemented behind an AuthProvider interface so AWS Cognito can replace
   local auth later without changing business code.
+- Access control is permission-based (permission table), never hard-coded roles. Every API
+  endpoint declares @Public(), @Authenticated() or @RequirePermission('CODE'); the global
+  guard denies anything else. The web hides nav items/routes the user lacks and shows
+  "You don't have access" on direct URLs, but the API is the real enforcement.
+- Audit every state change with AuditService.record(entry, tx), inside the same
+  transaction as the change. audit_log is append-only (DB trigger); users are never
+  hard-deleted (DB trigger); the master admin cannot be deactivated (DB trigger).
+- API errors always have the shape { statusCode, code, message } with a user-readable
+  message (ApiError / AllExceptionsFilter).
 - File uploads go through one StorageService: a local folder (./data/uploads) today,
   S3 on AWS later. Business code never touches the file system or S3 directly.
 
@@ -82,10 +91,15 @@
 - Veracity currencies: SGD (VS) and LKR (VM), flagged "to be confirmed", editable.
 - Rounding: round half away from zero (matches Excel ROUND). No banker's rounding.
 
+- Permission templates: Preparer = SFS_PREPARE, CFS_PREPARE, REPORTS_VIEW; Reviewer =
+  SFS_REVIEW, CFS_REVIEW, REPORTS_VIEW; Viewer = REPORTS_VIEW (to be confirmed).
+
 ## Open questions (do not guess)
 - Exchange-rate source (website and which rate).
 - FCTR: confirm it is introduced as the translation balancing figure.
 - Elimination method: which reports are extracted and how.
+- Template contents (should Reviewers get EDIT_ACCESS_APPROVE?), session length (12 h),
+  password expiry/reuse rules, and whether the master is subject to lockout (currently yes).
 
 ## Dependencies
 - Never run "npm audit fix --force". Known audit warnings (dev tools only) are listed in

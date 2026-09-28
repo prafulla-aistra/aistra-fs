@@ -17,7 +17,8 @@
  * Docker container); `npm run db:stop` stops it. `npm run dev` starts it again if needed.
  */
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,12 +40,37 @@ function fail(msg) {
   process.exit(1);
 }
 
-/** First run: create apps/api/.env from the example so nothing has to be copied by hand. */
+/**
+ * Creates apps/api/.env from the example on first run, and on later runs appends any
+ * settings added to the example since (so pulling a new step needs no manual edits).
+ * Empty *_SECRET values are filled with a random secret generated on this machine.
+ */
 function ensureEnvFile() {
-  if (!existsSync(API_ENV)) {
-    copyFileSync(API_ENV_EXAMPLE, API_ENV);
-    log('Created apps/api/.env from apps/api/.env.example');
+  const created = !existsSync(API_ENV);
+  if (created) copyFileSync(API_ENV_EXAMPLE, API_ENV);
+
+  const current = readFileSync(API_ENV, 'utf8');
+  const present = new Set(parseKeys(current).map(([k]) => k));
+  let text = current;
+  const added = [];
+  for (const [key, value] of parseKeys(readFileSync(API_ENV_EXAMPLE, 'utf8'))) {
+    if (!present.has(key)) {
+      text += `${text.endsWith('\n') ? '' : '\n'}${key}=${value}\n`;
+      added.push(key);
+    }
   }
+  text = text.replace(/^([A-Z0-9_]*_SECRET)=[ \t]*\r?$/gm, (_, key) => {
+    added.push(`${key} (generated)`);
+    return `${key}=${randomBytes(48).toString('base64url')}`;
+  });
+  if (text !== current) writeFileSync(API_ENV, text);
+
+  if (created) log('Created apps/api/.env from apps/api/.env.example');
+  if (added.length > 0) log(`Updated apps/api/.env: ${added.join(', ')}`);
+}
+
+function parseKeys(text) {
+  return [...text.matchAll(/^([A-Z0-9_]+)=(.*)$/gm)].map((m) => [m[1], m[2]]);
 }
 
 function readTarget() {

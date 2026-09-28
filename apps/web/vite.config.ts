@@ -17,7 +17,12 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
       proxy: {
-        '/api': { target: env.API_PROXY_TARGET || 'http://localhost:3000', changeOrigin: true },
+        // xfwd: pass the browser's IP to the API (X-Forwarded-For) for the audit log.
+        '/api': {
+          target: env.API_PROXY_TARGET || 'http://localhost:3000',
+          changeOrigin: true,
+          xfwd: true,
+        },
       },
     },
   };

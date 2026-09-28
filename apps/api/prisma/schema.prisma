@@ -5,8 +5,7 @@
 //   - Exchange rates: Decimal @db.Decimal(20, 10) -> NUMERIC(20,10)
 //   - Never Float / Double for money or rates.
 //   - Sign convention: debit = positive, credit = negative.
-//
-// Models are added step by step; this foundation step intentionally has none.
+//   - Tables are snake_case; Prisma models are PascalCase.
 
 generator client {
   provider = "prisma-client-js"
@@ -15,4 +14,170 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Entities (minimal for step 1: needed for per-user entity scope).
+// The full entity master — currency, parent, holding %, ERP, GAAP — is added in the
+// configuration step.
+// ---------------------------------------------------------------------------
+
+model Entity {
+  code      String   @id @db.VarChar(10)
+  name      String   @db.VarChar(200)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  userScopes UserEntityScope[]
+
+  @@map("entity")
+}
+
+// ---------------------------------------------------------------------------
+// Users and permissions (permission-based; no hard-coded roles)
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  name               String     @db.VarChar(200)
+  /// Login id. Always stored lower-case and trimmed.
+  email              String     @unique @db.VarChar(320)
+  passwordHash       String     @map("password_hash") @db.VarChar(100)
+  status             UserStatus @default(ACTIVE)
+  /// The master admin: every permission, cannot be deleted or deactivated.
+  isMaster           Boolean    @default(false) @map("is_master")
+  /// True after an admin sets a temporary password; cleared when the user changes it.
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  /// When false, access is limited to the entities in UserEntityScope.
+  allEntities        Boolean    @default(true) @map("all_entities")
+  /// Template last applied as a starting point (permissions may since have been adjusted).
+  templateCode       String?    @map("template_code") @db.VarChar(40)
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt  DateTime?  @map("password_changed_at") @db.Timestamptz(3)
+  /// Bumped on password change/reset and deactivation; access tokens carry it, so older
+  /// tokens stop working immediately.
+  sessionVersion     Int        @default(1) @map("session_version")
+  createdById        String?    @map("created_by_id") @db.Uuid
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy     User?               @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers  User[]              @relation("UserCreatedBy")
+  template      PermissionTemplate? @relation(fields: [templateCode], references: [code])
+  permissions   UserPermission[]
+  entityScopes  UserEntityScope[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@map("app_user")
+}
+
+model Permission {
+  code        String   @id @db.VarChar(40)
+  description String   @db.VarChar(300)
+  /// UI grouping, e.g. "Administration", "Standalone statements".
+  area        String   @db.VarChar(60)
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  users     UserPermission[]
+  templates PermissionTemplatePermission[]
+
+  @@map("permission")
+}
+
+model PermissionTemplate {
+  code        String @id @db.VarChar(40)
+  name        String @db.VarChar(100)
+  description String @db.VarChar(300)
+  sortOrder   Int    @default(0) @map("sort_order")
+
+  permissions PermissionTemplatePermission[]
+  users       User[]
+
+  @@map("permission_template")
+}
+
+model PermissionTemplatePermission {
+  templateCode   String @map("template_code") @db.VarChar(40)
+  permissionCode String @map("permission_code") @db.VarChar(40)
+
+  template   PermissionTemplate @relation(fields: [templateCode], references: [code], onDelete: Cascade)
+  permission Permission         @relation(fields: [permissionCode], references: [code])
+
+  @@id([templateCode, permissionCode])
+  @@map("permission_template_permission")
+}
+
+model UserPermission {
+  userId         String   @map("user_id") @db.Uuid
+  permissionCode String   @map("permission_code") @db.VarChar(40)
+  grantedAt      DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  user       User       @relation(fields: [userId], references: [id])
+  permission Permission @relation(fields: [permissionCode], references: [code])
+
+  @@id([userId, permissionCode])
+  @@map("user_permission")
+}
+
+model UserEntityScope {
+  userId     String @map("user_id") @db.Uuid
+  entityCode String @map("entity_code") @db.VarChar(10)
+
+  user   User   @relation(fields: [userId], references: [id])
+  entity Entity @relation(fields: [entityCode], references: [code])
+
+  @@id([userId, entityCode])
+  @@map("user_entity_scope")
+}
+
+// ---------------------------------------------------------------------------
+// Sessions: refresh tokens (only a SHA-256 hash is stored, never the token)
+// ---------------------------------------------------------------------------
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  ip        String?   @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_token")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — append-only, reused by every later step.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  timestamp  DateTime @default(now()) @db.Timestamptz(3)
+  /// Who did it. Null when unknown (e.g. a failed login for an email that does not exist).
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(60)
+  entityType String?  @map("entity_type") @db.VarChar(60)
+  entityId   String?  @map("entity_id") @db.VarChar(100)
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ip         String?  @db.VarChar(64)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([timestamp])
+  @@index([userId, timestamp])
+  @@index([action, timestamp])
+  @@map("audit_log")
 }
