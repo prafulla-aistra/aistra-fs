@@ -1,0 +1,80 @@
+# OPTIONAL — not needed for local development.
+#
+# By default the app uses an embedded PostgreSQL (PGlite, in ./data/db) and a local
+# uploads folder (./data/uploads), so it runs with just "npm install" and "npm run dev".
+# Keep this file for AWS-oriented work: it runs a real PostgreSQL 16 server (like RDS) and
+# MinIO (S3-compatible). To use it, set in apps/api/.env:
+#   DATABASE_URL=postgresql://finance:finance_dev_password@localhost:5432/finance_close?schema=public
+# (MinIO is not wired to the app until the S3 StorageService exists.)
+#
+#   docker compose up -d      start PostgreSQL 16 + MinIO (and create the upload bucket)
+#   docker compose down       stop (data is kept in named volumes)
+#   docker compose down -v    stop AND delete all local data
+#
+# Credentials below are local-development defaults. Override them with a root .env
+# file (see .env.example) — they must match apps/api/.env.
+
+name: finance-close
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finance-close-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finance_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-finance_close}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-finance} -d ${POSTGRES_DB:-finance_close}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: finance-close-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-finance}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-finance_dev_password}
+    ports:
+      - '${MINIO_API_PORT:-9000}:9000' # S3 API
+      - '${MINIO_CONSOLE_PORT:-9001}:9001' # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot job: creates the private upload bucket, then exits.
+  minio-init:
+    image: minio/mc:latest
+    container_name: finance-close-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-finance}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-finance_dev_password}
+      S3_BUCKET: ${S3_BUCKET:-finance-close-uploads}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/$$S3_BUCKET &&
+      mc anonymous set none local/$$S3_BUCKET &&
+      echo 'Bucket ready'
+      "
+    restart: 'no'
+
+volumes:
+  postgres_data:
+  minio_data:

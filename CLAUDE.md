@@ -1,0 +1,92 @@
+# Finance Close – project rules
+
+## Non-negotiable accuracy rules
+- Never use JavaScript floating-point numbers for money or rates. Use decimal.js in
+  the engine and Prisma Decimal (Postgres NUMERIC(20,4) for amounts, NUMERIC(20,10)
+  for rates) in the database.
+- Sign convention everywhere: debit = positive, credit = negative. A trial balance
+  must net to zero.
+- Round only at presentation, or at defined points (translated line amounts to 2 dp).
+  Balancing figures (FCTR, IC differences) are computed from rounded values so every
+  statement ties to the cent.
+- All accounting logic lives in packages/engine as pure functions with unit tests.
+  The API calls the engine; the web app never calculates accounting numbers.
+- Finalised (locked) data is immutable. Changes need an approved edit-access request,
+  and every change is written to the audit log (who, what, when, old value, new value).
+
+## Group structure (seed data; editable in configuration)
+| Code | Entity | Functional ccy | Parent | Held by parent | ERP | GAAP |
+|---|---|---|---|---|---|---|
+| US | Aistra Labs Inc (US) | USD | none (ultimate parent) | – | Zoho | US GAAP |
+| IN | Aistra GenAI India Pvt Ltd | INR | US | 58.49% | Zoho | Ind AS |
+| AE | Aistra Labs AI Software LLC (UAE) | AED | IN | 100% | Zoho | IFRS |
+| UK | Aistra Labs UK Ltd | GBP | IN | 100% | Zoho | UK GAAP |
+| UC | Unconstrained INC | USD | IN | 100% | Zoho | US GAAP |
+| VS | Veracity Services Pte (Singapore) | SGD (to be confirmed, editable) | UC | 100% | Xero | IFRS |
+| VM | Veracity Managed Services (Sri Lanka) | LKR (to be confirmed, editable) | VS | 100% | Xero | IFRS |
+
+## Periods
+- Indian financial year April–March, labelled "FY 2024-25".
+- Period types: Annual (Apr–Mar), Quarterly (Q1 Apr–Jun, Q2 Jul–Sep, Q3 Oct–Dec,
+  Q4 Jan–Mar), Monthly.
+
+## Exchange rates
+- Stored per month as units of currency per 1 USD: opening, closing, average.
+  Cross rates are derived (A→B = rate_B / rate_A).
+- Quarter/year: opening = first month's opening, closing = last month's closing,
+  average = simple mean of monthly averages (flag this in the UI as an assumption).
+- A month's rates lock once any report using that month is finalised.
+
+## Translation (Ind AS 21 / IAS 21)
+- Assets and liabilities: closing rate. Income and expenses: average rate.
+- Share capital and securities premium: historical rate (from entity master).
+- Opening retained earnings: roll forward prior finalised translated RE + translated
+  profit; if unavailable, use opening rate and show a warning.
+- Other reserves: opening rate (flag).
+- FCTR = balancing figure so the translated TB nets to zero; shown in equity.
+
+## Consolidation
+- Four levels, run bottom-up: L1 Veracity Services (VS+VM, in SGD), L2 Unconstrained
+  (UC+VS+VM), L3 India (IN+AE+UK+UC+VS+VM), L4 US (all). This is a deliberate business
+  requirement; it adds one level compared with As-Is document §5.1. Derive levels from
+  the parent tree, never hard-code them.
+- A level can start only when every level below it is finalised.
+- Each entity is translated directly from functional currency into the level currency.
+- Eliminations: intercompany receivable/payable and revenue/expense by counterparty
+  pair; investment in subsidiary vs share capital + premium with goodwill (capital
+  reserve if negative); NCI for partly owned subsidiaries (India 41.51%).
+- IC differences above a configurable threshold go to an "IC difference – unreconciled"
+  suspense line and are flagged; smaller ones are rounding to FCTR.
+
+## Engineering conventions
+- Every step ends with: migrations applied, seed updated, tests passing, app running,
+  and a short summary of what was built and how to test it manually.
+- Do not build features outside the current step. List open questions instead of
+  guessing on accounting treatment.
+- Auth is implemented behind an AuthProvider interface so AWS Cognito can replace
+  local auth later without changing business code.
+- File uploads go through one StorageService: a local folder (./data/uploads) today,
+  S3 on AWS later. Business code never touches the file system or S3 directly.
+
+## Local infrastructure (no Docker)
+- Runs with only "npm install" and "npm run dev"; no Docker, no installs, no admin rights.
+- Database: embedded PostgreSQL 16 (npm package embedded-postgres) in ./data/db on
+  localhost:54329, started by scripts/embedded-db.mjs. The app uses a normal postgresql://
+  DATABASE_URL, so moving to AWS RDS means changing only DATABASE_URL.
+  (PGlite was tried first and rejected: Prisma CLI hangs, migration errors swallowed,
+  unclean shutdowns on every watch-mode restart.)
+- data/ and .env files are git-ignored. docker-compose.yml is optional, kept for AWS work.
+
+## Decisions
+- Consolidation: 4 levels as above (deliberate; one more than As-Is §5.1).
+- Veracity currencies: SGD (VS) and LKR (VM), flagged "to be confirmed", editable.
+- Rounding: round half away from zero (matches Excel ROUND). No banker's rounding.
+
+## Open questions (do not guess)
+- Exchange-rate source (website and which rate).
+- FCTR: confirm it is introduced as the translation balancing figure.
+- Elimination method: which reports are extracted and how.
+
+## Dependencies
+- Never run "npm audit fix --force". Known audit warnings (dev tools only) are listed in
+  README for a later clean-up step.

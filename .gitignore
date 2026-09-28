@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Local data: embedded database (data/db) and uploaded files (data/uploads)
+data/
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment files — never commit real secrets. Only *.env.example is tracked.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Office lock files (docs/)
+~$*

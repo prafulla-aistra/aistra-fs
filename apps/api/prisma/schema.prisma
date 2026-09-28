@@ -1,0 +1,18 @@
+// Finance Close — database schema (PostgreSQL 16)
+//
+// Conventions (see CLAUDE.md):
+//   - Money amounts: Decimal @db.Decimal(20, 4)   -> NUMERIC(20,4)
+//   - Exchange rates: Decimal @db.Decimal(20, 10) -> NUMERIC(20,10)
+//   - Never Float / Double for money or rates.
+//   - Sign convention: debit = positive, credit = negative.
+//
+// Models are added step by step; this foundation step intentionally has none.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

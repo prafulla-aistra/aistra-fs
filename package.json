@@ -1,0 +1,49 @@
+{
+  "name": "finance-close",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Finance Close — monthly standalone and consolidated financial statements for the Aistra group",
+  "workspaces": [
+    "packages/shared",
+    "packages/engine",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "npm run build:packages && npm run db:start && npm run db:setup && concurrently -k -n shared,engine,api,web -c gray,magenta,blue,green \"npm run dev -w @finance-close/shared\" \"npm run dev -w @finance-close/engine\" \"npm run dev -w @finance-close/api\" \"npm run dev -w @finance-close/web\"",
+    "build:packages": "npm run build -w @finance-close/shared -w @finance-close/engine",
+    "build": "npm run build:packages && npm run build -w @finance-close/api -w @finance-close/web",
+    "test": "npm run build:packages && npm run test --workspaces --if-present",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:start": "node scripts/embedded-db.mjs start",
+    "db:stop": "node scripts/embedded-db.mjs stop",
+    "db:status": "node scripts/embedded-db.mjs status",
+    "db:migrate": "npm run db:migrate -w @finance-close/api",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @finance-close/api",
+    "db:setup": "npm run db:setup -w @finance-close/api",
+    "db:seed": "npm run db:seed -w @finance-close/api",
+    "db:studio": "npm run db:studio -w @finance-close/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "concurrently": "^9.2.4",
+    "embedded-postgres": "^16.14.0-beta.17",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^16.5.0",
+    "pg": "^8.23.0",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.1"
+  }
+}
