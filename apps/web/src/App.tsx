@@ -13,7 +13,7 @@ import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { NewTaskPage } from '@/pages/tasks/NewTaskPage';
-import { TaskPlaceholderPage } from '@/pages/tasks/TaskPlaceholderPage';
+import { TaskWorkspacePage } from '@/pages/tasks/TaskWorkspacePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ComingSoonPage, NotFoundPage } from '@/pages/SimplePages';
 import { UsersPage } from '@/pages/users/UsersPage';
@@ -37,7 +37,7 @@ export function App() {
               />
             }
           >
-            <Route path="/tasks/:id" element={<TaskPlaceholderPage />} />
+            <Route path="/tasks/:id" element={<TaskWorkspacePage />} />
           </Route>
           <Route element={<RequirePermission anyOf={['EDIT_ACCESS_APPROVE']} />}>
             <Route path="/edit-access" element={<ComingSoonPage title="Edit-access requests" />} />

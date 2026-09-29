@@ -33,6 +33,7 @@ model Currency {
   reportingFor  Entity[]                   @relation("ReportingCurrency")
   translatedFor EntityTranslatedCurrency[]
   historicalFor EntityHistoricalRate[]
+  exchangeRates ExchangeRate[]
 
   @@map("currency")
 }
@@ -80,6 +81,10 @@ model Entity {
   historicalRates      EntityHistoricalRate[]
   userScopes           UserEntityScope[]
   taskEntities         TaskEntity[]
+  accounts             EntityAccount[]            @relation("EntityAccounts")
+  counterpartyAccounts EntityAccount[]            @relation("AccountCounterparty")
+  uploadedFiles        UploadedFile[]             @relation("UploadedFileEntity")
+  uploadProfile        UploadProfile?             @relation("UploadProfileEntity")
 
   @@map("entity")
 }
@@ -282,6 +287,11 @@ model User {
   tasksCreated          Task[]            @relation("TaskCreatedBy")
   taskEntitiesFinalised TaskEntity[]      @relation("TaskEntityFinalisedBy")
   taskLevelsFinalised   TaskLevel[]       @relation("TaskLevelFinalisedBy")
+  accountsUpdated       EntityAccount[]   @relation("EntityAccountUpdatedBy")
+  ratesEntered          ExchangeRate[]    @relation("ExchangeRateEnteredBy")
+  filesUploaded         UploadedFile[]    @relation("UploadedFileBy")
+  tbVersionsCreated     TbVersion[]       @relation("TbVersionCreatedBy")
+  uploadProfiles        UploadProfile[]   @relation("UploadProfileUpdatedBy")
 
   @@map("app_user")
 }
@@ -423,11 +433,13 @@ model Task {
   /// Demo data (seeded only in demo mode; removable with npm run demo:remove-tasks).
   isDemo       Boolean       @default(false) @map("is_demo")
 
-  period    Period       @relation(fields: [periodId], references: [id])
-  format    Format?      @relation(fields: [formatCode], references: [code])
-  createdBy User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  entities  TaskEntity[]
-  levels    TaskLevel[]
+  period     Period         @relation(fields: [periodId], references: [id])
+  format     Format?        @relation(fields: [formatCode], references: [code])
+  createdBy  User           @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  entities   TaskEntity[]
+  levels     TaskLevel[]
+  files      UploadedFile[]
+  tbVersions TbVersion[]
 
   @@index([periodId])
   @@map("task")
@@ -468,4 +480,230 @@ model TaskLevel {
 
   @@id([taskId, level])
   @@map("task_level")
+}
+
+// ---------------------------------------------------------------------------
+// Chart of accounts and FSLI master (page 3). Mapping screens come on page 4.
+// ---------------------------------------------------------------------------
+
+enum FsliStatement {
+  BS
+  PL
+}
+
+/// A = asset, L = liability, E = equity, I = income, X = expense.
+enum FsliClass {
+  A
+  L
+  E
+  I
+  X
+}
+
+/// Translation rate applied to an FSLI (Ind AS 21 / IAS 21, see CLAUDE.md).
+enum RateBasis {
+  CLOSING
+  AVERAGE
+  HISTORICAL
+  OPENING
+  ROLL_FORWARD
+  COMPUTED
+}
+
+/// Financial statement line item: the group-wide lines every account maps to.
+model Fsli {
+  code              String        @id @db.VarChar(30)
+  name              String        @db.VarChar(120)
+  statement         FsliStatement
+  class             FsliClass
+  rateBasis         RateBasis     @map("rate_basis")
+  /// Only produced by consolidation (goodwill, NCI, IC difference); accounts never map to it.
+  consolidationOnly Boolean       @default(false) @map("consolidation_only")
+  /// Accounts mapped here must name a counterparty entity.
+  needsCounterparty Boolean       @default(false) @map("needs_counterparty")
+  intercompany      Boolean       @default(false)
+  /// Calculated by the system (profit for the period, FCTR); accounts never map to it.
+  computed          Boolean       @default(false)
+  sortOrder         Int           @default(0) @map("sort_order")
+  isActive          Boolean       @default(true) @map("is_active")
+
+  accounts     EntityAccount[]
+  typeDefaults AccountTypeDefault[]
+
+  @@map("fsli")
+}
+
+/// ERP account type → default FSLI for accounts first seen in a chart-of-accounts upload.
+model AccountTypeDefault {
+  erp         ErpSystem
+  accountType String    @map("account_type") @db.VarChar(60)
+  fsliCode    String    @map("fsli_code") @db.VarChar(30)
+
+  fsli Fsli @relation(fields: [fsliCode], references: [code])
+
+  @@id([erp, accountType])
+  @@map("account_type_default")
+}
+
+enum AccountSource {
+  SEED
+  COA_UPLOAD
+  TASK_MAPPING
+}
+
+/// An entity's chart of accounts: each account and the FSLI it maps to.
+model EntityAccount {
+  id                String        @id @default(uuid()) @db.Uuid
+  entityCode        String        @map("entity_code") @db.VarChar(10)
+  accountCode       String        @map("account_code") @db.VarChar(40)
+  accountName       String        @map("account_name") @db.VarChar(200)
+  accountType       String?       @map("account_type") @db.VarChar(60)
+  parentAccount     String?       @map("parent_account") @db.VarChar(200)
+  fsliCode          String?       @map("fsli_code") @db.VarChar(30)
+  counterpartyCode  String?       @map("counterparty_code") @db.VarChar(10)
+  rateBasisOverride RateBasis?    @map("rate_basis_override")
+  source            AccountSource
+  /// The FSLI was suggested automatically (from the name or account type), not yet confirmed.
+  suggested         Boolean       @default(true)
+  updatedById       String?       @map("updated_by_id") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entity       Entity  @relation("EntityAccounts", fields: [entityCode], references: [code])
+  fsli         Fsli?   @relation(fields: [fsliCode], references: [code])
+  counterparty Entity? @relation("AccountCounterparty", fields: [counterpartyCode], references: [code])
+  updatedBy    User?   @relation("EntityAccountUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([entityCode, accountCode])
+  @@map("entity_account")
+}
+
+// ---------------------------------------------------------------------------
+// Exchange rates (group level): units of currency per 1 USD, per month.
+// ---------------------------------------------------------------------------
+
+model ExchangeRate {
+  /// First day of the month.
+  month        DateTime @db.Date
+  currencyCode String   @map("currency_code") @db.Char(3)
+  opening      Decimal? @db.Decimal(20, 10)
+  closing      Decimal? @db.Decimal(20, 10)
+  average      Decimal? @db.Decimal(20, 10)
+  /// Where the figures came from, e.g. "Rate file: rates.xlsx" or "Manual entry".
+  source       String   @db.VarChar(200)
+  enteredById  String?  @map("entered_by_id") @db.Uuid
+  enteredAt    DateTime @default(now()) @map("entered_at") @db.Timestamptz(3)
+  /// Set once a report using this month is finalised; locked rates are read-only.
+  locked       Boolean  @default(false)
+
+  currency  Currency @relation(fields: [currencyCode], references: [code])
+  enteredBy User?    @relation("ExchangeRateEnteredBy", fields: [enteredById], references: [id])
+
+  @@id([month, currencyCode])
+  @@map("exchange_rate")
+}
+
+// ---------------------------------------------------------------------------
+// Uploads (page 3): original files in object storage, trial-balance versions and lines.
+// ---------------------------------------------------------------------------
+
+enum UploadKind {
+  TB
+  COA
+  OTHER
+  RATES
+}
+
+model UploadedFile {
+  id           String     @id @default(uuid()) @db.Uuid
+  kind         UploadKind
+  /// StorageService object key.
+  storageKey   String     @unique @map("storage_key") @db.VarChar(400)
+  originalName String     @map("original_name") @db.VarChar(255)
+  contentType  String     @map("content_type") @db.VarChar(120)
+  size         Int
+  sha256       String     @db.Char(64)
+  taskId       String?    @map("task_id") @db.Uuid
+  entityCode   String?    @map("entity_code") @db.VarChar(10)
+  uploadedById String     @map("uploaded_by_id") @db.Uuid
+  uploadedAt   DateTime   @default(now()) @map("uploaded_at") @db.Timestamptz(3)
+
+  task       Task?       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  entity     Entity?     @relation("UploadedFileEntity", fields: [entityCode], references: [code])
+  uploadedBy User        @relation("UploadedFileBy", fields: [uploadedById], references: [id])
+  tbVersions TbVersion[]
+
+  @@index([sha256])
+  @@index([taskId, entityCode, kind])
+  @@map("uploaded_file")
+}
+
+enum TbStatus {
+  ERROR
+  VALIDATED_WITH_WARNINGS
+  VALIDATED
+}
+
+/// One confirmed trial-balance upload for an entity in a task. Replacing a TB adds a version.
+model TbVersion {
+  id                   String   @id @default(uuid()) @db.Uuid
+  taskId               String   @map("task_id") @db.Uuid
+  entityCode           String   @map("entity_code") @db.VarChar(10)
+  version              Int
+  fileId               String   @map("file_id") @db.Uuid
+  status               TbStatus
+  debits               Decimal  @db.Decimal(20, 4)
+  credits              Decimal  @db.Decimal(20, 4)
+  difference           Decimal  @db.Decimal(20, 4)
+  lineCount            Int      @map("line_count")
+  /// Accounts not in the entity's chart of accounts ([{code, name}]), mapped on the next step.
+  newAccounts          Json     @map("new_accounts")
+  /// { errors, warnings, info } from the engine parser and the upload checks.
+  issues               Json
+  /// Column settings used (header row, columns, sign convention).
+  settings             Json
+  detectedPeriod       Json?    @map("detected_period")
+  detectedOrganisation String?  @map("detected_organisation") @db.VarChar(300)
+  /// Warning codes the uploader acknowledged (period / organisation mismatch).
+  acknowledgements     Json
+  createdById          String   @map("created_by_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  file      UploadedFile @relation(fields: [fileId], references: [id], onDelete: NoAction)
+  createdBy User         @relation("TbVersionCreatedBy", fields: [createdById], references: [id])
+  lines     TbLine[]
+
+  @@unique([taskId, entityCode, version])
+  @@map("tb_version")
+}
+
+model TbLine {
+  id          BigInt  @id @default(autoincrement())
+  tbVersionId String  @map("tb_version_id") @db.Uuid
+  accountCode String  @map("account_code") @db.VarChar(40)
+  accountName String  @map("account_name") @db.VarChar(200)
+  /// Debit positive, credit negative.
+  amount      Decimal @db.Decimal(20, 4)
+  /// 1-based spreadsheet rows (several when duplicate codes were combined).
+  sourceRows  Int[]   @map("source_rows")
+  zero        Boolean @default(false)
+
+  tbVersion TbVersion @relation(fields: [tbVersionId], references: [id], onDelete: Cascade)
+
+  @@index([tbVersionId])
+  @@map("tb_line")
+}
+
+/// Remembered TB column settings per entity, pre-filled on the next upload.
+model UploadProfile {
+  entityCode  String   @id @map("entity_code") @db.VarChar(10)
+  settings    Json
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entity    Entity @relation("UploadProfileEntity", fields: [entityCode], references: [code])
+  updatedBy User   @relation("UploadProfileUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("upload_profile")
 }

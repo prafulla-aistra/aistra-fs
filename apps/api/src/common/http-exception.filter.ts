@@ -31,7 +31,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const status = err.getStatus();
       const body = err.getResponse();
       const raw = typeof body === 'string' ? body : (body as { message?: unknown }).message;
-      const message = Array.isArray(raw) ? raw.join('; ') : String(raw ?? err.message);
+      const message =
+        status === HttpStatus.PAYLOAD_TOO_LARGE
+          ? 'The file is larger than the 10 MB limit.'
+          : Array.isArray(raw)
+            ? raw.join('; ')
+            : String(raw ?? err.message);
       res.status(status).json({ statusCode: status, code: codeFor(status), message });
       return;
     }
@@ -70,6 +75,8 @@ function codeFor(status: number): ApiErrorCode {
       return ApiErrorCode.NotFound;
     case 409:
       return ApiErrorCode.Conflict;
+    case 413:
+      return ApiErrorCode.FileRejected;
     default:
       return status >= 500 ? ApiErrorCode.InternalError : ApiErrorCode.ValidationFailed;
   }

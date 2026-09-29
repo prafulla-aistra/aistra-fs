@@ -250,6 +250,45 @@ panel follows the choices; changing an earlier answer clears the period with a n
 - **Formats:** "Statutory FS" and "Management FS" are seeded; the Formats configuration screen
   comes later. Financial years now have an open/closed status (no screen to close one yet).
 
+### Upload data (page 3)
+
+Task workspace `/tasks/:id` (SFS), step 1 of the stepper. The API computes every status and
+total; the web app only shows them.
+
+- **Exchange rates panel:** every functional and translated currency of the task's entities
+  (not USD) × each month of the period, Opening / Closing / Average, each Present or Missing.
+  "Upload rate file" (columns Month, Currency, Opening, Closing, Average; month as `Aug-26` or
+  `2026-08`) or "Enter manually". Warnings: opening ≠ prior month's closing, and a move of more
+  than 10% from the prior month. A month is **locked** once any report whose period includes it
+  is finalised (the Aug-2026 demo task has finalised entities, so Aug-2026 is locked); locked
+  values can be re-sent unchanged but never changed (409). Rates are group-level.
+- **Entity cards:** Trial balance (mandatory), Chart of accounts (optional), Other documents
+  (optional, several files). Drop a file or choose one; Replace; View versions; file names
+  download the original.
+- **TB upload:** .xlsx / .xls / .csv up to 10 MB, stored with a SHA-256 hash (warning if the same
+  file was used for another entity or period). Header row found by "Account Code" in the first
+  40 rows; column confirmation dialog with sign convention and a 10-line preview; settings are
+  remembered per entity. Exact decimals (thousands separators, `(1,234.00)`, Dr/Cr suffixes;
+  spreadsheet numbers are rounded to 2 dp via text). **Debits must equal credits (±0.01)** —
+  otherwise the version is saved as Error and the entity cannot continue. Period or
+  organisation mismatches must be acknowledged. Accounts not in the chart of accounts are listed
+  for the next step. Every version is kept.
+- **COA upload:** new codes get the default FSLI for their account type (marked suggested);
+  existing codes get name/type/parent updates only — FSLI and counterparty are never touched.
+- **Continue to review and map** moves entities with a validated TB to step 2; the rest stay.
+- **Master data:** 54 FSLIs, Zoho account-type defaults, each entity's chart of accounts (from
+  its Jul-26 sample TB, FSLI inferred by name/type, intercompany counterparties resolved), and
+  rates Apr-26 to Aug-26. The demo tasks come with their TBs already uploaded (Jul: all 7;
+  Aug: US, IN, AE, UK, UC), so Aug-2026 shows "5 of 7 entities validated".
+- **Samples:** `./samples` (committed) holds `Trial_Balance_<code>_Jul-26.xlsx` / `_Aug-26.xlsx`
+  for all 7 entities, `Chart_of_Accounts_IN_sample.xlsx` and
+  `Exchange_Rates_per_USD_sample.xlsx`. They are illustrative figures generated from
+  `apps/api/prisma/sample-data.ts`; `npm run samples:generate` rewrites them. The Aug-26 TBs
+  contain IN 1455, IN 6120 and UK 6390, which are not in the seeded charts of accounts.
+- **Rules:** uploads need SFS_PREPARE and the entity in scope (403); a Done task or finalised
+  entity is read-only (409); rates need SFS_PREPARE, CFS_PREPARE or CONFIG_MANAGE. Every
+  upload, rate change, acknowledgement and "continue" is audited.
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -390,6 +429,16 @@ These need confirmation from the process owners before the related features are 
     first? Should anyone other than CONFIG_MANAGE users be allowed to close periods?
 11. **Level currency.** Levels default to the parent's reporting currency. Is a per-level
     override needed (e.g. present L3 India in USD)?
+12. **Monthly TB basis.** Are monthly trial balances exported for the month only
+    ("From 01/08/2026 To 31/08/2026") or year to date ("From 01/04/2026 …")? Today only an
+    exact match with the task period passes without a warning.
+13. **Re-uploading in review.** Uploading a new TB for an entity that is In review is allowed
+    and does not change its status. Should it send the entity back to In progress?
+14. **Xero account types.** Only Zoho account-type defaults are defined; Veracity (Xero)
+    accounts fall back to the Zoho list. What are the Xero defaults?
+15. **Rate locking scope.** A month locks when any report for a period containing it is
+    finalised — including a USD entity's SFS that uses no rates. Confirm, or lock only on
+    reports that actually use the rates.
 
 ## Known dependency warnings (clean-up later)
 

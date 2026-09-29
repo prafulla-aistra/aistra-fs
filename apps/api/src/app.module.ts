@@ -12,6 +12,7 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { TasksModule } from './tasks/tasks.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     ConfigurationModule,
     TasksModule,
+    UploadsModule,
     // Demo accounts + quick login exist only when DEMO_MODE=true (never in production).
     ConditionalModule.registerWhen(DemoModule, demoModeEnabled),
   ],

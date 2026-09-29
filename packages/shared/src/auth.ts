@@ -99,6 +99,16 @@ export const ApiErrorCode = {
   Conflict: 'CONFLICT',
   NotAllowed: 'NOT_ALLOWED',
   InternalError: 'INTERNAL_ERROR',
+  /** The task is Done (locked): nothing in it can change. */
+  TaskLocked: 'TASK_LOCKED',
+  /** The entity is finalised in this task: its data is read-only. */
+  EntityFinalised: 'ENTITY_FINALISED',
+  /** The month's exchange rates are locked (a report using the month is finalised). */
+  RatesLocked: 'RATES_LOCKED',
+  /** A warning must be acknowledged before the upload can be saved. */
+  AcknowledgementRequired: 'ACKNOWLEDGEMENT_REQUIRED',
+  /** The uploaded file is the wrong type, too large, or unreadable. */
+  FileRejected: 'FILE_REJECTED',
   /** The API process is not reachable (not started yet, restarting, or stopped). */
   ApiUnavailable: 'API_UNAVAILABLE',
   /** The API is up but cannot reach its database. */
@@ -206,6 +216,14 @@ export const AuditAction = {
   HolidayCreate: 'HOLIDAY_CREATE',
   HolidayUpdate: 'HOLIDAY_UPDATE',
   HolidayDelete: 'HOLIDAY_DELETE',
+  // Upload data (page 3)
+  TbUpload: 'TB_UPLOAD',
+  TbWarningAcknowledge: 'TB_WARNING_ACKNOWLEDGE',
+  CoaUpload: 'COA_UPLOAD',
+  DocumentUpload: 'DOCUMENT_UPLOAD',
+  RatesUpload: 'RATES_UPLOAD',
+  RatesUpdate: 'RATES_UPDATE',
+  TaskStepContinue: 'TASK_STEP_CONTINUE',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

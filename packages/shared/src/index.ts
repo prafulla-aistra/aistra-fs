@@ -4,3 +4,4 @@ export * from './enums';
 export * from './health';
 export * from './task-wizard';
 export * from './tasks';
+export * from './upload-step';

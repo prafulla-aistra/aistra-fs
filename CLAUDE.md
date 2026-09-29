@@ -134,6 +134,18 @@
   per-level currency override.
 - Template contents (should Reviewers get EDIT_ACCESS_APPROVE?), session length (12 h),
   password expiry/reuse rules, and whether the master is subject to lockout (currently yes).
+- Upload data (page 3): month-only vs YTD monthly TBs (period check is exact today); whether
+  re-uploading a TB In review resets it to In progress (today: no); Xero account-type
+  defaults; whether rate locking should ignore finalised reports that use no rates.
+
+## Upload data (page 3) conventions
+- TB parsing, checks, COA merge and rate-file parsing are engine functions (tb-parser,
+  tb-checks, coa-parser, rates, fsli-inference). The API reads spreadsheets (SheetJS, in
+  apps/api/src/uploads/sheets.ts) and stores originals through StorageService.
+- TB versions are append-only; the latest decides the entity's upload status. Unbalanced
+  (> 0.01) = status ERROR and the entity cannot continue.
+- Page 3 seed (FSLIs, type defaults, charts of accounts, rates) is create-only; samples in
+  ./samples are generated from apps/api/prisma/sample-data.ts.
 
 ## Dependencies
 - Never run "npm audit fix --force". Known audit warnings (dev tools only) are listed in

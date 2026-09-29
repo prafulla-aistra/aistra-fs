@@ -24,6 +24,8 @@ interface OverlayProps {
   description?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** Dialog width (default md). */
+  size?: 'md' | 'lg' | 'xl';
 }
 
 /** Right-hand drawer, used for create/edit forms. */
@@ -43,7 +45,15 @@ function Sheet({ open, onClose, title, description, children, footer }: OverlayP
 }
 
 /** Centred dialog, used for confirmations and short forms. */
-function Dialog({ open, onClose, title, description, children, footer }: OverlayProps) {
+function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  size = 'md',
+}: OverlayProps) {
   useOverlay(open, onClose);
   if (!open) return null;
   return (
@@ -54,9 +64,16 @@ function Dialog({ open, onClose, title, description, children, footer }: Overlay
       aria-label={title}
     >
       <div className="absolute inset-0 bg-black/30 animate-in fade-in-0" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-xl border bg-background shadow-xl animate-in zoom-in-95">
+      <div
+        className={cn(
+          'relative flex max-h-[92vh] w-full flex-col rounded-xl border bg-background shadow-xl animate-in zoom-in-95',
+          size === 'md' && 'max-w-md',
+          size === 'lg' && 'max-w-2xl',
+          size === 'xl' && 'max-w-4xl',
+        )}
+      >
         <Header title={title} description={description} onClose={onClose} />
-        <div className="px-6 py-4">{children}</div>
+        <div className="overflow-y-auto px-6 py-4">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t px-6 py-4">{footer}</div>}
       </div>
     </div>

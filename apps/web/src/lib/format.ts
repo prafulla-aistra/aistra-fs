@@ -38,3 +38,10 @@ export function generateTemporaryPassword(): string {
   }
   return chars.join('');
 }
+
+/** Amount text with thousands separators; the value itself is exact text from the API. */
+export function amountText(value: string): string {
+  const [int = '0', dec] = value.replace('-', '').split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${value.startsWith('-') ? '-' : ''}${grouped}${dec !== undefined ? `.${dec}` : ''}`;
+}

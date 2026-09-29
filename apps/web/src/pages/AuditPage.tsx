@@ -38,6 +38,13 @@ const ACTION_LABELS: Record<string, string> = {
   HOLIDAY_CREATE: 'Holiday added',
   HOLIDAY_UPDATE: 'Holiday changed',
   HOLIDAY_DELETE: 'Holiday deleted',
+  TB_UPLOAD: 'Trial balance uploaded',
+  TB_WARNING_ACKNOWLEDGE: 'Trial balance warning acknowledged',
+  COA_UPLOAD: 'Chart of accounts uploaded',
+  DOCUMENT_UPLOAD: 'Document uploaded',
+  RATES_UPLOAD: 'Exchange rate file uploaded',
+  RATES_UPDATE: 'Exchange rates changed',
+  TASK_STEP_CONTINUE: 'Task moved to the next step',
   SEED_APPLIED: 'Initial data loaded',
 };
 const SUBJECT_LABELS: Record<string, string> = {

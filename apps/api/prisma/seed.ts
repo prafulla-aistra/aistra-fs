@@ -15,9 +15,11 @@ import {
   type PermissionCode,
 } from '@finance-close/shared';
 import { hashPassword, normaliseEmail } from '../src/auth/passwords';
+import { seedAccounts } from './seed-accounts';
 import { seedConfiguration } from './seed-configuration';
 import { seedDemoUsers } from './seed-demo';
 import { seedDemoTasks } from './seed-demo-tasks';
+import { seedDemoUploads } from './seed-demo-uploads';
 import { withConnectionDefaults } from '../src/prisma/database-url';
 
 const prisma = new PrismaClient({
@@ -119,6 +121,7 @@ async function seedReferenceData(): Promise<void> {
     ]);
   }
   await seedConfiguration(prisma);
+  await seedAccounts(prisma);
 }
 
 async function seedMaster(): Promise<void> {
@@ -205,6 +208,7 @@ async function main(): Promise<void> {
   if (process.env.DEMO_MODE?.trim().toLowerCase() === 'true') {
     await seedDemoUsers(prisma, Number.parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10));
     await seedDemoTasks(prisma);
+    await seedDemoUploads(prisma);
   }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }

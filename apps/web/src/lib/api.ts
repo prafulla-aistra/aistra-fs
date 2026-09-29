@@ -111,7 +111,8 @@ export function refreshSession(): Promise<SessionResponse | null> {
 async function send(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
-  if (init.body !== undefined && !headers.has('Content-Type')) {
+  // FormData sets its own multipart Content-Type (with the boundary).
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
@@ -170,7 +171,30 @@ export const api = {
   put: <T>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T = void>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
+  /** Multipart upload of one file, as the form field "file". */
+  upload: <T>(path: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiFetch<T>(path, { method: 'POST', body: form });
+  },
 };
+
+/** Downloads an uploaded file (authenticated) and hands it to the browser as a download. */
+export async function downloadFile(fileId: string, name: string): Promise<void> {
+  let res = await send(`/files/${fileId}/download`, {});
+  if (res.status === 401 && (await refreshSession()))
+    res = await send(`/files/${fileId}/download`, {});
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new ApiError(body.message ?? 'Download failed.', res.status, undefined, body);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 /** Human-readable message for any error thrown by the API client. */
 export function errorMessage(err: unknown): string {

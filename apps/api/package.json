@@ -18,7 +18,8 @@
     "master:reset-password": "tsx prisma/seed.ts --reset-master-password",
     "test:unit": "jest",
     "test:e2e": "jest -c test/jest-e2e.config.js --runInBand",
-    "demo:remove-tasks": "tsx prisma/remove-demo-tasks.ts"
+    "demo:remove-tasks": "tsx prisma/remove-demo-tasks.ts",
+    "samples:generate": "tsx prisma/generate-samples.ts"
   },
   "dependencies": {
     "@finance-close/engine": "*",
@@ -33,6 +34,7 @@
     "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -41,6 +43,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.3",
     "@types/jest": "^29.5.14",
+    "@types/multer": "^2.3.0",
     "@types/node": "^22.18.0",
     "@types/supertest": "^7.2.1",
     "dotenv": "^16.6.1",
