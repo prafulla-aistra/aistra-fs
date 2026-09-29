@@ -155,4 +155,5 @@ export interface DashboardDto {
 /** Placeholder task page (the task workspace is built on the next page). */
 export interface TaskDetailDto extends TaskRowDto {
   readOnly: boolean;
+  reviewerNote: string | null;
 }

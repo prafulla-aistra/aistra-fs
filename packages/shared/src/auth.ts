@@ -202,6 +202,7 @@ export const AuditAction = {
   DueDateRuleUpdate: 'DUE_DATE_RULE_UPDATE',
   DueDateOverrideSet: 'DUE_DATE_OVERRIDE_SET',
   DueDateOverrideClear: 'DUE_DATE_OVERRIDE_CLEAR',
+  TaskCreate: 'TASK_CREATE',
   HolidayCreate: 'HOLIDAY_CREATE',
   HolidayUpdate: 'HOLIDAY_UPDATE',
   HolidayDelete: 'HOLIDAY_DELETE',

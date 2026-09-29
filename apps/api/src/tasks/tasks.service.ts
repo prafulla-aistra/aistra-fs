@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export const taskInclude = {
   period: { include: { financialYear: true } },
   createdBy: { select: { name: true } },
+  format: { select: { name: true } },
   entities: { include: { entity: { select: { shortName: true, sortOrder: true } } } },
   levels: true,
 } satisfies Prisma.TaskInclude;
@@ -130,7 +131,7 @@ export class TasksService {
     // Not in scope is reported as not found, so task numbers outside the scope do not leak.
     if (!task || !taskVisibleTo(task, user.entityScope)) throw ApiError.notFound('Task not found.');
     const row = toRow(task, user, this.clock.today());
-    return { ...row, readOnly: row.action === 'VIEW' };
+    return { ...row, readOnly: row.action === 'VIEW', reviewerNote: task.reviewerNote };
   }
 }
 
@@ -161,7 +162,7 @@ export function toRow(t: TaskWithItems, user: AuthUser, today: IsoDate): TaskRow
     periodType: t.period.type,
     fyLabel: t.period.financialYear.label,
     description: t.description,
-    format: t.format,
+    format: t.format?.name ?? null,
     dueDate,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

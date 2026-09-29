@@ -12,6 +12,7 @@ import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
 import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
+import { NewTaskPage } from '@/pages/tasks/NewTaskPage';
 import { TaskPlaceholderPage } from '@/pages/tasks/TaskPlaceholderPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ComingSoonPage, NotFoundPage } from '@/pages/SimplePages';
@@ -27,7 +28,7 @@ export function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route element={<RequirePermission anyOf={navItem('/tasks/new').anyOf} />}>
-            <Route path="/tasks/new" element={<ComingSoonPage title="New task" />} />
+            <Route path="/tasks/new" element={<NewTaskPage />} />
           </Route>
           <Route
             element={

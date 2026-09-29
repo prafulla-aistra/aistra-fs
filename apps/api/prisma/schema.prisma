@@ -112,6 +112,23 @@ model EntityHistoricalRate {
   @@map("entity_historical_rate")
 }
 
+/// Statement format (layout of the statements a task produces). Minimal for page 2; the
+/// Formats configuration screen maintains it later.
+model Format {
+  code        String   @id @db.VarChar(40)
+  name        String   @db.VarChar(100)
+  description String   @db.VarChar(300)
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tasks        Task[]
+  lastChoiceOf User[]
+
+  @@map("format")
+}
+
 // ---------------------------------------------------------------------------
 // Financial-year calendar and due dates (step 2)
 // ---------------------------------------------------------------------------
@@ -133,14 +150,16 @@ enum StatementType {
 }
 
 model FinancialYear {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String       @id @default(uuid()) @db.Uuid
   /// Calendar year the FY starts in: 2026 = FY 2026-27 (April 2026 – March 2027).
-  startYear   Int      @unique @map("start_year")
-  label       String   @db.VarChar(20)
-  startDate   DateTime @map("start_date") @db.Date
-  endDate     DateTime @map("end_date") @db.Date
-  createdById String?  @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  startYear   Int          @unique @map("start_year")
+  label       String       @db.VarChar(20)
+  /// A closed financial year accepts no new tasks.
+  status      PeriodStatus @default(OPEN)
+  startDate   DateTime     @map("start_date") @db.Date
+  endDate     DateTime     @map("end_date") @db.Date
+  createdById String?      @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
   createdBy User?    @relation("FinancialYearCreatedBy", fields: [createdById], references: [id])
   periods   Period[]
@@ -235,6 +254,8 @@ model User {
   allEntities        Boolean    @default(true) @map("all_entities")
   /// Template last applied as a starting point (permissions may since have been adjusted).
   templateCode       String?    @map("template_code") @db.VarChar(40)
+  /// Format this user chose last in the new-task wizard (the wizard's default).
+  lastFormatCode     String?    @map("last_format_code") @db.VarChar(40)
   failedLoginCount   Int        @default(0) @map("failed_login_count")
   lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
   lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
@@ -249,6 +270,7 @@ model User {
   createdBy     User?               @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdUsers  User[]              @relation("UserCreatedBy")
   template      PermissionTemplate? @relation(fields: [templateCode], references: [code])
+  lastFormat    Format?             @relation(fields: [lastFormatCode], references: [code])
   permissions   UserPermission[]
   entityScopes  UserEntityScope[]
   refreshTokens RefreshToken[]
@@ -379,27 +401,30 @@ enum TaskItemStatus {
 }
 
 model Task {
-  id          String        @id @default(uuid()) @db.Uuid
+  id           String        @id @default(uuid()) @db.Uuid
   /// e.g. SFS-2026-08-001
-  number      String        @unique @db.VarChar(30)
-  type        StatementType
+  number       String        @unique @db.VarChar(30)
+  type         StatementType
   /// Financial year and period type come from the period.
-  periodId    String        @map("period_id") @db.Uuid
-  /// Statement format (formats arrive with the configuration of formats).
-  format      String?       @db.VarChar(60)
-  description String        @db.VarChar(300)
-  dueDate     DateTime      @map("due_date") @db.Date
+  periodId     String        @map("period_id") @db.Uuid
+  /// Statement format. Required for new tasks (older demo rows may have none).
+  formatCode   String?       @map("format_code") @db.VarChar(40)
+  /// Optional note from the preparer to the reviewer.
+  reviewerNote String?       @map("reviewer_note") @db.VarChar(1000)
+  description  String        @db.VarChar(300)
+  dueDate      DateTime      @map("due_date") @db.Date
   /// Workflow step the task was left at (the task workspace defines the steps).
-  currentStep String        @map("current_step") @db.VarChar(40)
-  createdById String        @map("created_by_id") @db.Uuid
-  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  currentStep  String        @map("current_step") @db.VarChar(40)
+  createdById  String        @map("created_by_id") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   /// Set when every entity/level is finalised; the task is then locked.
-  completedAt DateTime?     @map("completed_at") @db.Timestamptz(3)
+  completedAt  DateTime?     @map("completed_at") @db.Timestamptz(3)
   /// Demo data (seeded only in demo mode; removable with npm run demo:remove-tasks).
-  isDemo      Boolean       @default(false) @map("is_demo")
+  isDemo       Boolean       @default(false) @map("is_demo")
 
   period    Period       @relation(fields: [periodId], references: [id])
+  format    Format?      @relation(fields: [formatCode], references: [code])
   createdBy User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
   entities  TaskEntity[]
   levels    TaskLevel[]

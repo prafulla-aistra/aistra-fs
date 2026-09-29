@@ -91,6 +91,9 @@
   never store it. Done tasks are locked. CFS tasks snapshot their levels at creation.
 - "Today" comes from ClockService (APP_TIMEZONE, default Asia/Kolkata; FIXED_TODAY for tests).
 - Dashboard numbers come only from GET /api/dashboard; visibility follows entity scope.
+- Task creation (POST /api/tasks) re-checks every wizard rule server-side; creations for a
+  period are serialised with a Postgres advisory lock. Tests delete only non-demo tasks, and
+  only in a *_test database.
 
 ## UI theme
 - Colours are CSS tokens in apps/web/src/index.css: ink navy #0F2A3D (sidebar, headings),

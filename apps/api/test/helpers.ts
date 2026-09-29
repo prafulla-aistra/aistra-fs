@@ -89,3 +89,13 @@ export async function activeUserToken(
   if (res.status !== 200) throw new Error(`change password failed: ${JSON.stringify(res.body)}`);
   return { user, token: (res.body as SessionResponse).accessToken, password };
 }
+
+/**
+ * Deletes tasks created by tests (never demo tasks), so the persistent test database starts
+ * each run with only the seeded demo tasks. Refuses to run outside a *_test database.
+ */
+export async function deleteNonDemoTasks(ctx: TestContext): Promise<void> {
+  const rows = await ctx.prisma.$queryRaw<{ db: string }[]>`SELECT current_database() AS db`;
+  if (!rows[0]?.db.endsWith('_test')) throw new Error('deleteNonDemoTasks: not a test database');
+  await ctx.prisma.task.deleteMany({ where: { isDemo: false } });
+}

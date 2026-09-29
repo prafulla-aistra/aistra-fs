@@ -55,7 +55,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
     if (await prisma.task.findUnique({ where: { number } })) return;
     const stepFor = (s: TaskItemStatus) =>
       ({
-        NOT_STARTED: 'UPLOAD_TB',
+        NOT_STARTED: 'UPLOAD_DATA',
         IN_PROGRESS: 'MAPPING',
         IN_REVIEW: 'REVIEW',
         FINALISED: 'FINALISED',
@@ -67,6 +67,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
         periodId: period.id,
         description: `Monthly standalone financial statements — ${period.label}`,
         dueDate: dueDate(period, 'SFS'),
+        formatCode: 'STATUTORY',
         currentStep,
         createdById: priya.id,
         createdAt: at(dates.created),
@@ -113,6 +114,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
         periodId: jul.id,
         description: `Monthly consolidated financial statements — ${jul.label}`,
         dueDate: dueDate(jul, 'CFS'),
+        formatCode: 'STATUTORY',
         currentStep: 'FINALISED',
         createdById: priya.id,
         createdAt: at('2026-08-11T10:00:00+05:30'),

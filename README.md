@@ -228,6 +228,28 @@ and the task table from `GET /api/tasks`. Both respect the user's entity scope.
 - **Demo tasks** (demo mode only, flagged `is_demo`): Jul-2026 SFS and CFS Done, Aug-2026 SFS in
   review. Remove them with `npm run demo:remove-tasks`.
 
+### New task wizard (page 2)
+
+`/tasks/new`, from the dashboard's New task button or the menu. Seven steps appear one below
+another: task type (only types the user may prepare; MIS shown as coming later), financial
+year (open years; default = the one containing today), period type, period, format (default =
+the user's last choice), entities (SFS) or consolidation levels (CFS), and review. A summary
+panel follows the choices; changing an earlier answer clears the period with a note.
+
+- **Period tiles** are tagged by the API: Available · Task exists (with a link) · Not ended yet ·
+  Closed. A period can be prepared only after its end date. Periods where a task exists stay
+  selectable so step 6 can show what is left (or "Open task").
+- **Task numbers:** `SFS-2026-08-001` (monthly), `SFS-FY27-Q1-001` (quarterly), `SFS-FY27-001`
+  (annual); CFS likewise. New tasks start at step 1 "Upload data", every entity/level Not
+  started, and are audited (`TASK_CREATE`).
+- **Server-side rules** (`POST /api/tasks`): permission for the type; entities within the user's
+  scope (CFS needs every level member in scope); period and financial year open; period ended;
+  format active; at least one entity; no entity in two SFS tasks for the same period (409 with
+  the existing task number); one CFS task per period. A second SFS task for the remaining
+  entities of a period is allowed.
+- **Formats:** "Statutory FS" and "Management FS" are seeded; the Formats configuration screen
+  comes later. Financial years now have an open/closed status (no screen to close one yet).
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface

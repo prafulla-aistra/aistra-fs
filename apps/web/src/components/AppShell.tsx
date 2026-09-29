@@ -3,7 +3,9 @@ import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth, useCurrentUser } from '@/auth/AuthContext';
 import { NAV_ITEMS } from '@/auth/navigation';
 import { BrandLockup } from '@/components/brand/BrandMark';
+import { Toaster } from '@/components/Toaster';
 import { Button } from '@/components/ui/button';
+import { confirmLeave } from '@/lib/leave-guard';
 import { cn } from '@/lib/utils';
 
 /** Signed-in layout: ink-navy left navigation (filtered by permission) and a light top bar. */
@@ -14,6 +16,7 @@ export function AppShell() {
   const items = NAV_ITEMS.filter((i) => i.anyOf.length === 0 || hasAny(...i.anyOf));
 
   const signOut = async () => {
+    if (!confirmLeave()) return;
     await logout();
     navigate('/login', { replace: true });
   };
@@ -32,6 +35,9 @@ export function AppShell() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={(e) => {
+                if (!confirmLeave()) e.preventDefault();
+              }}
               className={({ isActive }) =>
                 cn(
                   'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-muted no-underline transition-colors hover:bg-sidebar-hover hover:text-white',
@@ -59,6 +65,9 @@ export function AppShell() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={(e) => {
+                    if (!confirmLeave()) e.preventDefault();
+                  }}
                   className={({ isActive }) =>
                     cn(
                       'whitespace-nowrap text-muted-foreground no-underline',
@@ -92,6 +101,7 @@ export function AppShell() {
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
           <Outlet />
         </main>
+        <Toaster />
       </div>
     </div>
   );

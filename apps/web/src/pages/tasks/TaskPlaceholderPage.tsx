@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Construction, Eye, Lock } from 'lucide-react';
 import { Link, useParams } from 'react-router';
-import type { TaskDetailDto } from '@finance-close/shared';
+import { taskStepLabel, type TaskDetailDto } from '@finance-close/shared';
 import { PageHeader } from '@/components/AppShell';
 import { ItemStatusBadge, TaskStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,10 +44,8 @@ export function TaskPlaceholderPage() {
                 ) : null}
               </div>
               <p className="text-sm">
-                {task.data.readOnly ? 'Viewing' : 'Continuing'} at step{' '}
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                  {task.data.currentStep}
-                </code>
+                {task.data.readOnly ? 'Viewing' : 'Continuing'} at{' '}
+                <strong className="text-ink">{taskStepLabel(task.data.currentStep)}</strong>
               </p>
               <ul className="flex flex-wrap gap-x-5 gap-y-2">
                 {task.data.items.map((i) => (
@@ -58,6 +56,11 @@ export function TaskPlaceholderPage() {
                   </li>
                 ))}
               </ul>
+              {task.data.reviewerNote && (
+                <p className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+                  <span className="font-medium">Note to reviewer:</span> {task.data.reviewerNote}
+                </p>
+              )}
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Construction className="size-4" /> The task workspace is coming in the next step.
               </p>

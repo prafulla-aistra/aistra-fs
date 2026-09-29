@@ -7,6 +7,7 @@ import type {
 import { DEMO_USERS } from '../prisma/seed-demo';
 import {
   activeUserToken,
+  deleteNonDemoTasks,
   createTestApp,
   login,
   MASTER,
@@ -30,6 +31,7 @@ const password = (email: string) => DEMO_USERS.find((d) => d.email === email)!.p
 beforeAll(async () => {
   process.env.DEMO_MODE = 'true';
   ctx = await createTestApp();
+  await deleteNonDemoTasks(ctx); // counts below assume only the demo tasks
   priya = await tokenFor(ctx, 'priya@financeclose.local', password('priya@financeclose.local'));
   rahul = await tokenFor(ctx, 'rahul@financeclose.local', password('rahul@financeclose.local'));
   master = await tokenFor(ctx, MASTER.email, MASTER.password);
