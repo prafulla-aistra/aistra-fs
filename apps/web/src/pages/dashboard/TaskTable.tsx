@@ -38,8 +38,8 @@ const STATUS_OPTIONS: { value: TaskFilterStatus; label: string }[] = [
   { value: 'IN_REVIEW', label: 'In review' },
   { value: 'DONE', label: 'Done' },
   { value: 'OVERDUE', label: 'Overdue' },
-  { value: 'TO_CONTINUE', label: 'To continue' },
-  { value: 'AWAITING_REVIEW', label: 'Awaiting review' },
+  { value: 'TO_PREPARE', label: 'Entities to prepare' },
+  { value: 'AWAITING_REVIEW', label: 'Entities in review' },
 ];
 
 function toQuery(f: TableFilters): string {

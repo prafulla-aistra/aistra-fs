@@ -8,22 +8,39 @@ import {
   deriveTaskStatus,
   isOverdue,
   type ItemStatus,
+  needsPreparation,
   previousMonth,
   workingDaysLeft,
 } from './tasks';
 
 describe('deriveTaskStatus', () => {
   const F: ItemStatus = 'FINALISED';
+  const R: ItemStatus = 'IN_REVIEW';
+  const P: ItemStatus = 'IN_PROGRESS';
+  const N: ItemStatus = 'NOT_STARTED';
   it.each<[ItemStatus[], string]>([
+    // 1. Done: everything finalised
     [[F, F, F, F, F, F, F], 'DONE'],
-    [[F, F, F, 'IN_REVIEW', 'IN_PROGRESS', 'NOT_STARTED', 'NOT_STARTED'], 'IN_REVIEW'], // Aug-2026 demo
-    [['IN_REVIEW'], 'IN_REVIEW'],
-    [['IN_PROGRESS', 'NOT_STARTED'], 'IN_PROGRESS'],
-    [[F, 'NOT_STARTED'], 'IN_PROGRESS'], // a finalised item means work has started
-    [['NOT_STARTED', 'NOT_STARTED'], 'NOT_STARTED'],
+    [[F], 'DONE'],
+    // 2. In progress: work remains, even if others are in review or finalised
+    [[F, F, F, R, P, N, N], 'IN_PROGRESS'], // Aug-2026 demo: US, UK, UC F; IN R; AE P; VS, VM N
+    [[F, N], 'IN_PROGRESS'],
+    [[R, N], 'IN_PROGRESS'],
+    [[P], 'IN_PROGRESS'],
+    [[P, N], 'IN_PROGRESS'],
+    // 3. In review: nothing left to prepare, at least one in review
+    [[R], 'IN_REVIEW'],
+    [[F, F, R], 'IN_REVIEW'],
+    // 4. Not started: nothing has begun
+    [[N, N], 'NOT_STARTED'],
+    [[N], 'NOT_STARTED'],
     [[], 'NOT_STARTED'],
   ])('%j → %s', (items, expected) => {
     expect(deriveTaskStatus(items)).toBe(expected);
+  });
+
+  it('needsPreparation is true only for not started and in progress', () => {
+    expect([N, P, R, F].map(needsPreparation)).toEqual([true, true, false, false]);
   });
 });
 

@@ -16,16 +16,25 @@ export const ITEM_STATUSES: readonly ItemStatus[] = [
 ];
 
 /**
- * - Done: every entity/level is Finalised (the task is then locked)
- * - In review: not Done and at least one is In review
- * - In progress: at least one is In progress or Finalised
- * - Not started: otherwise (including a task with no items)
+ * Task status, checked in this order:
+ *  1. Done        — every entity/level is Finalised (the task is then locked)
+ *  2. Not started — every entity/level is Not started (nothing has begun)
+ *  3. In progress — any is Not started or In progress, even if others are In review or
+ *                   Finalised (work remains)
+ *  4. In review   — none is Not started or In progress, and at least one is In review
+ * A task with no entities/levels is Not started.
  */
 export function deriveTaskStatus(items: readonly ItemStatus[]): TaskStatus {
-  if (items.length > 0 && items.every((s) => s === 'FINALISED')) return 'DONE';
-  if (items.includes('IN_REVIEW')) return 'IN_REVIEW';
-  if (items.some((s) => s === 'IN_PROGRESS' || s === 'FINALISED')) return 'IN_PROGRESS';
-  return 'NOT_STARTED';
+  if (items.length === 0) return 'NOT_STARTED';
+  if (items.every((s) => s === 'FINALISED')) return 'DONE';
+  if (items.every((s) => s === 'NOT_STARTED')) return 'NOT_STARTED';
+  if (items.some(needsPreparation)) return 'IN_PROGRESS';
+  return 'IN_REVIEW';
+}
+
+/** Work remains on this entity/level: Not started or In progress. */
+export function needsPreparation(status: ItemStatus): boolean {
+  return status === 'NOT_STARTED' || status === 'IN_PROGRESS';
 }
 
 /** Overdue = not Done and today is after the due date. */

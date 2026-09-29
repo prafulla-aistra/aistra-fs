@@ -11,6 +11,7 @@ import {
   Permission,
   type ConsolidationLevelDto,
   type DashboardDto,
+  type ItemCountsDto,
   type PeriodOptionDto,
 } from '@finance-close/shared';
 import type { AuthUser } from '../auth/session-user';
@@ -20,14 +21,7 @@ import { fromDbDate } from '../common/db-dates';
 import { CalendarService } from '../configuration/calendar/calendar.service';
 import { EntitiesService } from '../configuration/entities.service';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  inScope,
-  isToContinue,
-  itemsAwaitingReview,
-  taskInclude,
-  TasksService,
-  type TaskWithItems,
-} from './tasks.service';
+import { inScope, taskInclude, TasksService, type TaskWithItems } from './tasks.service';
 
 interface Month extends PeriodOptionDto {
   startDate: IsoDate;
@@ -68,19 +62,21 @@ export class DashboardService {
     );
 
     const visibleRows = await this.tasks.visible(user);
-    const attention: DashboardDto['attention'] = {
-      overdue: visibleRows.filter((t) => t.overdue).length,
+    const overdue = visibleRows.filter((t) => t.overdue).length;
+    /**
+     * Lines that apply to the user. Entity counts are for the selected period, in scope, and
+     * agree with the Standalone card (an entity without a task counts as Not started).
+     */
+    const attentionFor = (counts: ItemCountsDto | null): DashboardDto['attention'] => {
+      const a: DashboardDto['attention'] = { overdue };
+      if (user.permissions.has(Permission.SfsPrepare)) {
+        a.entitiesToPrepare = counts ? counts.NOT_STARTED + counts.IN_PROGRESS : 0;
+      }
+      if (user.permissions.has(Permission.SfsReview))
+        a.awaitingReview = counts ? counts.IN_REVIEW : 0;
+      if (user.permissions.has(Permission.EditAccessApprove)) a.editAccessRequests = 0; // page not built yet
+      return a;
     };
-    if (
-      user.permissions.has(Permission.SfsPrepare) ||
-      user.permissions.has(Permission.CfsPrepare)
-    ) {
-      attention.toContinue = visibleRows.filter(isToContinue).length;
-    }
-    if (user.permissions.has(Permission.SfsReview) || user.permissions.has(Permission.CfsReview)) {
-      attention.awaitingReview = visibleRows.reduce((n, t) => n + itemsAwaitingReview(t, user), 0);
-    }
-    if (user.permissions.has(Permission.EditAccessApprove)) attention.editAccessRequests = 0; // page not built yet
 
     const empty = { finalised: 0, total: 0, counts: countItemStatuses([]) };
     if (!selected) {
@@ -91,7 +87,7 @@ export class DashboardService {
         standalone: empty,
         consolidation: { ...empty, next: null },
         lastPeriod: null,
-        attention,
+        attention: attentionFor(null),
       };
     }
 
@@ -154,7 +150,7 @@ export class DashboardService {
       standalone,
       consolidation,
       lastPeriod,
-      attention,
+      attention: attentionFor(standalone.counts),
     };
   }
 

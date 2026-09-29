@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { deriveTaskStatus, isOverdue, type IsoDate } from '@finance-close/engine';
+import { deriveTaskStatus, isOverdue, needsPreparation, type IsoDate } from '@finance-close/engine';
 import {
   Permission,
   type ItemStatus,
@@ -44,14 +44,16 @@ export function canReview(user: AuthUser, type: StatementType): boolean {
   return user.permissions.has(type === 'SFS' ? Permission.SfsReview : Permission.CfsReview);
 }
 
-/** "N tasks to continue": tasks with the Continue action. */
-export function isToContinue(t: TaskRowDto): boolean {
-  return t.action === 'CONTINUE';
+/** SFS task with an entity in the user's scope that is Not started or In progress. */
+export function hasEntitiesToPrepare(t: TaskRowDto): boolean {
+  return t.type === 'SFS' && t.items.some((i) => needsPreparation(i.status));
 }
 
-/** In-scope items awaiting review, for a user who may review this type of task. */
-export function itemsAwaitingReview(t: TaskRowDto, user: AuthUser): number {
-  return canReview(user, t.type) ? t.items.filter((i) => i.status === 'IN_REVIEW').length : 0;
+/** SFS task with an entity in the user's scope in review, for a user with SFS_REVIEW. */
+export function hasEntitiesAwaitingReview(t: TaskRowDto, user: AuthUser): boolean {
+  return (
+    t.type === 'SFS' && canReview(user, 'SFS') && t.items.some((i) => i.status === 'IN_REVIEW')
+  );
 }
 
 @Injectable()
@@ -105,10 +107,10 @@ export class TasksService {
         switch (q.status) {
           case 'OVERDUE':
             return t.overdue;
-          case 'TO_CONTINUE':
-            return isToContinue(t);
+          case 'TO_PREPARE':
+            return hasEntitiesToPrepare(t);
           case 'AWAITING_REVIEW':
-            return itemsAwaitingReview(t, user) > 0;
+            return hasEntitiesAwaitingReview(t, user);
           default:
             return t.status === q.status;
         }
@@ -148,7 +150,8 @@ export function toRow(t: TaskWithItems, user: AuthUser, today: IsoDate): TaskRow
           .filter((l) => l.members.some((m) => inScope(scope, m)))
           .sort((a, b) => a.level - b.level)
           .map((l) => ({ code: `L${l.level}`, label: l.name, status: l.status }));
-  const actionable = status === 'NOT_STARTED' || status === 'IN_PROGRESS';
+  // Continue while any entity/level in the user's scope still needs preparing.
+  const actionable = items.some((i) => needsPreparation(i.status));
   return {
     id: t.id,
     number: t.number,

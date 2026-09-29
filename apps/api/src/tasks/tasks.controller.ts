@@ -36,7 +36,7 @@ const listSchema = z.object({
       'IN_REVIEW',
       'DONE',
       'OVERDUE',
-      'TO_CONTINUE',
+      'TO_PREPARE',
       'AWAITING_REVIEW',
     ])
     .optional(),

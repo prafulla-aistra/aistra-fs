@@ -85,16 +85,17 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     expect(d.lastPeriod).toMatchObject({ label: 'Jul-2026', done: true, openItems: 0 });
   });
 
-  it('shows the lines that apply to a preparer: tasks to continue and overdue', async () => {
+  it('shows the lines that apply to a preparer: 3 entities to prepare (AE, VS, VM) and overdue', async () => {
     const d = await dashboard(priya);
-    expect(d.attention).toEqual({ toContinue: 0, overdue: 1 });
+    expect(d.attention).toEqual({ entitiesToPrepare: 3, overdue: 1 });
   });
 
   it('lists the 3 demo tasks newest first, with derived statuses, overdue and lock', async () => {
     const page = await tasks(priya);
     expect(page.total).toBe(3);
     expect(page.items.map((t) => [t.number, t.status, t.overdue, t.locked, t.action])).toEqual([
-      ['SFS-2026-08-001', 'IN_REVIEW', true, false, 'VIEW'],
+      // Work remains (AE in progress; VS, VM not started) → In progress, even though IN is in review.
+      ['SFS-2026-08-001', 'IN_PROGRESS', true, false, 'CONTINUE'],
       ['CFS-2026-07-001', 'DONE', false, true, 'VIEW'],
       ['SFS-2026-07-001', 'DONE', false, true, 'VIEW'],
     ]);
@@ -120,7 +121,11 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
       'SFS-2026-08-001',
     ]);
     expect((await tasks(priya, { status: 'DONE' })).total).toBe(2);
-    expect((await tasks(priya, { status: 'TO_CONTINUE' })).total).toBe(0);
+    expect((await tasks(priya, { status: 'TO_PREPARE' })).items.map((t) => t.number)).toEqual([
+      'SFS-2026-08-001',
+    ]);
+    expect((await tasks(priya, { status: 'IN_PROGRESS' })).total).toBe(1);
+    expect((await tasks(priya, { status: 'IN_REVIEW' })).total).toBe(0);
     expect((await tasks(priya, { search: 'consolidated' })).items.map((t) => t.number)).toEqual([
       'CFS-2026-07-001',
     ]);
@@ -135,6 +140,7 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     expect(jul.consolidation).toMatchObject({ finalised: 4, total: 4, next: null });
     expect(jul.period!.deadline).toEqual({ kind: 'COMPLETE' });
     expect(jul.lastPeriod).toMatchObject({ label: 'Jun-2026', done: false, openItems: 11 });
+    expect(jul.attention).toEqual({ entitiesToPrepare: 0, overdue: 1 });
   });
 
   it('opens a Done task read-only', async () => {
@@ -159,7 +165,8 @@ describe('dashboard for a user scoped to India only', () => {
       next: { level: 3, name: 'India' },
     });
     expect(d.lastPeriod).toMatchObject({ label: 'Jul-2026', done: true });
-    expect(d.attention).toEqual({ toContinue: 0, overdue: 1 });
+    // India is in review: nothing for this user to prepare.
+    expect(d.attention).toEqual({ entitiesToPrepare: 0, overdue: 1 });
   });
 
   it('sees only India in the entity breakdown, but the task status covers the whole task', async () => {
@@ -168,15 +175,20 @@ describe('dashboard for a user scoped to India only', () => {
     const aug = page.items.find((t) => t.number === 'SFS-2026-08-001')!;
     expect(aug.items).toEqual([{ code: 'IN', label: 'India', status: 'IN_REVIEW' }]);
     expect(aug.itemTotal).toBe(7);
-    expect(aug.status).toBe('IN_REVIEW');
+    // Task status covers the whole task; the action looks only at the user's scope.
+    expect(aug.status).toBe('IN_PROGRESS');
+    expect(aug.action).toBe('VIEW');
+    expect((await tasks(india, { status: 'TO_PREPARE' })).total).toBe(0);
     const cfs = page.items.find((t) => t.number === 'CFS-2026-07-001')!;
     expect(cfs.items.map((i) => i.code)).toEqual(['L3', 'L4']);
   });
 });
 
 describe('attention lines by permission', () => {
-  it('a reviewer sees items awaiting review (India is in review)', async () => {
+  it('a reviewer sees 1 entity awaiting review (India) and cannot continue preparing', async () => {
     expect((await dashboard(rahul)).attention).toEqual({ awaitingReview: 1, overdue: 1 });
+    const aug = (await tasks(rahul)).items.find((t) => t.number === 'SFS-2026-08-001')!;
+    expect(aug.action).toBe('VIEW');
     expect((await tasks(rahul, { status: 'AWAITING_REVIEW' })).items.map((t) => t.number)).toEqual([
       'SFS-2026-08-001',
     ]);
@@ -184,7 +196,7 @@ describe('attention lines by permission', () => {
 
   it('the master sees every line, including edit-access requests (0 until that page exists)', async () => {
     expect((await dashboard(master)).attention).toEqual({
-      toContinue: 0,
+      entitiesToPrepare: 3,
       awaitingReview: 1,
       editAccessRequests: 0,
       overdue: 1,

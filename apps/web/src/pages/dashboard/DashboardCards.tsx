@@ -134,6 +134,7 @@ export function DashboardCards({ data, filters, onFilter }: Props) {
 
 function AttentionCard({ data, filters, onFilter }: Props) {
   const a = data.attention;
+  const period = data.period!;
   const line = (
     label: string,
     count: number,
@@ -160,18 +161,20 @@ function AttentionCard({ data, filters, onFilter }: Props) {
     <div className="rounded-xl border bg-card p-4 shadow-xs">
       <CardTitle icon={AlertTriangle} title="Needs your attention" />
       <div className="-mx-2 mt-2 space-y-0.5">
-        {a.toContinue !== undefined &&
+        {a.entitiesToPrepare !== undefined &&
           line(
-            a.toContinue === 1 ? 'task to continue' : 'tasks to continue',
-            a.toContinue,
-            () => onFilter({ status: 'TO_CONTINUE' }),
-            filters.status === 'TO_CONTINUE',
+            a.entitiesToPrepare === 1 ? 'entity to prepare' : 'entities to prepare',
+            a.entitiesToPrepare,
+            () => onFilter({ periodId: period.id, status: 'TO_PREPARE' }),
+            filters.status === 'TO_PREPARE',
           )}
         {a.awaitingReview !== undefined &&
           line(
-            a.awaitingReview === 1 ? 'item awaiting your review' : 'items awaiting your review',
+            a.awaitingReview === 1
+              ? 'entity awaiting your review'
+              : 'entities awaiting your review',
             a.awaitingReview,
-            () => onFilter({ status: 'AWAITING_REVIEW' }),
+            () => onFilter({ periodId: period.id, status: 'AWAITING_REVIEW' }),
             filters.status === 'AWAITING_REVIEW',
           )}
         {a.editAccessRequests !== undefined && (
@@ -246,7 +249,10 @@ function Deadline({ deadline }: { deadline: NonNullable<DashboardDto['period']>[
     return <p className="mt-3 text-sm font-semibold text-success">All statements finalised</p>;
   }
   return deadline.status === 'OVERDUE' ? (
-    <p className="mt-3 text-sm font-semibold text-destructive">
+    <p
+      className="mt-3 text-sm font-semibold text-destructive"
+      title={`${deadline.overdueDays} calendar day${deadline.overdueDays === 1 ? '' : 's'} after the ${deadline.kind} due date (${formatDate(deadline.dueDate)}), counting weekends and holidays`}
+    >
       {deadline.kind} overdue by {deadline.overdueDays} day{deadline.overdueDays === 1 ? '' : 's'}
     </p>
   ) : (

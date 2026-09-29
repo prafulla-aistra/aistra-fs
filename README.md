@@ -212,15 +212,19 @@ and the task table from `GET /api/tasks`. Both respect the user's entity scope.
 - **Period in close:** defaults to the latest month whose end date has passed (29-Sep-2026 →
   Aug-2026); the switcher changes every card. Shows SFS/CFS due dates and working days left, or
   "overdue by N days" (the SFS deadline until every standalone statement is finalised, then CFS).
-- **Task status is derived** (engine `deriveTaskStatus`): Done = every entity (SFS) or level
-  (CFS) finalised, and the task is then locked; In review = any in review; In progress = any in
-  progress or finalised; otherwise Not started. Overdue = not Done and today after the due date.
+- **Task status is derived** (engine `deriveTaskStatus`), in this order: Done = every entity
+  (SFS) or level (CFS) finalised, and the task is then locked; Not started = all not started;
+  In progress = any not started or in progress, even if others are in review or finalised
+  (work remains); In review = nothing left to prepare and at least one in review. Overdue = not
+  Done and today after the due date ("overdue by N days" counts calendar days).
 - **Cards:** standalone "X of Y entities finalised" (Y = active entities in scope; no task =
   not started); consolidation "X of N levels" (levels containing an entity in scope) with the
-  next level; last period Done / N items open; needs your attention (lines by permission).
+  next level; last period Done / N items open; needs your attention: entities to prepare
+  (SFS_PREPARE) and entities awaiting review (SFS_REVIEW) in the selected period and scope,
+  edit-access requests, and overdue tasks.
   Each card filters the task table.
-- **Table actions:** Continue (not started / in progress, for preparers), otherwise View
-  (read-only). The task workspace and edit-access pages are placeholders until the next pages.
+- **Table actions:** Continue when the user may prepare and an entity/level in their scope is
+  not started or in progress; otherwise View (read-only). The task workspace and edit-access pages are placeholders until the next pages.
 - **Demo tasks** (demo mode only, flagged `is_demo`): Jul-2026 SFS and CFS Done, Aug-2026 SFS in
   review. Remove them with `npm run demo:remove-tasks`.
 

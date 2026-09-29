@@ -37,7 +37,9 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 export const TaskFilterStatus = {
   ...TaskStatus,
   Overdue: 'OVERDUE',
-  ToContinue: 'TO_CONTINUE',
+  /** SFS tasks with an entity in scope that is Not started or In progress. */
+  ToPrepare: 'TO_PREPARE',
+  /** SFS tasks with an entity in scope that is In review. */
   AwaitingReview: 'AWAITING_REVIEW',
 } as const;
 export type TaskFilterStatus = (typeof TaskFilterStatus)[keyof typeof TaskFilterStatus];
@@ -68,7 +70,7 @@ export interface TaskRowDto {
   overdue: boolean;
   /** Done tasks are locked. */
   locked: boolean;
-  /** "Continue" for not started / in progress (and permitted); otherwise "View" (read-only). */
+  /** "Continue" if permitted and an entity/level in scope is Not started or In progress; else "View". */
   action: 'CONTINUE' | 'VIEW';
   itemKind: 'ENTITY' | 'LEVEL';
   /** Entities / levels in the user's scope, each with its own status. */
@@ -141,7 +143,9 @@ export interface DashboardDto {
   lastPeriod: { id: string; label: string; done: boolean; openItems: number } | null;
   /** Lines appear only if they apply to the user's permissions (overdue always). */
   attention: {
-    toContinue?: number;
+    /** SFS_PREPARE: entities Not started or In progress in the selected period, in scope. */
+    entitiesToPrepare?: number;
+    /** SFS_REVIEW: entities In review in the selected period, in scope. */
     awaitingReview?: number;
     editAccessRequests?: number;
     overdue: number;
