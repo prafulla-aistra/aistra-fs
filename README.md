@@ -204,6 +204,26 @@ with old and new values.
 - **Seed behaviour:** configuration is seeded once. After that the screens own the data, and
   re-running the seed (`npm run dev` does this) never overwrites your edits.
 
+### Dashboard (page 1)
+
+The landing page after sign-in. All counts come from one endpoint, `GET /api/dashboard?period=`,
+and the task table from `GET /api/tasks`. Both respect the user's entity scope.
+
+- **Period in close:** defaults to the latest month whose end date has passed (29-Sep-2026 →
+  Aug-2026); the switcher changes every card. Shows SFS/CFS due dates and working days left, or
+  "overdue by N days" (the SFS deadline until every standalone statement is finalised, then CFS).
+- **Task status is derived** (engine `deriveTaskStatus`): Done = every entity (SFS) or level
+  (CFS) finalised, and the task is then locked; In review = any in review; In progress = any in
+  progress or finalised; otherwise Not started. Overdue = not Done and today after the due date.
+- **Cards:** standalone "X of Y entities finalised" (Y = active entities in scope; no task =
+  not started); consolidation "X of N levels" (levels containing an entity in scope) with the
+  next level; last period Done / N items open; needs your attention (lines by permission).
+  Each card filters the task table.
+- **Table actions:** Continue (not started / in progress, for preparers), otherwise View
+  (read-only). The task workspace and edit-access pages are placeholders until the next pages.
+- **Demo tasks** (demo mode only, flagged `is_demo`): Jul-2026 SFS and CFS Done, Aug-2026 SFS in
+  review. Remove them with `npm run demo:remove-tasks`.
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -231,6 +251,7 @@ AWS and selected with `STORAGE_DRIVER=s3`; business code does not change.
 | `npm run db:setup`              | `migrate deploy` + seed (what `npm run dev` runs)                   |
 | `npm run db:seed`               | Run the seed script (`apps/api/prisma/seed.ts`)                     |
 | `npm run db:studio`             | Open Prisma Studio to browse the database                           |
+| `npm run demo:remove-tasks`     | Delete the demo close tasks (they return while DEMO_MODE=true)      |
 | `npm run master:reset-password` | Reset the master password to `MASTER_PASSWORD` and unlock it        |
 
 **API integration tests** run against a separate database, `finance_close_test`, on the same

@@ -6,5 +6,6 @@ export const TEST_ENV = {
   JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
   BCRYPT_ROUNDS: '4', // fast hashing for tests
   COOKIE_SECURE: 'false',
-  DEMO_MODE: 'true', // seeds the demo users into the test database
+  DEMO_MODE: 'true', // seeds the demo users and demo tasks into the test database
+  FIXED_TODAY: '2026-09-29', // dashboard logic is tested against a known date
 };

@@ -79,6 +79,7 @@ model Entity {
   translatedCurrencies EntityTranslatedCurrency[]
   historicalRates      EntityHistoricalRate[]
   userScopes           UserEntityScope[]
+  taskEntities         TaskEntity[]
 
   @@map("entity")
 }
@@ -164,6 +165,7 @@ model Period {
   financialYear    FinancialYear     @relation(fields: [financialYearId], references: [id])
   statusChangedBy  User?             @relation("PeriodStatusChangedBy", fields: [statusChangedById], references: [id])
   dueDateOverrides DueDateOverride[]
+  tasks            Task[]
 
   @@unique([financialYearId, type, sequence])
   @@index([startDate])
@@ -255,6 +257,9 @@ model User {
   financialYearsCreated FinancialYear[]   @relation("FinancialYearCreatedBy")
   periodStatusChanges   Period[]          @relation("PeriodStatusChangedBy")
   dueDateOverrides      DueDateOverride[] @relation("DueDateOverrideCreatedBy")
+  tasksCreated          Task[]            @relation("TaskCreatedBy")
+  taskEntitiesFinalised TaskEntity[]      @relation("TaskEntityFinalisedBy")
+  taskLevelsFinalised   TaskLevel[]       @relation("TaskLevelFinalisedBy")
 
   @@map("app_user")
 }
@@ -359,4 +364,83 @@ model AuditLog {
   @@index([userId, timestamp])
   @@index([action, timestamp])
   @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// Close tasks (page 1: dashboard). A task prepares SFS for entities or CFS for levels in one
+// period. Task status is DERIVED from its items (engine deriveTaskStatus), never stored.
+// ---------------------------------------------------------------------------
+
+enum TaskItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  IN_REVIEW
+  FINALISED
+}
+
+model Task {
+  id          String        @id @default(uuid()) @db.Uuid
+  /// e.g. SFS-2026-08-001
+  number      String        @unique @db.VarChar(30)
+  type        StatementType
+  /// Financial year and period type come from the period.
+  periodId    String        @map("period_id") @db.Uuid
+  /// Statement format (formats arrive with the configuration of formats).
+  format      String?       @db.VarChar(60)
+  description String        @db.VarChar(300)
+  dueDate     DateTime      @map("due_date") @db.Date
+  /// Workflow step the task was left at (the task workspace defines the steps).
+  currentStep String        @map("current_step") @db.VarChar(40)
+  createdById String        @map("created_by_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Set when every entity/level is finalised; the task is then locked.
+  completedAt DateTime?     @map("completed_at") @db.Timestamptz(3)
+  /// Demo data (seeded only in demo mode; removable with npm run demo:remove-tasks).
+  isDemo      Boolean       @default(false) @map("is_demo")
+
+  period    Period       @relation(fields: [periodId], references: [id])
+  createdBy User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  entities  TaskEntity[]
+  levels    TaskLevel[]
+
+  @@index([periodId])
+  @@map("task")
+}
+
+model TaskEntity {
+  taskId        String         @map("task_id") @db.Uuid
+  entityCode    String         @map("entity_code") @db.VarChar(10)
+  status        TaskItemStatus @default(NOT_STARTED)
+  currentStep   String         @map("current_step") @db.VarChar(40)
+  finalisedById String?        @map("finalised_by_id") @db.Uuid
+  finalisedAt   DateTime?      @map("finalised_at") @db.Timestamptz(3)
+
+  task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  entity      Entity @relation(fields: [entityCode], references: [code])
+  finalisedBy User?  @relation("TaskEntityFinalisedBy", fields: [finalisedById], references: [id])
+
+  @@id([taskId, entityCode])
+  @@map("task_entity")
+}
+
+/// A consolidation level of a CFS task, snapshotted from the group structure at creation.
+model TaskLevel {
+  taskId           String         @map("task_id") @db.Uuid
+  level            Int
+  name             String         @db.VarChar(60)
+  parentEntityCode String         @map("parent_entity_code") @db.VarChar(10)
+  currency         String         @db.Char(3)
+  /// Member entity codes at creation (parent first).
+  members          String[]
+  status           TaskItemStatus @default(NOT_STARTED)
+  currentStep      String         @map("current_step") @db.VarChar(40)
+  finalisedById    String?        @map("finalised_by_id") @db.Uuid
+  finalisedAt      DateTime?      @map("finalised_at") @db.Timestamptz(3)
+
+  task        Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  finalisedBy User? @relation("TaskLevelFinalisedBy", fields: [finalisedById], references: [id])
+
+  @@id([taskId, level])
+  @@map("task_level")
 }

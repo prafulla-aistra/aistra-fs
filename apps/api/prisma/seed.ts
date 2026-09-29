@@ -17,6 +17,7 @@ import {
 import { hashPassword, normaliseEmail } from '../src/auth/passwords';
 import { seedConfiguration } from './seed-configuration';
 import { seedDemoUsers } from './seed-demo';
+import { seedDemoTasks } from './seed-demo-tasks';
 import { withConnectionDefaults } from '../src/prisma/database-url';
 
 const prisma = new PrismaClient({
@@ -203,6 +204,7 @@ async function main(): Promise<void> {
   await seedMaster();
   if (process.env.DEMO_MODE?.trim().toLowerCase() === 'true') {
     await seedDemoUsers(prisma, Number.parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10));
+    await seedDemoTasks(prisma);
   }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }

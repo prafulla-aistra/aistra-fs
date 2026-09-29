@@ -10,5 +10,6 @@ import { EntitiesService } from './entities.service';
 @Module({
   controllers: [CurrenciesController, EntitiesController, CalendarController],
   providers: [CurrenciesService, EntitiesService, CalendarService],
+  exports: [EntitiesService, CalendarService],
 })
 export class ConfigurationModule {}

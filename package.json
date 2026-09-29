@@ -31,7 +31,8 @@
     "db:setup": "npm run db:setup -w @finance-close/api",
     "db:seed": "npm run db:seed -w @finance-close/api",
     "db:studio": "npm run db:studio -w @finance-close/api",
-    "master:reset-password": "npm run master:reset-password -w @finance-close/api"
+    "master:reset-password": "npm run master:reset-password -w @finance-close/api",
+    "demo:remove-tasks": "npm run demo:remove-tasks -w @finance-close/api"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

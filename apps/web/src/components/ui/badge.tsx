@@ -1,5 +1,11 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
+import {
+  ITEM_STATUS_LABELS,
+  TASK_STATUS_LABELS,
+  type ItemStatus,
+  type TaskStatus,
+} from '@finance-close/shared';
 import { cn } from '@/lib/utils';
 
 const badgeVariants = cva(
@@ -14,6 +20,7 @@ const badgeVariants = cva(
         warning: 'border-warning/40 bg-amber-50 text-warning-foreground',
         destructive: 'border-destructive/25 bg-red-50 text-destructive',
         neutral: 'border-neutral/25 bg-slate-100 text-slate-700',
+        review: 'border-ink/20 bg-[#E6EDF3] text-ink',
         outline: 'border-border bg-card text-foreground',
       },
     },
@@ -53,4 +60,42 @@ function StatusBadge({ status, label }: { status: WorkStatus; label?: string }) 
   );
 }
 
-export { Badge, StatusBadge };
+const ITEM: Record<
+  ItemStatus,
+  { variant: 'success' | 'warning' | 'neutral' | 'review'; dot: string }
+> = {
+  NOT_STARTED: { variant: 'neutral', dot: 'bg-neutral' },
+  IN_PROGRESS: { variant: 'warning', dot: 'bg-warning' },
+  IN_REVIEW: { variant: 'review', dot: 'bg-ink' },
+  FINALISED: { variant: 'success', dot: 'bg-success' },
+};
+const TASK: Record<TaskStatus, ItemStatus> = {
+  NOT_STARTED: 'NOT_STARTED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  IN_REVIEW: 'IN_REVIEW',
+  DONE: 'FINALISED',
+};
+
+/** Status of one entity or level in a task. */
+function ItemStatusBadge({ status }: { status: ItemStatus }) {
+  const s = ITEM[status];
+  return (
+    <Badge variant={s.variant}>
+      <span className={cn('size-1.5 rounded-full', s.dot)} aria-hidden />
+      {ITEM_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+/** Derived task status: Done uses the "done" colour, the rest match item statuses. */
+function TaskStatusBadge({ status }: { status: TaskStatus }) {
+  const s = ITEM[TASK[status]];
+  return (
+    <Badge variant={s.variant}>
+      <span className={cn('size-1.5 rounded-full', s.dot)} aria-hidden />
+      {TASK_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+export { Badge, ItemStatusBadge, StatusBadge, TaskStatusBadge };

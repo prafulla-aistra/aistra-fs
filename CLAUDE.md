@@ -86,6 +86,12 @@
   unclean shutdowns on every watch-mode restart.)
 - data/ and .env files are git-ignored. docker-compose.yml is optional, kept for AWS work.
 
+## Close tasks and dashboard
+- Task status is derived from its entities (SFS) / levels (CFS) via engine deriveTaskStatus;
+  never store it. Done tasks are locked. CFS tasks snapshot their levels at creation.
+- "Today" comes from ClockService (APP_TIMEZONE, default Asia/Kolkata; FIXED_TODAY for tests).
+- Dashboard numbers come only from GET /api/dashboard; visibility follows entity scope.
+
 ## UI theme
 - Colours are CSS tokens in apps/web/src/index.css: ink navy #0F2A3D (sidebar, headings),
   ledger teal #0E7C66 (primary, active, links), mint #E8F3EF (selected/highlight), page
@@ -95,7 +101,8 @@
 - Illustrations are original inline SVG; no stock images or external assets.
 
 ## Before going live
-- DEMO_MODE=false (demo users not seeded, quick-login endpoints absent/404).
+- DEMO_MODE=false (demo users and demo tasks not seeded, quick-login endpoints absent/404);
+  run npm run demo:remove-tasks and deactivate demo users if they were ever seeded. No FIXED_TODAY.
 - COOKIE_SECURE=true (HTTPS only); JWT_SECRET from a secrets manager.
 - Change MASTER_EMAIL / MASTER_PASSWORD; remove or deactivate any demo users that exist.
 - Replace illustrative historical rates and holidays with confirmed values.

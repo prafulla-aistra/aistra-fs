@@ -382,7 +382,8 @@ export class CalendarService {
 
   // ---------------------------------------------------------------- helpers
 
-  private async period(id: string): Promise<PeriodDto> {
+  /** One period with its SFS and CFS due dates (calculated or overridden). */
+  async period(id: string): Promise<PeriodDto> {
     const [row, ctx] = await Promise.all([
       this.prisma.period.findUniqueOrThrow({ where: { id }, include: periodInclude }),
       this.dueDateContext(),

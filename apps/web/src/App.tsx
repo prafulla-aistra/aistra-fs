@@ -11,7 +11,8 @@ import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
 import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
 import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
-import { DashboardPage } from '@/pages/DashboardPage';
+import { DashboardPage } from '@/pages/dashboard/DashboardPage';
+import { TaskPlaceholderPage } from '@/pages/tasks/TaskPlaceholderPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ComingSoonPage, NotFoundPage } from '@/pages/SimplePages';
 import { UsersPage } from '@/pages/users/UsersPage';
@@ -27,6 +28,18 @@ export function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route element={<RequirePermission anyOf={navItem('/tasks/new').anyOf} />}>
             <Route path="/tasks/new" element={<ComingSoonPage title="New task" />} />
+          </Route>
+          <Route
+            element={
+              <RequirePermission
+                anyOf={['SFS_PREPARE', 'SFS_REVIEW', 'CFS_PREPARE', 'CFS_REVIEW', 'REPORTS_VIEW']}
+              />
+            }
+          >
+            <Route path="/tasks/:id" element={<TaskPlaceholderPage />} />
+          </Route>
+          <Route element={<RequirePermission anyOf={['EDIT_ACCESS_APPROVE']} />}>
+            <Route path="/edit-access" element={<ComingSoonPage title="Edit-access requests" />} />
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/configuration').anyOf} />}>
             <Route path="/configuration" element={<ConfigurationLayout />}>

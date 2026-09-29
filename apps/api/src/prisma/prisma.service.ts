@@ -20,8 +20,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({ datasourceUrl: withConnectionDefaults(config.get('DATABASE_URL', { infer: true })) });
   }
 
+  private warmUp: Promise<void> = Promise.resolve();
+
   onModuleInit(): void {
-    this.$connect().catch((err: unknown) =>
+    this.warmUp = this.$connect().catch((err: unknown) =>
       this.logger.warn(
         `Database not reachable yet: ${err instanceof Error ? err.message.trim().split('\n').at(-1) : String(err)}`,
       ),
@@ -29,6 +31,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Never disconnect while the warm-up connect is still in flight: on Windows the query
+    // engine can then call back into a closing handle and crash Node (libuv assertion).
+    await this.warmUp;
     await this.$disconnect();
   }
 }

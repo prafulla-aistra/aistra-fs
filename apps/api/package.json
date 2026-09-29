@@ -17,7 +17,8 @@
     "db:setup": "prisma migrate deploy && prisma db seed",
     "master:reset-password": "tsx prisma/seed.ts --reset-master-password",
     "test:unit": "jest",
-    "test:e2e": "jest -c test/jest-e2e.config.js --runInBand"
+    "test:e2e": "jest -c test/jest-e2e.config.js --runInBand",
+    "demo:remove-tasks": "tsx prisma/remove-demo-tasks.ts"
   },
   "dependencies": {
     "@finance-close/engine": "*",
