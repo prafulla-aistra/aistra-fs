@@ -1,4 +1,10 @@
-import type { HealthResponse, SessionResponse } from '@finance-close/shared';
+import {
+  ApiErrorCode,
+  PROXY_UNAVAILABLE_HEADER,
+  SERVER_UNREACHABLE_MESSAGE,
+  type HealthResponse,
+  type SessionResponse,
+} from '@finance-close/shared';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 
@@ -11,6 +17,46 @@ export class ApiError extends Error {
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+}
+
+/** No answer from the API at all (not started, restarting, stopped, or network down). */
+export class ServerUnreachableError extends ApiError {
+  constructor() {
+    super(SERVER_UNREACHABLE_MESSAGE, 503, ApiErrorCode.ApiUnavailable, undefined);
+    this.name = 'ServerUnreachableError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transport: retry while the API is briefly unreachable
+// ---------------------------------------------------------------------------
+
+/**
+ * The API restarts for a few seconds whenever its code changes, and takes up to ~30 s to
+ * start after `npm run dev`. A request that never reached it (connection refused, reported by
+ * the dev proxy with a marker header, or a network error) is safe to retry — even a POST —
+ * so keep trying for a while before telling the user the server is unreachable.
+ */
+const RETRY_WINDOW_MS = 20_000;
+
+function neverReachedApi(res: Response): boolean {
+  return res.status === 503 && res.headers.get(PROXY_UNAVAILABLE_HEADER) === 'api-unavailable';
+}
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const deadline = Date.now() + RETRY_WINDOW_MS;
+  let delay = 400;
+  for (;;) {
+    try {
+      const res = await fetch(url, init);
+      if (!neverReachedApi(res)) return res;
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err; // TypeError = network failure
+    }
+    if (Date.now() + delay > deadline) throw new ServerUnreachableError();
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 3000);
   }
 }
 
@@ -37,22 +83,24 @@ export function subscribeSession(fn: (s: SessionResponse | null) => void): () =>
 }
 
 /**
- * Exchanges the refresh cookie for a new session. Concurrent callers share one request —
- * the refresh token rotates, so two parallel refreshes would end the session.
+ * Exchanges the refresh cookie for a new session; null if there is no valid session.
+ * Throws ServerUnreachableError (and leaves the current session alone) if the server
+ * cannot be reached — being unable to ask is not the same as being signed out.
+ * Concurrent callers share one request: the refresh token rotates, so two parallel
+ * refreshes would end the session.
  */
 export function refreshSession(): Promise<SessionResponse | null> {
   refreshInFlight ??= (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetchWithRetry(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { Accept: 'application/json' },
       });
+      if (res.status >= 500) throw new ServerUnreachableError();
       const session = res.ok ? ((await res.json()) as SessionResponse) : null;
       setSession(session);
       return session;
-    } catch {
-      return null; // network error: keep current state, caller decides
     } finally {
       refreshInFlight = null;
     }
@@ -67,7 +115,7 @@ async function send(path: string, init: RequestInit): Promise<Response> {
     headers.set('Content-Type', 'application/json');
   }
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  return fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'same-origin' });
+  return fetchWithRetry(`${API_BASE}${path}`, { ...init, headers, credentials: 'same-origin' });
 }
 
 /** JSON in/out. On an expired access token, refreshes once and retries. Throws ApiError. */
@@ -90,6 +138,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       message?: unknown;
       code?: unknown;
     };
+    // Our API always answers with a JSON { code, message }. A server error without one came
+    // from something in between (proxy, gateway), so the API itself was not reachable.
+    if (typeof b.message !== 'string' && res.status >= 500) throw new ServerUnreachableError();
     const message =
       typeof b.message === 'string'
         ? b.message
@@ -124,7 +175,7 @@ export const api = {
 /** Human-readable message for any error thrown by the API client. */
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
-  if (err instanceof TypeError) return 'Could not reach the server. Check that the app is running.';
+  if (err instanceof TypeError) return SERVER_UNREACHABLE_MESSAGE;
   return err instanceof Error ? err.message : 'Something went wrong.';
 }
 

@@ -14,7 +14,7 @@
     "npm": ">=10"
   },
   "scripts": {
-    "dev": "npm run build:packages && npm run db:start && npm run db:setup && concurrently -k -n shared,engine,api,web -c gray,magenta,blue,green \"npm run dev -w @finance-close/shared\" \"npm run dev -w @finance-close/engine\" \"npm run dev -w @finance-close/api\" \"npm run dev -w @finance-close/web\"",
+    "dev": "node scripts/dev-preflight.mjs && npm run build:packages && npm run db:start && npm run db:setup && concurrently --kill-others-on-fail -n shared,engine,api,web,ready -c gray,magenta,blue,green,cyan \"npm run dev -w @finance-close/shared\" \"npm run dev -w @finance-close/engine\" \"npm run dev -w @finance-close/api\" \"npm run dev -w @finance-close/web\" \"node scripts/dev-ready.mjs\"",
     "build:packages": "npm run build -w @finance-close/shared -w @finance-close/engine",
     "build": "npm run build:packages && npm run build -w @finance-close/api -w @finance-close/web",
     "test": "npm run build:packages && npm run test --workspaces --if-present",

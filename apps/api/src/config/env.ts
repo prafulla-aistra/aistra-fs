@@ -24,6 +24,8 @@ export interface Env {
   COOKIE_SECURE: boolean;
   /** bcrypt cost factor (4–15). 12 in normal use; tests lower it for speed. */
   BCRYPT_ROUNDS: number;
+  /** Demo accounts + one-click sign-in. Off unless explicitly "true"; never in production. */
+  DEMO_MODE: boolean;
 }
 
 export function validateEnv(raw: Record<string, unknown>): Env {
@@ -74,6 +76,9 @@ export function validateEnv(raw: Record<string, unknown>): Env {
   if (!['true', 'false'].includes(cookieSecureRaw))
     errors.push('COOKIE_SECURE must be true or false');
 
+  const demoModeRaw = (str(raw.DEMO_MODE) || 'false').toLowerCase();
+  if (!['true', 'false'].includes(demoModeRaw)) errors.push('DEMO_MODE must be true or false');
+
   if (errors.length > 0) {
     throw new Error(`Invalid API configuration:\n  - ${errors.join('\n  - ')}`);
   }
@@ -88,6 +93,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     REFRESH_TOKEN_TTL_HOURS: refreshHours ?? 12,
     COOKIE_SECURE: cookieSecureRaw === 'true',
     BCRYPT_ROUNDS: bcryptRounds ?? 12,
+    DEMO_MODE: demoModeRaw === 'true',
   };
 }
 

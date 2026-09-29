@@ -19,7 +19,11 @@ type AuthState =
 
 interface AuthContextValue {
   state: AuthState;
+  /** True when the page could not reach the server on load. */
+  serverUnreachable: boolean;
   login(email: string, password: string): Promise<SessionUser>;
+  /** Demo mode only: sign in as a seeded demo account without a password. */
+  demoLogin(email: string): Promise<SessionUser>;
   logout(): Promise<void>;
   changePassword(currentPassword: string, newPassword: string): Promise<SessionUser>;
   /** True if the user holds at least one of the codes. */
@@ -34,6 +38,7 @@ const REFRESH_MARGIN_SECONDS = 60;
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading', user: null });
   const [expiresIn, setExpiresIn] = useState<number | null>(null);
+  const [serverUnreachable, setServerUnreachable] = useState(false);
   const queryClient = useQueryClient();
 
   // Every session change (login, refresh, logout, server-side sign-out) lands here.
@@ -54,21 +59,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On page load, the refresh cookie (if any) restores the session.
   useEffect(() => {
-    void refreshSession().then((s) => {
-      if (!s) setState({ status: 'anonymous', user: null });
-    });
+    refreshSession()
+      .then((s) => {
+        setServerUnreachable(false);
+        if (!s) setState({ status: 'anonymous', user: null });
+      })
+      .catch(() => {
+        // Could not ask the server: show the sign-in page with a clear message.
+        setServerUnreachable(true);
+        setState({ status: 'anonymous', user: null });
+      });
   }, []);
 
-  // Keep the 15-minute access token fresh while the app is open.
+  // Keep the 15-minute access token fresh while the app is open. If the server is briefly
+  // unreachable (e.g. restarting), try again shortly instead of signing the user out.
   useEffect(() => {
     if (expiresIn === null) return;
     const ms = Math.max(5, expiresIn - REFRESH_MARGIN_SECONDS) * 1000;
-    const timer = setTimeout(() => void refreshSession(), ms);
+    const timer = setTimeout(() => {
+      refreshSession().catch(() => setExpiresIn(REFRESH_MARGIN_SECONDS + 15));
+    }, ms);
     return () => clearTimeout(timer);
   }, [expiresIn, state]);
 
   const login = useCallback(async (email: string, password: string) => {
     const s = await api.post<SessionResponse>('/auth/login', { email, password });
+    setServerUnreachable(false);
+    setSession(s);
+    return s.user;
+  }, []);
+
+  const demoLogin = useCallback(async (email: string) => {
+    const s = await api.post<SessionResponse>('/auth/demo-login', { email });
+    setServerUnreachable(false);
     setSession(s);
     return s.user;
   }, []);
@@ -93,13 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       state,
+      serverUnreachable,
       login,
+      demoLogin,
       logout,
       changePassword,
       hasAny: (...codes) =>
         state.status === 'authenticated' && codes.some((c) => state.user.permissions.includes(c)),
     }),
-    [state, login, logout, changePassword],
+    [state, serverUnreachable, login, demoLogin, logout, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

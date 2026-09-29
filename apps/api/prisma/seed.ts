@@ -16,8 +16,12 @@ import {
 } from '@finance-close/shared';
 import { hashPassword, normaliseEmail } from '../src/auth/passwords';
 import { seedConfiguration } from './seed-configuration';
+import { seedDemoUsers } from './seed-demo';
+import { withConnectionDefaults } from '../src/prisma/database-url';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasourceUrl: withConnectionDefaults(process.env.DATABASE_URL ?? ''),
+});
 const resetMasterPassword = process.argv.includes('--reset-master-password');
 
 const PERMISSIONS: { code: PermissionCode; description: string; area: string }[] = [
@@ -197,6 +201,9 @@ async function seedMaster(): Promise<void> {
 async function main(): Promise<void> {
   await seedReferenceData();
   await seedMaster();
+  if (process.env.DEMO_MODE?.trim().toLowerCase() === 'true') {
+    await seedDemoUsers(prisma, Number.parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10));
+  }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }
 

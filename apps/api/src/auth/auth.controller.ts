@@ -1,18 +1,14 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ApiErrorCode, type SessionResponse, type SessionUser } from '@finance-close/shared';
-import type { CookieOptions, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { ApiError } from '../common/api-error';
 import { ClientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod.pipe';
-import type { Env } from '../config/env';
 import { AllowPendingPasswordChange, Authenticated, CurrentUser, Public } from './access-control';
-import { AuthProvider, type SessionTokens } from './auth-provider';
+import { AuthProvider } from './auth-provider';
+import { SessionCookies } from './session-cookies';
 import { type AuthUser, toSessionUser } from './session-user';
-
-/** httpOnly refresh-token cookie, sent only to /api/auth/*. */
-export const REFRESH_COOKIE = 'fc_refresh';
 
 const loginSchema = z.object({
   email: z.string().trim().min(1, 'Enter your email').max(320),
@@ -26,19 +22,10 @@ const changePasswordSchema = z.object({
 
 @Controller('auth')
 export class AuthController {
-  private readonly cookie: CookieOptions;
-
   constructor(
     private readonly auth: AuthProvider,
-    config: ConfigService<Env, true>,
-  ) {
-    this.cookie = {
-      httpOnly: true,
-      secure: config.get('COOKIE_SECURE', { infer: true }),
-      sameSite: 'strict',
-      path: '/api/auth',
-    };
-  }
+    private readonly cookies: SessionCookies,
+  ) {}
 
   @Post('login')
   @HttpCode(200)
@@ -48,7 +35,7 @@ export class AuthController {
     @ClientIp() ip: string | null,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SessionResponse> {
-    return this.respond(res, await this.auth.signIn(body.email, body.password, ip));
+    return this.cookies.respond(res, await this.auth.signIn(body.email, body.password, ip));
   }
 
   /** Uses the refresh cookie; the web app calls this on page load and before tokens expire. */
@@ -60,7 +47,7 @@ export class AuthController {
     @ClientIp() ip: string | null,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SessionResponse> {
-    const token = readRefreshCookie(req);
+    const token = this.cookies.read(req);
     try {
       if (!token) {
         throw new ApiError(
@@ -69,9 +56,9 @@ export class AuthController {
           'Please sign in.',
         );
       }
-      return this.respond(res, await this.auth.refresh(token, ip));
+      return this.cookies.respond(res, await this.auth.refresh(token, ip));
     } catch (err) {
-      res.clearCookie(REFRESH_COOKIE, this.cookie);
+      this.cookies.clear(res);
       throw err;
     }
   }
@@ -85,8 +72,8 @@ export class AuthController {
     @ClientIp() ip: string | null,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    await this.auth.signOut(readRefreshCookie(req), ip);
-    res.clearCookie(REFRESH_COOKIE, this.cookie);
+    await this.auth.signOut(this.cookies.read(req), ip);
+    this.cookies.clear(res);
   }
 
   @Get('me')
@@ -112,16 +99,6 @@ export class AuthController {
       body.newPassword,
       ip,
     );
-    return this.respond(res, session);
+    return this.cookies.respond(res, session);
   }
-
-  private respond(res: Response, s: SessionTokens): SessionResponse {
-    res.cookie(REFRESH_COOKIE, s.refreshToken, { ...this.cookie, expires: s.refreshExpiresAt });
-    return { accessToken: s.accessToken, expiresIn: s.expiresIn, user: toSessionUser(s.user) };
-  }
-}
-
-function readRefreshCookie(req: Request): string | undefined {
-  const value = (req.cookies as Record<string, unknown> | undefined)?.[REFRESH_COOKIE];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

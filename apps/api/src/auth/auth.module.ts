@@ -7,6 +7,7 @@ import { AccessGuard } from './access-control';
 import { AuthController } from './auth.controller';
 import { AuthProvider } from './auth-provider';
 import { LocalAuthProvider } from './local-auth.provider';
+import { SessionCookies } from './session-cookies';
 import { SessionUserLoader } from './session-user';
 
 @Global()
@@ -24,11 +25,12 @@ import { SessionUserLoader } from './session-user';
   controllers: [AuthController],
   providers: [
     SessionUserLoader,
+    SessionCookies,
     // Swap LocalAuthProvider for a Cognito implementation here; nothing else changes.
     { provide: AuthProvider, useClass: LocalAuthProvider },
     // Applies to every endpoint in the API (deny by default).
     { provide: APP_GUARD, useClass: AccessGuard },
   ],
-  exports: [AuthProvider, SessionUserLoader],
+  exports: [AuthProvider, SessionUserLoader, SessionCookies],
 })
 export class AuthModule {}

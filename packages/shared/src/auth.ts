@@ -72,6 +72,15 @@ export interface SessionResponse {
   user: SessionUser;
 }
 
+/** A one-click account on the sign-in page (demo mode only). */
+export interface DemoAccountDto {
+  name: string;
+  email: string;
+  /** "Master admin", or the permission template name, e.g. "Preparer". */
+  role: string;
+  isMaster: boolean;
+}
+
 export interface ChangePasswordRequest {
   currentPassword: string;
   newPassword: string;
@@ -90,8 +99,21 @@ export const ApiErrorCode = {
   Conflict: 'CONFLICT',
   NotAllowed: 'NOT_ALLOWED',
   InternalError: 'INTERNAL_ERROR',
+  /** The API process is not reachable (not started yet, restarting, or stopped). */
+  ApiUnavailable: 'API_UNAVAILABLE',
+  /** The API is up but cannot reach its database. */
+  DatabaseUnavailable: 'DATABASE_UNAVAILABLE',
 } as const;
 export type ApiErrorCode = (typeof ApiErrorCode)[keyof typeof ApiErrorCode];
+
+/** Shown whenever the browser cannot get an answer from the API. */
+export const SERVER_UNREACHABLE_MESSAGE = "Can't reach the server. Check the app is running.";
+
+/**
+ * Header the development proxy adds to its own 503 answer when the API is down, so the web
+ * app knows the request never reached the API and can safely retry it.
+ */
+export const PROXY_UNAVAILABLE_HEADER = 'x-finance-close-proxy';
 
 export interface PermissionDto {
   code: PermissionCode;

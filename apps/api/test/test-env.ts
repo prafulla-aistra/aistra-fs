@@ -6,4 +6,5 @@ export const TEST_ENV = {
   JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
   BCRYPT_ROUNDS: '4', // fast hashing for tests
   COOKIE_SECURE: 'false',
+  DEMO_MODE: 'true', // seeds the demo users into the test database
 };

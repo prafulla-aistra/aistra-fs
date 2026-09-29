@@ -86,6 +86,20 @@
   unclean shutdowns on every watch-mode restart.)
 - data/ and .env files are git-ignored. docker-compose.yml is optional, kept for AWS work.
 
+## UI theme
+- Colours are CSS tokens in apps/web/src/index.css: ink navy #0F2A3D (sidebar, headings),
+  ledger teal #0E7C66 (primary, active, links), mint #E8F3EF (selected/highlight), page
+  #F6F8F7, cards #FFFFFF, borders #D9E2DE; status: done #0E7C66, in progress #D97706,
+  not started #64748B, overdue/error #B42318. Use tokens, never ad-hoc colours. Keep WCAG AA.
+- Font: Inter (bundled via @fontsource-variable, works offline); tabular numbers everywhere.
+- Illustrations are original inline SVG; no stock images or external assets.
+
+## Before going live
+- DEMO_MODE=false (demo users not seeded, quick-login endpoints absent/404).
+- COOKIE_SECURE=true (HTTPS only); JWT_SECRET from a secrets manager.
+- Change MASTER_EMAIL / MASTER_PASSWORD; remove or deactivate any demo users that exist.
+- Replace illustrative historical rates and holidays with confirmed values.
+
 ## Decisions
 - Consolidation: 4 levels as above (deliberate; one more than As-Is §5.1).
 - Veracity currencies: SGD (VS) and LKR (VM), flagged "to be confirmed", editable.

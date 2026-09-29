@@ -91,6 +91,24 @@ export class LocalAuthProvider extends AuthProvider {
     });
   }
 
+  async signInAsDemoUser(userId: string, ip: string | null): Promise<SessionTokens> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
+      await this.audit.record(
+        {
+          userId,
+          action: AuditAction.LoginSuccess,
+          entityType: 'USER',
+          entityId: userId,
+          newValue: { method: 'DEMO_QUICK_LOGIN' },
+          ip,
+        },
+        tx,
+      );
+      return this.openSession(userId, ip, tx);
+    });
+  }
+
   async refresh(refreshToken: string, ip: string | null): Promise<SessionTokens> {
     const stored = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: sha256(refreshToken) },

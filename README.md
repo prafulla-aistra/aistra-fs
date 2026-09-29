@@ -7,7 +7,7 @@ Standalone Financial Statements (SFS) and multi-level Consolidated Financial Sta
 - Project rules (accuracy, sign convention, translation, consolidation): [CLAUDE.md](CLAUDE.md)
 - As-Is process: [docs/Finance_Automation_Process_Flow_v1.docx](docs/Finance_Automation_Process_Flow_v1.docx)
 
-> **Status: step 2 — configuration** (currencies, entities, group structure, financial-year
+> **Status: step 2A — new design and reliable startup; step 2 — configuration** (currencies, entities, group structure, financial-year
 > calendar, due dates) on top of step 1 (sign-in, users, permissions). Formats, chart of
 > accounts and exchange rates come next; statements and consolidation after that.
 
@@ -29,7 +29,23 @@ Then open **<http://localhost:5173>** and sign in as the master admin:
 | --------------------------- | ------------------- |
 | `master@financeclose.local` | `FinanceClose-2026` |
 
-These come from `MASTER_EMAIL` / `MASTER_PASSWORD` in `apps/api/.env`. **Change them before
+### Demo accounts (demo mode only)
+
+With `DEMO_MODE=true` (the local default), the sign-in page shows **Demo accounts**. Click one
+to sign in instantly. The same accounts also work with their passwords:
+
+| Account            | Email                       | Password            | Permissions                            |
+| ------------------ | --------------------------- | ------------------- | -------------------------------------- |
+| Master admin       | `master@financeclose.local` | `FinanceClose-2026` | everything                             |
+| Priya – Preparer   | `priya@financeclose.local`  | `Priya-Demo-2026`   | SFS_PREPARE, CFS_PREPARE, REPORTS_VIEW |
+| Rahul – Reviewer   | `rahul@financeclose.local`  | `Rahul-Demo-2026`   | SFS_REVIEW, CFS_REVIEW, REPORTS_VIEW   |
+| Viewer – read only | `viewer@financeclose.local` | `Viewer-Demo-2026`  | REPORTS_VIEW                           |
+
+Demo users skip the forced first-login password change. With `DEMO_MODE=false` the demo users
+are not seeded and the quick-login endpoints do not exist (404). **Production must use
+`DEMO_MODE=false`.**
+
+The master's email and password come from `MASTER_EMAIL` / `MASTER_PASSWORD` in `apps/api/.env`. **Change them before
 real use.** The seed creates the master only once. To reset the master's password to the
 value in `.env` (for example after forgetting it), run `npm run master:reset-password`.
 
@@ -41,6 +57,15 @@ The first `npm run dev` does some one-off setup:
    the first time.
 3. It starts the database server, applies migrations and runs the seed.
 4. It starts the API (port 3000) and web app (port 5173) with live reload.
+
+Wait for the line **"Finance Close is ready … Open http://localhost:5173"** in the terminal. The
+API takes up to ~30 s to start after the web page is already available. If you sign in during
+that time, or while the API restarts after a code change, the page waits for it automatically.
+It shows **"Can't reach the server. Check the app is running."** only if the server stays
+unreachable for 20 s.
+
+`npm run dev` refuses to start a second copy when one is already running, and says so. After a
+laptop restart or crash it removes a stale database lock file before starting the database.
 
 Stop the app with **Ctrl+C**. The database server keeps running in the background, so the
 next `npm run dev` starts quickly. Stop it with `npm run db:stop` if you want to; a reboot
@@ -235,6 +260,11 @@ MinIO for S3). Local development does not need it. To use its PostgreSQL, run
 
 ## Troubleshooting
 
+- **Sign-in says "Can't reach the server".** The API is not running. Run `npm run dev` and wait
+  for "Finance Close is ready". If it says Finance Close is already running, use that window.
+- **`npm run db:stop` is slow after the laptop slept.** PostgreSQL can stop answering shutdown
+  requests after sleep. `db:stop` then forces an immediate stop after 30 s, which is safe:
+  PostgreSQL replays its log on the next start.
 - **Health shows `db: error`.** Run `npm run db:status`. If the server is not running, run
   `npm run db:start` and read its message. The server log is `data/db.log`.
 - **Port 54329 already in use.** Change the port in `DATABASE_URL` in `apps/api/.env`. The

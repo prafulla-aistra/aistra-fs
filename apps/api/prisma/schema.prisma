@@ -225,6 +225,8 @@ model User {
   status             UserStatus @default(ACTIVE)
   /// The master admin: every permission, cannot be deleted or deactivated.
   isMaster           Boolean    @default(false) @map("is_master")
+  /// Seeded demo account (demo mode only). Only these can use quick login.
+  isDemo             Boolean    @default(false) @map("is_demo")
   /// True after an admin sets a temporary password; cleared when the user changes it.
   mustChangePassword Boolean    @default(false) @map("must_change_password")
   /// When false, access is limited to the entities in UserEntityScope.

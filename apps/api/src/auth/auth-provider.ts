@@ -44,6 +44,11 @@ export abstract class AuthProvider {
     password: string,
     db: Prisma.TransactionClient,
   ): Promise<void>;
+  /**
+   * DEMO MODE ONLY: opens a session for a seeded demo account without a password. Callers
+   * must have checked that demo mode is on and the user is a demo account.
+   */
+  abstract signInAsDemoUser(userId: string, ip: string | null): Promise<SessionTokens>;
   /** Ends every session of a user, including unexpired access tokens (e.g. on deactivation). */
   abstract revokeSessions(userId: string, db: Prisma.TransactionClient): Promise<void>;
 }

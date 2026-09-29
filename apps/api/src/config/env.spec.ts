@@ -16,6 +16,7 @@ describe('validateEnv', () => {
       REFRESH_TOKEN_TTL_HOURS: 12,
       COOKIE_SECURE: false,
       BCRYPT_ROUNDS: 12,
+      DEMO_MODE: false,
     });
     expect(
       validateEnv({
@@ -35,6 +36,8 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ JWT_SECRET: SECRET })).toThrow(/DATABASE_URL/);
     expect(() => validateEnv({ DATABASE_URL: DB, JWT_SECRET: 'short' })).toThrow(/JWT_SECRET/);
     expect(() => validateEnv({ ...BASE, BCRYPT_ROUNDS: '3' })).toThrow(/BCRYPT_ROUNDS/);
+    expect(() => validateEnv({ ...BASE, DEMO_MODE: 'yes' })).toThrow(/DEMO_MODE/);
+    expect(validateEnv({ ...BASE, DEMO_MODE: 'TRUE' }).DEMO_MODE).toBe(true);
     expect(() => validateEnv({ ...BASE, PORT: '3000abc' })).toThrow(/PORT/);
     expect(() => validateEnv({ ...BASE, STORAGE_DRIVER: 'minio' })).toThrow(/STORAGE_DRIVER/);
   });

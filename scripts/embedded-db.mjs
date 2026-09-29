@@ -153,6 +153,57 @@ async function initialise(t, bin) {
   }
 }
 
+/**
+ * After a laptop restart, sleep or crash, PostgreSQL's lock file (postmaster.pid) can be left
+ * behind. If the process it names is gone — or Windows has since given that number to some
+ * other program — PostgreSQL would refuse to start. Remove it in that case only.
+ */
+function firstLine(file) {
+  return readFileSync(file, 'utf8').split(/\r?\n/)[0] ?? '';
+}
+
+function removeStaleLockFile() {
+  const lockFile = path.join(DATA_DIR, 'postmaster.pid');
+  if (!existsSync(lockFile)) return;
+  const pid = Number.parseInt(firstLine(lockFile), 10);
+  if (Number.isInteger(pid) && pid > 0 && isPostgresProcess(pid)) return;
+  rmSync(lockFile, { force: true });
+  log('Removed a stale database lock file left by an earlier shutdown.');
+}
+
+function isPostgresProcess(pid) {
+  const res =
+    process.platform === 'win32'
+      ? spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+          encoding: 'utf8',
+          windowsHide: true,
+        })
+      : spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' });
+  return /postgres/i.test(res.stdout ?? '');
+}
+
+/**
+ * The server may still be starting (e.g. recovering after an unclean shutdown) when this
+ * runs. If a live postgres owns the lock file, wait for it instead of starting a second one.
+ */
+async function waitIfAlreadyStarting(t) {
+  const lockFile = path.join(DATA_DIR, 'postmaster.pid');
+  if (!existsSync(lockFile)) return false;
+  const pid = Number.parseInt(firstLine(lockFile), 10);
+  if (!Number.isInteger(pid) || !isPostgresProcess(pid)) return false;
+  log('PostgreSQL is already starting; waiting for it…');
+  for (let i = 0; i < 60; i++) {
+    if (await canConnect(t)) {
+      log('PostgreSQL is running.');
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  fail(
+    `PostgreSQL (process ${pid}) did not become ready. See ${LOG_FILE}, or run "npm run db:stop" and try again.`,
+  );
+}
+
 async function ensureDatabase(t) {
   const client = new pg.Client({ ...t, database: 'postgres' });
   await client.connect();
@@ -180,6 +231,11 @@ async function start() {
   } else {
     const bin = await binaries();
     if (!existsSync(path.join(DATA_DIR, 'PG_VERSION'))) await initialise(t, bin);
+    if (await waitIfAlreadyStarting(t)) {
+      await ensureDatabase(t);
+      return;
+    }
+    removeStaleLockFile();
     log(`Starting embedded PostgreSQL 16 on localhost:${t.port}…`);
     const status = run(
       bin.pg_ctl,
@@ -214,9 +270,50 @@ async function stop() {
     log('No embedded PostgreSQL to stop.');
     return;
   }
+  const pid = livePostmasterPid();
+  if (pid === null) {
+    log('PostgreSQL is not running.');
+    return;
+  }
   const bin = await binaries();
-  const status = run(bin.pg_ctl, ['stop', '-D', DATA_DIR, '-m', 'fast', '-w', '-t', '60']);
-  log(status === 0 ? 'PostgreSQL stopped.' : 'PostgreSQL was not running.');
+  run(bin.pg_ctl, ['stop', '-D', DATA_DIR, '-m', 'fast', '-w', '-t', '30']);
+  if (livePostmasterPid() !== null) {
+    // Seen after a laptop sleeps: the server stops responding to shutdown requests. An
+    // immediate stop is safe — PostgreSQL replays its write-ahead log on the next start.
+    log(
+      'Normal shutdown did not finish in 30 s; forcing an immediate stop (recovers automatically on next start)…',
+    );
+    run(bin.pg_ctl, ['stop', '-D', DATA_DIR, '-m', 'immediate', '-w', '-t', '30']);
+  }
+  if (livePostmasterPid() !== null) {
+    log('The server still did not stop; ending its processes.');
+    killProcessTree(pid);
+  }
+  log(
+    livePostmasterPid() === null
+      ? 'PostgreSQL stopped.'
+      : `Could not stop PostgreSQL (process ${pid}).`,
+  );
+}
+
+/** PID of the running server for our data folder, or null. */
+function livePostmasterPid() {
+  const lockFile = path.join(DATA_DIR, 'postmaster.pid');
+  if (!existsSync(lockFile)) return null;
+  const pid = Number.parseInt(firstLine(lockFile), 10);
+  return Number.isInteger(pid) && pid > 0 && isPostgresProcess(pid) ? pid : null;
+}
+
+function killProcessTree(pid) {
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  } else {
+    spawnSync('kill', ['-9', String(pid)], { stdio: 'ignore' });
+  }
+  rmSync(path.join(DATA_DIR, 'postmaster.pid'), { force: true });
 }
 
 async function status() {
