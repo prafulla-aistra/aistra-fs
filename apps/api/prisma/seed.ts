@@ -21,6 +21,7 @@ import { seedDemoUsers } from './seed-demo';
 import { seedDemoTasks } from './seed-demo-tasks';
 import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
+import { seedFormats } from './seed-formats';
 import { withConnectionDefaults } from '../src/prisma/database-url';
 
 const prisma = new PrismaClient({
@@ -123,6 +124,13 @@ async function seedReferenceData(): Promise<void> {
   }
   await seedConfiguration(prisma);
   await seedAccounts(prisma);
+  await seedFormats(prisma);
+  for (const [key, value] of [
+    ['IC_DIFF_THRESHOLD', '1.00'],
+    ['RATE_SOURCE', ''],
+    ['VARIANCE_PCT_THRESHOLD', '0.20'],
+  ] as const)
+    await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: {} });
 }
 
 async function seedMaster(): Promise<void> {

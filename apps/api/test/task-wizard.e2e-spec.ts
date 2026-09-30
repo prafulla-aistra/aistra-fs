@@ -77,7 +77,11 @@ describe('options', () => {
     expect(options.financialYears.find((f) => f.id === options.defaultFyId)?.label).toBe(
       'FY 2026-27',
     );
-    expect(options.formats.map((f) => f.name)).toEqual(['Statutory FS', 'Management FS']);
+    expect(options.formats.map((f) => f.name)).toEqual([
+      'Monthly internal (management)',
+      'Investor reporting',
+      'Statutory FS (Schedule III, Division II)',
+    ]);
     expect(options.periodInCloseId).toBe(await periodId('Aug-2026'));
   });
 
@@ -171,7 +175,7 @@ describe('demo check 3: SFS Quarterly Q1', () => {
       type: 'SFS',
       periodId: q1,
       entityCodes: all,
-      description: 'Quarterly SFS – Q1 FY 2026-27 – Statutory FS',
+      description: 'Quarterly SFS – Q1 FY 2026-27 – Statutory FS (Schedule III, Division II)',
       reviewerNote: 'First quarterly close in the system.',
     });
     expect(res.status).toBe(201);
@@ -183,7 +187,7 @@ describe('demo check 3: SFS Quarterly Q1', () => {
       status: 'NOT_STARTED',
       currentStep: 'UPLOAD_DATA',
       dueDate: '2026-07-14',
-      format: 'Statutory FS',
+      format: 'Statutory FS (Schedule III, Division II)',
       reviewerNote: 'First quarterly close in the system.',
       action: 'CONTINUE',
       itemTotal: 7,
@@ -191,11 +195,12 @@ describe('demo check 3: SFS Quarterly Q1', () => {
     expect(task.items.every((i) => i.status === 'NOT_STARTED')).toBe(true);
     const log = await ctx.prisma.auditLog.findFirstOrThrow({
       where: { action: 'TASK_CREATE', entityId: 'SFS-FY27-Q1-001' },
+      orderBy: { timestamp: 'desc' },
     });
     expect(log.newValue).toMatchObject({
       period: 'Q1 FY 2026-27',
       entities: all,
-      format: 'Statutory FS',
+      format: 'Statutory FS (Schedule III, Division II)',
     });
   });
 });
@@ -211,7 +216,7 @@ describe('demo check 4: SFS Monthly Jun-2026, India first, then the rest', () =>
     });
     expect(first.status).toBe(201);
     expect((first.body as TaskDetailDto).number).toBe('SFS-2026-06-001');
-    expect((first.body as TaskDetailDto).format).toBe('Management FS');
+    expect((first.body as TaskDetailDto).format).toBe('Monthly internal (management)');
 
     const list = await entities(jun);
     expect(list.find((e) => e.code === 'IN')!.inTask).toMatchObject({

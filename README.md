@@ -416,15 +416,54 @@ opening 85.80 / average 86.10; GBP Jul 0.7380 / 0.7420 / 0.7400 and Aug 0.7420 /
   engine `effectiveOwnership`), consolidation levels with "NCI arises for" (engine `nciPoints`)
   and a level-currency override (audited), shown "as at" any month (engine `ownershipAsAt`).
   New CFS tasks snapshot the levels in force for their period.
-- **Reference pages** (read-only for now): Exchange rates (with rate-file upload), Report
-  formats, FSLI master, Account-type defaults, Chart of accounts.
+
+### Configuration: rates, formats, FSLI, chart of accounts (C2)
+
+No configuration page is a placeholder any more. CONFIG_MANAGE edits; REPORTS_VIEW views; every
+change is audited with old and new values.
+
+- **Exchange rates**: grid of months (newest first, grouped by FY) × currencies, each cell
+  opening / closing / average to 10 dp. Status per month: Complete, Missing rates, or Locked
+  (with the finalised reports that lock it). Checks (engine `reviewRateMonth`): missing values,
+  opening ≠ prior closing, a move over 10%. Click a month to edit it in a drawer (locked months
+  are read-only); "Add next month" pre-fills opening from the prior closing. Upload shows a
+  preview first (N new, N changed, N skipped because locked, N unchanged); saving skips locked
+  rows. Excel template and export (rates written as text, so no floating point). Cross-rate
+  viewer: month + two currencies → O/C/A with the formula (engine `crossRate`).
+- **Settings** (table `app_setting`): rate source (shows "To be confirmed – Open question 2"
+  until set, also on every task rate panel), IC difference threshold (default 1.00), variance
+  threshold (default 20%, stored as 0.20).
+- **Report formats**: three seeded formats — Monthly internal (management), Investor reporting,
+  Statutory FS (Schedule III, Division II; MSME split and ageing schedules not included). Line
+  types: heading, line (FSLIs), subtotal/total (+/− of lines above). Display sign: assets and
+  expenses as they are; liabilities, equity and income reversed. Editor: tabs per format,
+  P&L / balance sheet toggle, drag (or ↑/↓) to reorder, rename, add/delete, indent, formula
+  parts, markers (profit; total assets; total equity and liabilities), FSLI placement table,
+  live coverage check (engine `checkFormatCoverage`) that blocks saving, preview with a task
+  entity's figures (engine `renderFormat`), versions list, duplicate.
+- **Versioning**: tasks record the format version. Saving a version used by a finalised report
+  creates the next version (the finalised reports keep theirs; tasks not yet finalised move to
+  the new one); otherwise the current version is edited in place.
+- **FSLI master**: names only (codes, classes and rates fixed); "used by N accounts".
+- **Account-type defaults**: add, change and remove ERP type → FSLI (system FSLIs refused).
+- **Chart of accounts**: entity selector; stats (accounts, mapped %, unmapped, intercompany
+  without counterparty); filters; inline edit of type, FSLI, counterparty and rate-basis
+  override (engine `validateMapping`; a reason is required when changing an existing mapping;
+  type/class warnings must be confirmed; source "Edited in configuration"); Zoho COA upload
+  with a preview (same merge rule as the task upload); export to Excel.
+
+Check with India Jul-2026 (finalised): every format previews profit 16,356,584.16 and a
+balance sheet of 727,556,584.16 = 727,556,584.16. Leaving "Other expenses" (OTH_EXP) off the
+Statutory format gives "Other expenses (OTH_EXP) is not placed on any P&L line." and the save
+is refused (400).
 
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
 (API on 3001, web on 5174, the test database and ./data/uploads-test): the SFS journey (upload
-→ map → comparatives → translation) and the configuration journeys (add / view / deactivate an
-entity as master; view-only buttons as Priya). First time only: `npx playwright install chromium`.
+→ map → comparatives → translation), the configuration journeys (add / view / deactivate an
+entity as master; view-only buttons as Priya) and C2 (format coverage blocks saving when
+"Other expenses" is unplaced; locked rate months and the cross-rate viewer; view-only pages). First time only: `npx playwright install chromium`.
 
 ### File storage: local folder
 

@@ -25,7 +25,6 @@ import {
   type MappingStepDto,
   PERIOD_AVERAGE_ASSUMPTION,
   RATE_APPLIED_TO,
-  RATE_SOURCE_LABEL,
   type RateValueDto,
   TASK_STEPS,
   type TranslationRateRowDto,
@@ -36,6 +35,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { rateSourceLabel } from '../common/settings';
 import { inScope } from '../tasks/tasks.service';
 import { ComparativeSourceService } from './comparative-source.service';
 import {
@@ -59,7 +59,7 @@ interface EntityData {
 const IC_FSLIS = new Set(['IC_REC', 'IC_PAY', 'IC_REV', 'IC_EXP', 'INV_SUB']);
 const stepIndex = (code: string) => TASK_STEPS.findIndex((s) => s.code === code);
 
-function toMappingFsli(f: Prisma.FsliGetPayload<object>): MappingFsli {
+export function toMappingFsli(f: Prisma.FsliGetPayload<object>): MappingFsli {
   return {
     code: f.code,
     name: f.name,
@@ -382,7 +382,7 @@ export class MappingStepService {
       periodLabel: task.period.label,
       functionalCurrency: functional,
       assumption: task.period.type === 'MONTHLY' ? null : PERIOD_AVERAGE_ASSUMPTION,
-      sourceLabel: RATE_SOURCE_LABEL,
+      sourceLabel: await rateSourceLabel(this.prisma),
       appliedTo: RATE_APPLIED_TO.map((a) => ({ ...a })),
     };
     if (targets.length === 0)

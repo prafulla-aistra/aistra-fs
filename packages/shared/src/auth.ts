@@ -235,6 +235,15 @@ export const AuditAction = {
   // Comparatives (page 5)
   ComparativeBasisChange: 'COMPARATIVE_BASIS_CHANGE',
   VarianceExplain: 'VARIANCE_EXPLAIN',
+  // Configuration C2
+  SettingsUpdate: 'SETTINGS_UPDATE',
+  FormatUpdate: 'FORMAT_UPDATE',
+  FormatVersionCreate: 'FORMAT_VERSION_CREATE',
+  FormatDuplicate: 'FORMAT_DUPLICATE',
+  FsliRename: 'FSLI_RENAME',
+  AccountTypeDefaultSet: 'ACCOUNT_TYPE_DEFAULT_SET',
+  AccountTypeDefaultDelete: 'ACCOUNT_TYPE_DEFAULT_DELETE',
+  AccountUpdate: 'ACCOUNT_UPDATE',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

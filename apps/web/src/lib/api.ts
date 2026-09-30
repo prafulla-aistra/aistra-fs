@@ -180,10 +180,14 @@ export const api = {
 };
 
 /** Downloads an uploaded file (authenticated) and hands it to the browser as a download. */
-export async function downloadFile(fileId: string, name: string): Promise<void> {
-  let res = await send(`/files/${fileId}/download`, {});
-  if (res.status === 401 && (await refreshSession()))
-    res = await send(`/files/${fileId}/download`, {});
+export function downloadFile(fileId: string, name: string): Promise<void> {
+  return downloadPath(`/files/${fileId}/download`, name);
+}
+
+/** Downloads any API file (e.g. an Excel export) with the session and saves it as `name`. */
+export async function downloadPath(path: string, name: string): Promise<void> {
+  let res = await send(path, {});
+  if (res.status === 401 && (await refreshSession())) res = await send(path, {});
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new ApiError(body.message ?? 'Download failed.', res.status, undefined, body);

@@ -334,6 +334,8 @@ export interface FormatDto {
   description: string;
   isActive: boolean;
   tasks: number;
+  currentVersion: number;
+  sortOrder: number;
 }
 
 export interface ExchangeRateRowDto {

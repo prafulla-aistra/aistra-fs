@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ChartOfAccountsService } from './chart-of-accounts.service';
 import { ComparativeSourceService } from './comparative-source.service';
 import { ComparativesController } from './comparatives.controller';
+import { ConfigDataController } from './config-data.controller';
 import { ComparativesService } from './comparatives.service';
 import { MappingController } from './mapping.controller';
 import { MappingStepService } from './mapping-step.service';
+import { RateConfigService } from './rate-config.service';
 import { RatesService } from './rates.service';
 import { TranslationController } from './translation.controller';
 import { TranslationService } from './translation.service';
@@ -19,10 +21,12 @@ import { UploadsController } from './uploads.controller';
     MappingController,
     ComparativesController,
     TranslationController,
+    ConfigDataController,
   ],
   providers: [
     UploadStepService,
     RatesService,
+    RateConfigService,
     MappingStepService,
     ChartOfAccountsService,
     ComparativeSourceService,

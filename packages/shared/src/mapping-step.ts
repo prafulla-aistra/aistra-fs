@@ -201,7 +201,7 @@ export interface ChartOfAccountDto {
   fsliCode: string | null;
   fsliName: string | null;
   counterpartyCode: string | null;
-  source: 'SEED' | 'COA_UPLOAD' | 'TASK_MAPPING';
+  source: 'SEED' | 'COA_UPLOAD' | 'TASK_MAPPING' | 'CONFIGURATION';
   /** "Seed", "Chart of accounts upload", "Mapped in task SFS-2026-08-001". */
   sourceLabel: string;
   /** FSLI suggested automatically and not yet confirmed. */

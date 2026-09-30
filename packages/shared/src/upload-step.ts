@@ -208,6 +208,8 @@ export interface RateSaveResultDto {
   file: FileRefDto | null;
   changed: number;
   unchanged: number;
+  /** Upload with skip-locked: rows of locked months left out. */
+  skippedLocked?: number;
   warnings: { month: string; currency: string; code: string; message: string }[];
 }
 
@@ -219,6 +221,6 @@ export interface RateInputDto {
   average: string | null;
 }
 
-export const RATE_SOURCE_LABEL = 'To be confirmed (Open question 2)';
+export const RATE_SOURCE_LABEL = 'To be confirmed – Open question 2';
 export const PERIOD_AVERAGE_ASSUMPTION =
   'Assumption: for a quarter or year, opening = first month’s opening, closing = last month’s closing, average = simple mean of the monthly averages.';

@@ -108,7 +108,7 @@ describe('India Aug-2026 (expected results with the sample data)', () => {
       ['0.0115740741', '0.0115074799', '0.0115473441', '0.0133333333'],
     );
     expect(usd.closing.formula).toBe('1 ÷ 86.90');
-    expect(rates.sourceLabel).toBe('To be confirmed (Open question 2)');
+    expect(rates.sourceLabel).toBe('To be confirmed – Open question 2');
     expect(rates.assumption).toBeNull();
   });
 

@@ -6,7 +6,6 @@ import {
   deriveTaskStatus,
   detectTbLayout,
   parseChartOfAccounts,
-  planCoaMerge,
   type TbCheckResult,
   type TbColumnSettings,
   type TbLayout,
@@ -42,6 +41,7 @@ import {
   readOnlyReason,
   type StepTask,
 } from './step-access';
+import { ChartOfAccountsService } from './chart-of-accounts.service';
 import { toFileRef } from './file-ref';
 import { RatesService } from './rates.service';
 import { columnLetter, readSheetRows } from './sheets';
@@ -122,6 +122,7 @@ export class UploadStepService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly rates: RatesService,
+    private readonly coa: ChartOfAccountsService,
   ) {}
 
   // ---------------------------------------------------------------------------------------
@@ -655,98 +656,14 @@ export class UploadStepService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.entityAccount.findMany({ where: { entityCode } });
-      const plan = planCoaMerge(
-        existing.map((a) => ({
-          code: a.accountCode,
-          name: a.accountName,
-          type: a.accountType,
-          parent: a.parentAccount,
-        })),
-        parsed.accounts,
-      );
-      const defaults = await tx.accountTypeDefault.findMany({
-        where: { erp: { in: [te.entity.erp, 'ZOHO'] } },
-      });
-      // The entity's ERP defaults first, then the Zoho list (the only one defined so far).
-      const fsliFor = (type: string | null) =>
-        type === null
-          ? null
-          : ((
-              defaults.find(
-                (d) =>
-                  d.erp === te.entity.erp && d.accountType.toLowerCase() === type.toLowerCase(),
-              ) ?? defaults.find((d) => d.accountType.toLowerCase() === type.toLowerCase())
-            )?.fsliCode ?? null);
-
-      const stored = await storeUpload(tx, this.storage, {
-        kind: 'COA',
-        body: file.buffer,
-        originalName: file.originalname,
-        contentType: file.mimetype,
-        taskId,
-        entityCode,
-        uploadedById: user.id,
-      });
-      const added = plan.added.map((a) => ({ ...a, fsliCode: fsliFor(a.type) }));
-      await tx.entityAccount.createMany({
-        data: added.map((a) => ({
-          entityCode,
-          accountCode: a.code.slice(0, 40),
-          accountName: a.name.slice(0, 200),
-          accountType: a.type?.slice(0, 60) ?? null,
-          parentAccount: a.parent?.slice(0, 200) ?? null,
-          fsliCode: a.fsliCode,
-          source: 'COA_UPLOAD' as const,
-          suggested: true,
-          updatedById: user.id,
-        })),
-      });
-      // Existing accounts: name, type and parent only — never the FSLI or counterparty.
-      for (const u of plan.updated) {
-        await tx.entityAccount.update({
-          where: { entityCode_accountCode: { entityCode, accountCode: u.account.code } },
-          data: {
-            accountName: u.account.name.slice(0, 200),
-            ...(u.account.type !== null ? { accountType: u.account.type.slice(0, 60) } : {}),
-            ...(u.account.parent !== null ? { parentAccount: u.account.parent.slice(0, 200) } : {}),
-            updatedById: user.id,
-          },
-        });
-      }
-      await this.audit.record(
-        {
-          userId: user.id,
-          action: AuditAction.CoaUpload,
-          entityType: 'ENTITY_ACCOUNTS',
-          entityId: entityCode,
-          oldValue: plan.updated.map((u) => ({
-            code: u.account.code,
-            name: u.before.name,
-            type: u.before.type,
-            parent: u.before.parent,
-          })),
-          newValue: {
-            task: task.number,
-            file: stored.originalName,
-            sha256: stored.sha256,
-            added: added.map((a) => ({
-              code: a.code,
-              name: a.name,
-              type: a.type,
-              fsli: a.fsliCode,
-            })),
-            updated: plan.updated.map((u) => ({
-              code: u.account.code,
-              name: u.account.name,
-              type: u.account.type,
-              parent: u.account.parent,
-            })),
-            unchanged: plan.unchanged.length,
-          },
-          ip,
-        },
+      const { stored, plan } = await this.coa.merge(
         tx,
+        user,
+        { code: entityCode, erp: te.entity.erp },
+        file,
+        parsed,
+        ip,
+        { id: taskId, number: task.number },
       );
       const withUser = await tx.uploadedFile.findUniqueOrThrow({
         where: { id: stored.id },
@@ -754,10 +671,14 @@ export class UploadStepService {
       });
       return {
         file: toFileRef(withUser),
-        added: added.length,
+        added: plan.added.length,
         updated: plan.updated.length,
         unchanged: plan.unchanged.length,
-        addedAccounts: added.map((a) => ({ code: a.code, name: a.name, fsliCode: a.fsliCode })),
+        addedAccounts: plan.added.map((a) => ({
+          code: a.code,
+          name: a.name,
+          fsliCode: a.fsliCode,
+        })),
         warnings: parsed.warnings,
       };
     });

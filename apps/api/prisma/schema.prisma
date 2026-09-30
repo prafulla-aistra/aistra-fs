@@ -127,16 +127,19 @@ model EntityHistoricalRate {
 /// Statement format (layout of the statements a task produces). Minimal for page 2; the
 /// Formats configuration screen maintains it later.
 model Format {
-  code        String   @id @db.VarChar(40)
-  name        String   @db.VarChar(100)
-  description String   @db.VarChar(300)
-  isActive    Boolean  @default(true) @map("is_active")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  code           String   @id @db.VarChar(40)
+  name           String   @db.VarChar(100)
+  description    String   @db.VarChar(500)
+  isActive       Boolean  @default(true) @map("is_active")
+  sortOrder      Int      @default(0) @map("sort_order")
+  /// The version new tasks use; a version used by a finalised report is never changed.
+  currentVersion Int      @default(1) @map("current_version")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tasks        Task[]
   lastChoiceOf User[]
+  versions     FormatVersion[]
 
   @@map("format")
 }
@@ -301,6 +304,7 @@ model User {
   uploadProfiles        UploadProfile[]         @relation("UploadProfileUpdatedBy")
   varianceExplanations  VarianceExplanation[]   @relation("VarianceExplanationBy")
   ownershipChanges      EntityOwnership[]       @relation("OwnershipCreatedBy")
+  formatVersions        FormatVersion[]         @relation("FormatVersionBy")
   levelCurrencies       LevelCurrencyOverride[] @relation("LevelCurrencyBy")
 
   @@map("app_user")
@@ -429,6 +433,8 @@ model Task {
   periodId         String           @map("period_id") @db.Uuid
   /// Statement format. Required for new tasks (older demo rows may have none).
   formatCode       String?          @map("format_code") @db.VarChar(40)
+  /// The format version the task uses (kept when the format gets a new version).
+  formatVersion    Int?             @map("format_version")
   /// Optional note from the preparer to the reviewer.
   reviewerNote     String?          @map("reviewer_note") @db.VarChar(1000)
   description      String           @db.VarChar(300)
@@ -567,6 +573,7 @@ enum AccountSource {
   SEED
   COA_UPLOAD
   TASK_MAPPING
+  CONFIGURATION
 }
 
 /// An entity's chart of accounts: each account and the FSLI it maps to.
@@ -830,4 +837,49 @@ model LevelCurrencyOverride {
   updatedBy User   @relation("LevelCurrencyBy", fields: [updatedById], references: [id])
 
   @@map("level_currency_override")
+}
+
+enum FormatLineType {
+  HEADING
+  LINE
+  TOTAL
+}
+
+/// One version of a report format. Tasks keep the version they were created with.
+model FormatVersion {
+  id          String   @id @default(uuid()) @db.Uuid
+  formatCode  String   @map("format_code") @db.VarChar(40)
+  version     Int
+  note        String?  @db.VarChar(500)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  format    Format       @relation(fields: [formatCode], references: [code])
+  createdBy User?        @relation("FormatVersionBy", fields: [createdById], references: [id])
+  lines     FormatLine[]
+
+  @@unique([formatCode, version])
+  @@map("format_version")
+}
+
+model FormatLine {
+  id        String         @id @default(uuid()) @db.Uuid
+  versionId String         @map("version_id") @db.Uuid
+  statement FsliStatement
+  sortOrder Int            @map("sort_order")
+  /// Stable id within the version, used by totals.
+  key       String         @db.VarChar(60)
+  type      FormatLineType
+  label     String         @db.VarChar(200)
+  indent    Int            @default(0)
+  fslis     String[]
+  /// TOTAL: [{ key, op: "+" | "-" }].
+  formula   Json           @default("[]")
+  /// PROFIT, TOTAL_ASSETS or TOTAL_EQUITY_LIABILITIES.
+  role      String?        @db.VarChar(40)
+
+  version FormatVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, statement, key])
+  @@map("format_line")
 }

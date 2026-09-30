@@ -16,7 +16,6 @@ import {
   AuditAction,
   PERIOD_AVERAGE_ASSUMPTION,
   Permission,
-  RATE_SOURCE_LABEL,
   type RateInputDto,
   type RateSaveResultDto,
   type RatesPanelDto,
@@ -26,6 +25,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { rateSourceLabel } from '../common/settings';
 import { StorageService } from '../storage/storage.service';
 import { fileRef } from './file-ref';
 import { storeUpload } from './stored-files';
@@ -152,7 +152,7 @@ export class RatesService {
       complete: missing === 0,
       missing,
       warnings: checkRates(monthly).filter((w) => inPeriod.has(w.month)),
-      sourceLabel: RATE_SOURCE_LABEL,
+      sourceLabel: await rateSourceLabel(this.prisma),
       assumption: p.type === 'MONTHLY' ? null : PERIOD_AVERAGE_ASSUMPTION,
       canEdit: canEditRates(user) && !taskLocked,
     };
@@ -180,6 +180,7 @@ export class RatesService {
     user: AuthUser,
     file: { buffer: Buffer; originalname: string; mimetype: string },
     ip: string | null,
+    opts: { skipLocked?: boolean } = {},
   ): Promise<RateSaveResultDto> {
     let parsed;
     try {
@@ -206,6 +207,7 @@ export class RatesService {
       source: `Rate file: ${file.originalname}`.slice(0, 200),
       file: { body: file.buffer, name: file.originalname, type: file.mimetype },
       ip,
+      skipLocked: opts.skipLocked,
     });
   }
 
@@ -216,6 +218,8 @@ export class RatesService {
       source: string;
       file: { body: Buffer; name: string; type: string } | null;
       ip: string | null;
+      /** Leave out rows of locked months instead of refusing the whole file. */
+      skipLocked?: boolean;
     },
   ): Promise<RateSaveResultDto> {
     const currencies = new Set(
@@ -242,6 +246,7 @@ export class RatesService {
         before: Record<Field, string | null> | null;
         after: Record<Field, string | null>;
       }[] = [];
+      let skippedLocked = 0;
       for (const r of rows) {
         const e = byKey.get(`${r.currency}:${r.month}`);
         const before = e
@@ -257,6 +262,10 @@ export class RatesService {
         ) as Record<Field, string | null>;
         if (before && FIELDS.every((f) => same(before[f], after[f]))) continue;
         if (!before && FIELDS.every((f) => after[f] === null)) continue;
+        if (locked.has(r.month) && how.skipLocked) {
+          skippedLocked++;
+          continue;
+        }
         if (locked.has(r.month)) {
           throw new ApiError(
             HttpStatus.CONFLICT,
@@ -335,7 +344,8 @@ export class RatesService {
       return {
         file: stored ? await fileRef(tx, stored.id) : null,
         changed: changes.length,
-        unchanged: rows.length - changes.length,
+        unchanged: rows.length - changes.length - skippedLocked,
+        ...(how.skipLocked ? { skippedLocked } : {}),
         warnings,
       };
     });

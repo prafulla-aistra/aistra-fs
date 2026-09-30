@@ -46,7 +46,7 @@ const EditRates = () =>
   RequirePermission(Permission.SfsPrepare, Permission.CfsPrepare, Permission.ConfigManage);
 
 /** Files are held in memory (max 10 MB) and handed to StorageService. */
-const Upload = () =>
+export const Upload = () =>
   UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }));
 
 const entityCode = z.string().regex(/^[A-Z0-9]{1,10}$/, 'Invalid entity code');
@@ -80,7 +80,7 @@ const confirmSchema = previewSchema.extend({
 });
 const kindSchema = z.object({ kind: z.enum(['COA', 'OTHER']) });
 const rate = z.string().trim().max(40).nullable();
-const ratesSchema = z.object({
+export const ratesSchema = z.object({
   rates: z
     .array(
       z.object({

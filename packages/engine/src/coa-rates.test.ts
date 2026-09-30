@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseChartOfAccounts, planCoaMerge } from './coa-parser';
-import { monthsBetween, parseRateSheet } from './rates';
+import { fyStartYearOf, monthsBetween, nextMonth, parseRateSheet, reviewRateMonth } from './rates';
 import { checkTrialBalance } from './tb-checks';
 import { detectTbLayout } from './tb-parser';
 
@@ -139,5 +139,38 @@ describe('checkTrialBalance', () => {
     expect(r.status).toBe('ERROR');
     expect(r.errors.at(-1)!.message).toMatch(/differ by 50.00/);
     expect(r.warnings.map((w) => w.code)).toContain('DUPLICATE_FILE');
+  });
+});
+
+describe('rate master months', () => {
+  const r = (
+    month: string,
+    currency: string,
+    opening: string | null,
+    closing: string | null,
+    average: string | null,
+  ) => ({ month, currency, opening, closing, average });
+  it('next month and FY of a month', () => {
+    expect(nextMonth('2026-12-01')).toBe('2027-01-01');
+    expect(fyStartYearOf('2027-03-01')).toBe(2026);
+    expect(fyStartYearOf('2026-04-01')).toBe(2026);
+  });
+  it('complete, missing, and locked; opening ≠ prior closing; large move', () => {
+    const rates = [
+      r('2026-07-01', 'INR', '85.80', '86.40', '86.10'),
+      r('2026-08-01', 'INR', '86.50', '96.90', '86.60'),
+      r('2026-08-01', 'GBP', '0.742', null, '0.745'),
+    ];
+    const aug = reviewRateMonth(rates, '2026-08-01', ['INR', 'GBP'], false);
+    expect(aug.status).toBe('MISSING');
+    expect(aug.missing).toBe(1);
+    expect(aug.checks.map((c) => `${c.currency}:${c.code}`)).toEqual([
+      'GBP:MISSING',
+      'INR:OPENING_NOT_PRIOR_CLOSING',
+      'INR:LARGE_MOVE',
+    ]);
+    expect(aug.checks[0]!.message).toBe('GBP Aug-2026: closing missing.');
+    expect(reviewRateMonth(rates, '2026-07-01', ['INR'], false).status).toBe('COMPLETE');
+    expect(reviewRateMonth(rates, '2026-08-01', ['INR', 'GBP'], true).status).toBe('LOCKED');
   });
 });

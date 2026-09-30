@@ -1,204 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
-import type {
-  AccountTypeDefaultDto,
-  ExchangeRateRowDto,
-  FormatDto,
-  FsliDto,
-  RateSaveResultDto,
-} from '@finance-close/shared';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import type { AccountTypeDefaultDto, FsliDto } from '@finance-close/shared';
 import { Badge } from '@/components/ui/badge';
-import { Alert, Select } from '@/components/ui/form';
-import { Table, Td, Th } from '@/components/ui/overlay';
+import { Button } from '@/components/ui/button';
+import { Alert, Field, Input, Select } from '@/components/ui/form';
+import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { SearchBox } from './common';
 import { ConfigPage, EditButton, EmptyState } from './ConfigPage';
 import { matches } from './hooks';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const monthText = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]}-${iso.slice(0, 4)}`;
-
-export function ExchangeRatesPage() {
-  const qc = useQueryClient();
-  const q = useQuery({
-    queryKey: ['config', 'exchange-rates'],
-    queryFn: () => api.get<ExchangeRateRowDto[]>('/config/exchange-rates'),
-  });
-  const [currency, setCurrency] = useState('');
-  const file = useRef<HTMLInputElement>(null);
-  const upload = useMutation({
-    mutationFn: (f: File) => api.upload<RateSaveResultDto>('/exchange-rates/upload', f),
-    onSuccess: async (r) => {
-      toast(`Rate file loaded: ${r.changed} changed, ${r.unchanged} unchanged.`);
-      await qc.invalidateQueries({ queryKey: ['config', 'exchange-rates'] });
-    },
-  });
-  const rows = (q.data ?? []).filter((r) => !currency || r.currency === currency);
-  const currencies = useMemo(
-    () => [...new Set((q.data ?? []).map((r) => r.currency))].sort(),
-    [q.data],
-  );
-  const months = new Set((q.data ?? []).map((r) => r.month)).size;
-  return (
-    <ConfigPage
-      title="Exchange rates"
-      purpose="Units of each currency per 1 USD, per month: opening, closing and average. Months lock once a report using them is finalised."
-      count={q.data ? `${q.data.length} monthly rates · ${months} months` : null}
-      action={
-        <>
-          <input
-            ref={file}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            aria-label="Choose a rate file"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
-              if (f) upload.mutate(f);
-            }}
-          />
-          <EditButton disabled={upload.isPending} onClick={() => file.current?.click()}>
-            <Upload /> Upload rate file
-          </EditButton>
-        </>
-      }
-    >
-      <Select
-        aria-label="Currency"
-        className="w-40"
-        value={currency}
-        onChange={(e) => setCurrency(e.target.value)}
-      >
-        <option value="">All currencies</option>
-        {currencies.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </Select>
-      {(q.error || upload.error) && <Alert>{errorMessage(q.error ?? upload.error)}</Alert>}
-      {!q.data ? (
-        <Skeleton className="h-64 w-full" />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title="No exchange rates yet"
-          text="Upload a rate file (Month, Currency, Opening, Closing, Average) or enter rates on step 1 of a task."
-        />
-      ) : (
-        <Table>
-          <thead>
-            <tr>
-              <Th>Month</Th>
-              <Th>Currency</Th>
-              <Th className="text-right">Opening</Th>
-              <Th className="text-right">Closing</Th>
-              <Th className="text-right">Average</Th>
-              <Th>Source</Th>
-              <Th>Entered</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.month}-${r.currency}`}>
-                <Td className="whitespace-nowrap">{monthText(r.month)}</Td>
-                <Td className="font-mono">{r.currency}</Td>
-                {(['opening', 'closing', 'average'] as const).map((k) => (
-                  <Td key={k} className="text-right font-mono tabular-nums">
-                    {r[k] ?? <span className="text-destructive">Missing</span>}
-                  </Td>
-                ))}
-                <Td className="text-xs">{r.source}</Td>
-                <Td className="text-xs">
-                  {r.enteredBy ?? 'Seed'}, {formatDateTime(r.enteredAt)}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      )}
-    </ConfigPage>
-  );
-}
-
-export function FormatsPage() {
-  const q = useQuery({
-    queryKey: ['config', 'formats'],
-    queryFn: () => api.get<FormatDto[]>('/config/formats'),
-  });
-  return (
-    <ConfigPage
-      title="Report formats"
-      purpose="Layouts of the statements a task produces. Maintenance of the layouts comes with the statements step."
-      count={q.data ? `${q.data.length} formats` : null}
-      action={
-        <EditButton disabled title="Adding formats comes with the statements step">
-          Add format
-        </EditButton>
-      }
-    >
-      {q.error && <Alert>{errorMessage(q.error)}</Alert>}
-      {!q.data ? (
-        <Skeleton className="h-32 w-full" />
-      ) : q.data.length === 0 ? (
-        <EmptyState title="No formats" text="Formats define the statement layouts." />
-      ) : (
-        <Table>
-          <thead>
-            <tr>
-              <Th>Code</Th>
-              <Th>Name</Th>
-              <Th>Description</Th>
-              <Th className="text-right">Tasks</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.data.map((f) => (
-              <tr key={f.code}>
-                <Td className="font-mono text-xs">{f.code}</Td>
-                <Td className="font-medium">{f.name}</Td>
-                <Td className="text-sm">{f.description}</Td>
-                <Td className="text-right tabular-nums">{f.tasks}</Td>
-                <Td>
-                  {f.isActive ? (
-                    <Badge variant="success">Active</Badge>
-                  ) : (
-                    <Badge variant="secondary">Inactive</Badge>
-                  )}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      )}
-    </ConfigPage>
-  );
-}
+export { ExchangeRatesPage } from './ExchangeRatesPage';
+export { FormatsPage } from './FormatsPage';
 
 const CLASS_LABEL = { A: 'Asset', L: 'Liability', E: 'Equity', I: 'Income', X: 'Expense' } as const;
+const ERP_LABEL: Record<string, string> = { ZOHO: 'Zoho', XERO: 'Xero', OTHER: 'Other' };
 
-export function FsliPage() {
-  const q = useQuery({
+function useFslis() {
+  return useQuery({
     queryKey: ['config', 'fslis'],
     queryFn: () => api.get<FsliDto[]>('/config/fslis'),
   });
+}
+
+export function FsliPage() {
+  const q = useFslis();
   const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<FsliDto | null>(null);
   const rows = (q.data ?? []).filter((f) => matches(query, f.code, f.name));
   return (
     <ConfigPage
       title="FSLI master"
-      purpose="The financial statement line items every account maps to, with their translation rate and flags."
+      purpose="The financial statement line items every account maps to, with their translation rate and flags. Only names can be changed; codes, classes and rates are fixed."
       count={q.data ? `${q.data.length} FSLIs` : null}
-      action={
-        <EditButton disabled title="Editing the FSLI master comes later">
-          Add FSLI
-        </EditButton>
-      }
     >
       <SearchBox value={query} onChange={setQuery} placeholder="Search FSLIs" />
       {q.error && <Alert>{errorMessage(q.error)}</Alert>}
@@ -207,7 +44,7 @@ export function FsliPage() {
       ) : rows.length === 0 ? (
         <EmptyState title="No FSLIs match" text="Change the search." />
       ) : (
-        <Table>
+        <Table aria-label="FSLI master">
           <thead>
             <tr>
               <Th>Code</Th>
@@ -216,7 +53,8 @@ export function FsliPage() {
               <Th>Class</Th>
               <Th>Rate</Th>
               <Th>Flags</Th>
-              <Th className="text-right">Accounts</Th>
+              <Th className="text-right">Used by</Th>
+              <Th />
             </tr>
           </thead>
           <tbody>
@@ -233,33 +71,98 @@ export function FsliPage() {
                   {f.computed && <Badge variant="outline">computed</Badge>}
                   {f.consolidationOnly && <Badge variant="outline">consolidation only</Badge>}
                 </Td>
-                <Td className="text-right tabular-nums">{f.accounts}</Td>
+                <Td className="text-right whitespace-nowrap tabular-nums">
+                  {f.accounts} account{f.accounts === 1 ? '' : 's'}
+                </Td>
+                <Td className="text-right">
+                  <EditButton
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Rename ${f.name}`}
+                    onClick={() => setEditing(f)}
+                  >
+                    <Pencil /> Rename
+                  </EditButton>
+                </Td>
               </tr>
             ))}
           </tbody>
         </Table>
       )}
+      {editing && <RenameFsliDialog fsli={editing} onClose={() => setEditing(null)} />}
     </ConfigPage>
   );
 }
 
+function RenameFsliDialog({ fsli, onClose }: { fsli: FsliDto; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(fsli.name);
+  const save = useMutation({
+    mutationFn: () => api.patch<void>(`/config/fslis/${fsli.code}`, { name }),
+    onSuccess: async () => {
+      toast('FSLI renamed.');
+      await qc.invalidateQueries({ queryKey: ['config'] });
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Rename ${fsli.code}`}
+      description={`Used by ${fsli.accounts} account${fsli.accounts === 1 ? '' : 's'}. Only the name changes; the code and every mapping stay as they are.`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={save.isPending || !name.trim()} onClick={() => save.mutate()}>
+            Save name
+          </Button>
+        </>
+      }
+    >
+      {save.error && <Alert className="mb-3">{errorMessage(save.error)}</Alert>}
+      <Field label="Name" htmlFor="fsli-name">
+        <Input
+          id="fsli-name"
+          value={name}
+          maxLength={120}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </Field>
+    </Dialog>
+  );
+}
+
 export function AccountTypeDefaultsPage() {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['config', 'account-type-defaults'],
     queryFn: () => api.get<AccountTypeDefaultDto[]>('/config/account-type-defaults'),
   });
+  const fslis = useFslis();
+  const [editing, setEditing] = useState<AccountTypeDefaultDto | 'new' | null>(null);
+  const remove = useMutation({
+    mutationFn: (r: AccountTypeDefaultDto) =>
+      api.delete(`/config/account-type-defaults/${r.erp}/${encodeURIComponent(r.accountType)}`),
+    onSuccess: async () => {
+      toast('Default removed.');
+      await qc.invalidateQueries({ queryKey: ['config', 'account-type-defaults'] });
+    },
+  });
   return (
     <ConfigPage
       title="Account-type defaults"
-      purpose="The FSLI suggested for a new account from its ERP account type (chart-of-accounts upload and mapping)."
+      purpose="The FSLI given to a new account from its ERP account type, when a chart of accounts is uploaded."
       count={q.data ? `${q.data.length} defaults` : null}
       action={
-        <EditButton disabled title="Editing the defaults comes later">
-          Add default
+        <EditButton onClick={() => setEditing('new')}>
+          <Plus /> Add default
         </EditButton>
       }
     >
-      {q.error && <Alert>{errorMessage(q.error)}</Alert>}
+      {(q.error || remove.error) && <Alert>{errorMessage(q.error ?? remove.error)}</Alert>}
       {!q.data ? (
         <Skeleton className="h-64 w-full" />
       ) : q.data.length === 0 ? (
@@ -268,28 +171,148 @@ export function AccountTypeDefaultsPage() {
           text="Without defaults, new accounts need an FSLI chosen by hand."
         />
       ) : (
-        <Table>
+        <Table aria-label="Account-type defaults">
           <thead>
             <tr>
               <Th>ERP</Th>
               <Th>Account type</Th>
               <Th>Default FSLI</Th>
+              <Th />
             </tr>
           </thead>
           <tbody>
             {q.data.map((r) => (
               <tr key={`${r.erp}-${r.accountType}`}>
-                <Td>{r.erp === 'ZOHO' ? 'Zoho' : r.erp === 'XERO' ? 'Xero' : 'Other'}</Td>
+                <Td>{ERP_LABEL[r.erp] ?? r.erp}</Td>
                 <Td>{r.accountType}</Td>
                 <Td>
                   {r.fsliName}{' '}
                   <span className="font-mono text-xs text-muted-foreground">{r.fsliCode}</span>
+                </Td>
+                <Td className="space-x-1 text-right whitespace-nowrap">
+                  <EditButton
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Change ${r.accountType}`}
+                    onClick={() => setEditing(r)}
+                  >
+                    <Pencil /> Change
+                  </EditButton>
+                  <EditButton
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Remove ${r.accountType}`}
+                    disabled={remove.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Remove the default for "${r.accountType}"?`))
+                        remove.mutate(r);
+                    }}
+                  >
+                    <Trash2 />
+                  </EditButton>
                 </Td>
               </tr>
             ))}
           </tbody>
         </Table>
       )}
+      {editing && fslis.data && (
+        <DefaultDialog
+          row={editing === 'new' ? null : editing}
+          fslis={fslis.data}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </ConfigPage>
+  );
+}
+
+function DefaultDialog({
+  row,
+  fslis,
+  onClose,
+}: {
+  row: AccountTypeDefaultDto | null;
+  fslis: FsliDto[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    erp: row?.erp ?? 'ZOHO',
+    accountType: row?.accountType ?? '',
+    fsliCode: row?.fsliCode ?? '',
+  });
+  const save = useMutation({
+    mutationFn: () => api.put<AccountTypeDefaultDto>('/config/account-type-defaults', form),
+    onSuccess: async () => {
+      toast('Default saved.');
+      await qc.invalidateQueries({ queryKey: ['config', 'account-type-defaults'] });
+      onClose();
+    },
+  });
+  const mappable = fslis.filter((f) => !f.computed && !f.consolidationOnly);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={row ? `Change ${row.accountType}` : 'Add default'}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={save.isPending || !form.accountType.trim() || !form.fsliCode}
+            onClick={() => save.mutate()}
+          >
+            Save default
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+        <Field label="ERP" htmlFor="def-erp">
+          <Select
+            id="def-erp"
+            value={form.erp}
+            disabled={!!row}
+            onChange={(e) => setForm({ ...form, erp: e.target.value })}
+          >
+            {Object.entries(ERP_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Account type"
+          htmlFor="def-type"
+          hint="As it appears in the ERP export, e.g. “Other Current Asset”."
+        >
+          <Input
+            id="def-type"
+            value={form.accountType}
+            disabled={!!row}
+            onChange={(e) => setForm({ ...form, accountType: e.target.value })}
+          />
+        </Field>
+        <Field label="Default FSLI" htmlFor="def-fsli">
+          <Select
+            id="def-fsli"
+            value={form.fsliCode}
+            onChange={(e) => setForm({ ...form, fsliCode: e.target.value })}
+          >
+            <option value="">Choose an FSLI</option>
+            {mappable.map((f) => (
+              <option key={f.code} value={f.code}>
+                {f.name} ({f.code})
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </Dialog>
   );
 }

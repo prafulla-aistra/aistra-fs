@@ -125,6 +125,13 @@
 - Configuration seed runs once (marker: audit_log SEED_APPLIED step2-configuration); after
   that the UI owns the data and the seed must never overwrite it.
 
+- Configuration C2: report formats are versioned (format_version / format_line); a task stores
+  its format version; saving a version used by a finalised report creates the next version.
+  Coverage check (engine checkFormatCoverage) must pass before a format saves. Global settings
+  RATE_SOURCE, IC_DIFF_THRESHOLD (1.00), VARIANCE_PCT_THRESHOLD (0.20) live in app_setting.
+  Config rate uploads preview first and skip locked months; config COA edits need a reason
+  when an existing mapping changes (source CONFIGURATION).
+
 ## Open questions (do not guess)
 - Exchange-rate source (website and which rate).
 - FCTR: confirm it is introduced as the translation balancing figure.

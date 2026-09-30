@@ -48,6 +48,58 @@ export function priorMonth(month: IsoDate): IsoDate {
   return toIsoDate(year, m, 1);
 }
 
+/** First day of the month after. */
+export function nextMonth(month: IsoDate): IsoDate {
+  const { year, month: m } = parseIsoDate(month);
+  return m === 12 ? toIsoDate(year + 1, 1, 1) : toIsoDate(year, m + 1, 1);
+}
+
+/** Start year of the Indian financial year (April–March) the month falls in. */
+export function fyStartYearOf(month: IsoDate): number {
+  const { year, month: m } = parseIsoDate(month);
+  return m >= 4 ? year : year - 1;
+}
+
+export interface RateMonthReview {
+  status: 'COMPLETE' | 'MISSING' | 'LOCKED';
+  missing: number;
+  checks: {
+    currency: string;
+    code: 'OPENING_NOT_PRIOR_CLOSING' | 'LARGE_MOVE' | 'MISSING';
+    message: string;
+  }[];
+}
+
+/**
+ * One month of the rate master: missing values of the required currencies, opening ≠ prior
+ * closing and moves over 10% (checkRates). Locked wins over missing / complete.
+ */
+export function reviewRateMonth(
+  rates: readonly MonthlyRate[],
+  month: IsoDate,
+  required: readonly string[],
+  locked: boolean,
+): RateMonthReview {
+  const checks: RateMonthReview['checks'] = [];
+  let missing = 0;
+  for (const c of required) {
+    const r = rates.find((x) => x.month === month && x.currency === c);
+    const absent = (['opening', 'closing', 'average'] as const).filter((f) => !r?.[f]);
+    missing += absent.length;
+    if (absent.length > 0)
+      checks.push({
+        currency: c,
+        code: 'MISSING',
+        message: `${c} ${monthLabel(month)}: ${absent.join(', ')} missing.`,
+      });
+  }
+  for (const w of checkRates(
+    rates.filter((r) => r.month === month || r.month === priorMonth(month)),
+  ))
+    if (w.month === month) checks.push({ currency: w.currency, code: w.code, message: w.message });
+  return { status: locked ? 'LOCKED' : missing > 0 ? 'MISSING' : 'COMPLETE', missing, checks };
+}
+
 /** "Aug-2026" for "2026-08-01". */
 export function monthLabel(month: IsoDate): string {
   const { year, month: m } = parseIsoDate(month);

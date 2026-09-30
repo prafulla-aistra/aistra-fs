@@ -411,6 +411,7 @@ export class TaskWizardService {
           type: req.type,
           periodId: period.id,
           formatCode: format.code,
+          formatVersion: format.currentVersion,
           description,
           reviewerNote: req.reviewerNote?.trim() || null,
           dueDate: toDbDate(due.effective),
