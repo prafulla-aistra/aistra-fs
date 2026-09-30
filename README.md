@@ -396,6 +396,67 @@ opening 85.80 / average 86.10; GBP Jul 0.7380 / 0.7420 / 0.7400 and Aug 0.7420 /
 | UK GBP → USD | 165,212.77 Cr | 39,597.32 Cr | 11,738.76 Cr | 652,610.43 | 3,010.74 |
 | UK GBP → INR | 14,186,201.93 Cr | 3,429,127.52 Cr | 3,275,366.67 Cr | 56,711,847.39 | 32,771.03 |
 
+### Statements and notes (page 7)
+
+Step 5 of the SFS workspace (`/tasks/:id?step=STATEMENTS`), same entity tabs.
+
+- **Engine** (`packages/engine/src/statements.ts`): `buildStatement` (line = sum of FSLIs x
+  display sign: assets and expenses +1; liabilities, equity and income -1; totals + / - of the
+  lines above; the marked total-assets, total-equity-and-liabilities and profit lines),
+  `fsliAmounts` (PROFIT = P&L total, plus FCTR), `noteNumbers` (1 corporate information,
+  2 policies, then one per line with a value, balance sheet first), `lineNote`,
+  `intercompanyNote`, `scaleAmount` (units, each figure rounded on its own) and
+  `statementTitle`.
+- **Controls**: format (task format by default; others show "Preview – not the task format"),
+  currency (functional and each translated currency), tabs Balance sheet / Profit and loss /
+  Notes to accounts, units (Actual, Thousands, Lakhs, Crores, Millions; Lakhs and Crores use
+  Indian digit grouping; "Figures may not add due to rounding"), "Show nil lines", Export to
+  Excel (this currency or all currencies), Print / PDF (A4, statement pages, page numbers).
+- **Statements**: title block, Particulars | Note | current | comparative (page 5's source, in
+  the same currency, translated with its own period's rates or read from its finalised stored
+  figures), headings bold, subtotals with a rule above, totals with a double rule below,
+  negatives in brackets, ticks on total equity and liabilities (= total assets) and on profit
+  (= profit carried to the balance sheet); a failed tie shows the difference. A line opens its
+  note; a note figure shows the TB account (functional amount, rate, translated amount).
+- **Notes**: Note 1 auto-drafted from the entity master (editable, audited); Note 2 accounting
+  policies (editable, "Draft – to be reviewed", carried forward from the entity's previous
+  task); one note per line with its accounts (counterparty for intercompany), computed items
+  (profit, FCTR) listed separately and a total ticked against the face; the intercompany note
+  ("Related party balances – intercompany (full related party disclosure to follow)"); the
+  exchange-rates note for translated currencies.
+- **Excel** (exceljs): Cover, BS, P&L, Notes (per currency for "all currencies"), TB (functional
+  with the FSLI mapping), Translation <ccy>, Checks. Real numbers with number formats;
+  subtotals, totals and note totals are SUM formulas over the lines above; frozen panes;
+  column widths. Amounts are exact 2 dp values that become Excel numbers only there.
+- **Rules**: no journals or manual adjustments ("Corrections are made in the ERP and the trial
+  balance re-uploaded, so the statements always agree to the books."). "Continue to review and
+  finalise" is always enabled and saves the step. Finalised entities and done tasks read the
+  stored figures (`statement_snapshot`), never recalculated; the demo seed stores them for the
+  finalised demo entities.
+
+The sample data was revised again for page 7 (India only): other income 250,000; employee
+costs 33,310,000; other expenses 5,750,000 (cost of services 220,000); depreciation 1,400,000;
+tax 1,900,000 (current 2,000,000, deferred -100,000); trade receivables 28,840,000 (the rest of
+the former receivables is in the bank, now the balancing account). TB totals, profit, retained
+earnings, the translation results and the page 4–6 expectations are unchanged (the page 6 bank
+line is now 6,039,394.36 USD).
+
+| India Aug-2026 (Jul-2026) | Monthly internal, INR | USD |
+|---|---|---|
+| Revenue | 59,870,764.50 (57,506,584.16) | 691,348.32 (667,904.58) |
+| EBITDA | 20,810,764.50 (19,406,584.16) | 240,309.06 (225,395.88) |
+| Profit before tax | 19,660,764.50 (18,256,584.16) | 227,029.62 (212,039.32) |
+| Tax | 1,900,000.00 (1,900,000.00) | 21,939.96 (22,067.36) |
+| Net profit | 17,760,764.50 (16,356,584.16) | 205,089.66 (189,971.96) |
+| Total assets | 745,317,348.66 (727,556,584.16) | 8,576,724.39 (8,420,793.78) |
+| Total equity | 699,117,348.66 (681,356,584.16) | 8,045,078.81 (7,886,071.57) |
+| Total liabilities | 46,200,000.00 (46,200,000.00) | 531,645.58 (534,722.21) |
+
+Statutory, INR: III Total income 60,120,764.50 · Employee benefits expense 33,310,000.00 ·
+Other expenses 5,750,000.00 · Total expenses 40,460,000.00 · VII Profit 17,760,764.50 ·
+(a) Equity share capital 100,000,000.00 · (b) Other equity 599,117,348.66 · (ii) Trade
+receivables 85,618,978.63. Lakhs: total assets 7,453.17.
+
 ### Configuration: entities and group structure (C1)
 
 - **Layout**: a grouped left menu (Organisation · Currencies · Calendar · Reporting · Access).
@@ -463,7 +524,9 @@ is refused (400).
 (API on 3001, web on 5174, the test database and ./data/uploads-test): the SFS journey (upload
 → map → comparatives → translation), the configuration journeys (add / view / deactivate an
 entity as master; view-only buttons as Priya) and C2 (format coverage blocks saving when
-"Other expenses" is unplaced; locked rate months and the cross-rate viewer; view-only pages). First time only: `npx playwright install chromium`.
+"Other expenses" is unplaced; locked rate months and the cross-rate viewer; view-only pages).
+The SFS journey continues to statements and notes (internal format INR and USD, Statutory,
+notes, Lakhs, and the Excel export's SUM formulas). First time only: `npx playwright install chromium`.
 
 ### File storage: local folder
 
@@ -652,12 +715,13 @@ These need confirmation from the process owners before the related features are 
 ## Known dependency warnings (clean-up later)
 
 `npm install` reports these `npm audit` findings. **Do not run `npm audit fix --force`.** It
-would install breaking major versions (Vitest 5, and an older Prisma). All of them are in
-development tools only; none ship in the API or web app.
+would install breaking major versions (Vitest 5, an older Prisma, an older exceljs). All but
+`uuid` are in development tools only; `uuid` ships in the API via exceljs (see its row).
 
 | Package                       | Severity | Via                         | Notes                                      |
 | ----------------------------- | -------- | --------------------------- | ------------------------------------------ |
 | `deepmerge-ts` < 8            | high     | `prisma` → `@prisma/config` | Prisma CLI only; fixed by a Prisma upgrade |
 | `@vitest/mocker` 2.1.0–4.1.10 | moderate | `vitest`                    | Test runner only; fixed in Vitest 5        |
+| `uuid` < 11.1.1 | moderate | `exceljs` (statements export) | Affects v3/v5/v6 called with a buffer; exceljs only calls `v4()` without one. An npm override did not apply in this workspace; revisit in the upgrade step |
 
 Plan: address them in a dedicated upgrade step (Prisma 7, Vitest 5), with tests.

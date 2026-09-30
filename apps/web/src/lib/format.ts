@@ -55,3 +55,21 @@ export function bracketAmount(value: string): string {
 export function drCr(amount: string): string {
   return amount.startsWith('-') ? `Cr ${amountText(amount.slice(1))}` : `Dr ${amountText(amount)}`;
 }
+
+/**
+ * Statement figure: thousands separators (Indian lakh/crore grouping when asked), negatives in
+ * brackets, "–" for nil. Text only; the value is exact text from the API.
+ */
+export function statementAmount(value: string | null, indian = false): string {
+  if (value === null) return '';
+  const negative = value.startsWith('-');
+  const [int = '0', dec] = value.replace('-', '').split('.');
+  if (/^0*$/.test(int) && (!dec || /^0*$/.test(dec))) return '–';
+  const grouped = indian
+    ? int.length > 3
+      ? `${int.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${int.slice(-3)}`
+      : int
+    : int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const text = `${grouped}${dec !== undefined ? `.${dec}` : ''}`;
+  return negative ? `(${text})` : text;
+}

@@ -235,6 +235,8 @@ export const AuditAction = {
   // Comparatives (page 5)
   ComparativeBasisChange: 'COMPARATIVE_BASIS_CHANGE',
   VarianceExplain: 'VARIANCE_EXPLAIN',
+  // Statements and notes (page 7)
+  StatementNoteUpdate: 'STATEMENT_NOTE_UPDATE',
   // Configuration C2
   SettingsUpdate: 'SETTINGS_UPDATE',
   FormatUpdate: 'FORMAT_UPDATE',

@@ -8,6 +8,9 @@ import { MappingController } from './mapping.controller';
 import { MappingStepService } from './mapping-step.service';
 import { RateConfigService } from './rate-config.service';
 import { RatesService } from './rates.service';
+import { StatementFiguresService } from './statement-figures';
+import { StatementsController } from './statements.controller';
+import { StatementsService } from './statements.service';
 import { TranslationController } from './translation.controller';
 import { TranslationService } from './translation.service';
 import { UploadStepService } from './upload-step.service';
@@ -22,6 +25,7 @@ import { UploadsController } from './uploads.controller';
     ComparativesController,
     TranslationController,
     ConfigDataController,
+    StatementsController,
   ],
   providers: [
     UploadStepService,
@@ -32,6 +36,8 @@ import { UploadsController } from './uploads.controller';
     ComparativeSourceService,
     ComparativesService,
     TranslationService,
+    StatementFiguresService,
+    StatementsService,
   ],
 })
 export class UploadsModule {}

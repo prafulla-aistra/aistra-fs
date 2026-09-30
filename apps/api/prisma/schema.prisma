@@ -305,6 +305,7 @@ model User {
   varianceExplanations  VarianceExplanation[]   @relation("VarianceExplanationBy")
   ownershipChanges      EntityOwnership[]       @relation("OwnershipCreatedBy")
   formatVersions        FormatVersion[]         @relation("FormatVersionBy")
+  statementTexts        StatementText[]         @relation("StatementTextBy")
   levelCurrencies       LevelCurrencyOverride[] @relation("LevelCurrencyBy")
 
   @@map("app_user")
@@ -459,6 +460,8 @@ model Task {
   files                UploadedFile[]
   varianceExplanations VarianceExplanation[]
   translationSnapshots TranslationSnapshot[]
+  statementSnapshots   StatementSnapshot[]
+  statementTexts       StatementText[]
   mappedAccounts       EntityAccount[]
   tbVersions           TbVersion[]
 
@@ -882,4 +885,40 @@ model FormatLine {
 
   @@unique([versionId, statement, key])
   @@map("format_line")
+}
+
+/// Statements and notes (SFS step 5): the figures of a finalised task entity (every currency,
+/// current and comparative, account level), so a finalised statement is never recalculated.
+model StatementSnapshot {
+  id         String   @id @default(uuid()) @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  entityCode String   @map("entity_code") @db.VarChar(10)
+  /// EntityFigures (see apps/api/src/uploads/statement-figures.ts).
+  figures    Json
+  /// SEED (demo data) or FINALISE.
+  source     String   @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, entityCode])
+  @@map("statement_snapshot")
+}
+
+/// Editable note text of a task entity: NOTE1 (corporate information and basis of
+/// preparation) and NOTE2 (significant accounting policies, carried forward to later tasks).
+model StatementText {
+  id          String   @id @default(uuid()) @db.Uuid
+  taskId      String   @map("task_id") @db.Uuid
+  entityCode  String   @map("entity_code") @db.VarChar(10)
+  kind        String   @db.VarChar(10)
+  text        String
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task      Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  updatedBy User? @relation("StatementTextBy", fields: [updatedById], references: [id])
+
+  @@unique([taskId, entityCode, kind])
+  @@map("statement_text")
 }

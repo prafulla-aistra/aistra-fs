@@ -10,6 +10,7 @@ export * from './mapping';
 export * from './money';
 export * from './periods';
 export * from './rates';
+export * from './statements';
 export * from './task-numbers';
 export * from './tb-checks';
 export * from './tasks';

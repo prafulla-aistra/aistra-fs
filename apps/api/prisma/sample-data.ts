@@ -178,9 +178,15 @@ const TEMPLATE: Line[] = [
  * balance the TB; Aug 3200 retained earnings = Jul RE + Jul profit.
  */
 const IN_LINES: Line[] = [
-  { code: '1010', name: 'Operating Bank', type: 'Bank', aug: '360773370.00' },
+  { code: '1010', name: 'Operating Bank', type: 'Bank' },
   { code: '1020', name: 'Petty Cash', type: 'Cash', aug: '85000.00', jul: '82000.00' },
-  { code: '1100', name: 'Accounts Receivable', type: 'Accounts Receivable', jul: '190000000.00' },
+  {
+    code: '1100',
+    name: 'Accounts Receivable',
+    type: 'Accounts Receivable',
+    aug: '28840000.00',
+    jul: '28000000.00',
+  },
   {
     code: '1200',
     name: 'Security Deposit',
@@ -350,7 +356,7 @@ const IN_LINES: Line[] = [
     jul: '-400000000.00',
   },
   { code: '3200', name: 'Retained Earnings', type: 'Equity', jul: '-165000000.00' },
-  { code: '4000', name: 'Sales', type: 'Income', aug: '-30900000.00', jul: '-29466584.16' },
+  { code: '4000', name: 'Sales', type: 'Income', aug: '-30900000.00', jul: '-29456584.16' },
   {
     code: '4100',
     name: 'IC Revenue - US',
@@ -377,31 +383,31 @@ const IN_LINES: Line[] = [
     code: '4500',
     name: 'Interest Income',
     type: 'Other Income',
-    aug: '-350000.00',
-    jul: '-340000.00',
+    aug: '-250000.00',
+    jul: '-250000.00',
   },
   {
     code: '5001',
     name: 'Cost of Services',
     type: 'Cost Of Goods Sold',
-    aug: '12000000.00',
-    jul: '11700000.00',
+    aug: '220000.00',
+    jul: '210000.00',
   },
   {
     code: '6001',
     name: 'Salaries and Wages',
     type: 'Expense',
-    aug: '18200000.00',
-    jul: '18010000.00',
+    aug: '30000000.00',
+    jul: '29250000.00',
   },
   {
     code: '6010',
     name: 'Contribution to Provident Fund',
     type: 'Expense',
-    aug: '1100000.00',
-    jul: '1090000.00',
+    aug: '2500000.00',
+    jul: '2420000.00',
   },
-  { code: '6020', name: 'Gratuity Expense', type: 'Expense', aug: '300000.00', jul: '290000.00' },
+  { code: '6020', name: 'Gratuity Expense', type: 'Expense', aug: '460000.00', jul: '430000.00' },
   {
     code: '6100',
     name: 'Travel and Conveyance',
@@ -433,20 +439,20 @@ const IN_LINES: Line[] = [
   },
   { code: '6400', name: 'Office Expenses', type: 'Expense', aug: '350000.00', jul: '700000.00' },
   { code: '6410', name: 'Rent', type: 'Expense', aug: '1600000.00', jul: '1600000.00' },
-  { code: '6500', name: 'Depreciation', type: 'Expense', aug: '580000.00', jul: '570000.00' },
+  { code: '6500', name: 'Depreciation', type: 'Expense', aug: '1400000.00', jul: '1400000.00' },
   {
     code: '6900',
     name: 'Income Tax Expense',
     type: 'Expense',
-    aug: '4250000.00',
-    jul: '3910000.00',
+    aug: '2000000.00',
+    jul: '2000000.00',
   },
   {
     code: '6910',
     name: 'Deferred Tax Expense',
     type: 'Expense',
-    aug: '150000.00',
-    jul: '140000.00',
+    aug: '-100000.00',
+    jul: '-100000.00',
   },
 ];
 
@@ -609,7 +615,7 @@ const ENTITY_INFO: {
       {
         month: 'jul',
         pairs: [
-          ['1100', '1250'],
+          ['1010', '1250'],
           ['1260', '1270'],
           ['1500', '1520'],
         ],
@@ -625,20 +631,27 @@ const ENTITY_INFO: {
         covers: isLiability,
         targets: [{ to: 'USD', kind: 'closing', value: '-534722.21' }],
       },
+      // Revenue and operating costs separately (so EBITDA lands too), each within one
+      // statement line so the INR line totals of page 7 stay exact.
+      {
+        month: 'jul',
+        pairs: [['4000', '4103']],
+        covers: (c) => c >= '4000' && c < '4500',
+        targets: [{ to: 'USD', kind: 'average', value: '-667904.58' }],
+      },
       {
         month: 'jul',
         pairs: [
-          ['5001', '6001'],
-          ['6100', '6200'],
-          ['6300', '6410'],
+          ['6001', '6010'],
+          ['6200', '6210'],
         ],
-        covers: isPL,
-        targets: [{ to: 'USD', kind: 'average', value: '-189971.96' }],
+        covers: (c) => c >= '5000' && c < '6500',
+        targets: [{ to: 'USD', kind: 'average', value: '442508.70' }],
       },
       {
         month: 'aug',
         pairs: [
-          ['1100', '1250'],
+          ['1010', '1250'],
           ['1260', '1270'],
           ['1500', '1520'],
         ],
@@ -657,12 +670,11 @@ const ENTITY_INFO: {
       {
         month: 'aug',
         pairs: [
-          ['5001', '6001'],
-          ['6100', '6200'],
-          ['6300', '6410'],
+          ['6001', '6010'],
+          ['6200', '6210'],
         ],
-        covers: isPL,
-        targets: [{ to: 'USD', kind: 'average', value: '-205089.66' }],
+        covers: (c) => c >= '5000' && c < '6500',
+        targets: [{ to: 'USD', kind: 'average', value: '451039.26' }],
       },
     ],
   },
@@ -853,7 +865,7 @@ function build(): SampleEntity[] {
           .toFixed(2);
       }
       // India: Aug receivables and Jul bank balance the TB; the others: the bank.
-      const balancer = isIndia && m === 'aug' ? find('1100') : bank;
+      const balancer = bank;
       balancer[m] = '0.00';
       balancer[m] = sum(m, () => true)
         .negated()

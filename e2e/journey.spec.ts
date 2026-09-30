@@ -1,10 +1,12 @@
 import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
+import ExcelJS from 'exceljs';
 
 /**
  * The SFS journey in a real browser with the sample data: sign in as Priya → dashboard →
  * the Aug-2026 SFS task → upload India's Aug-26 TB → map the 2 new accounts → comparatives →
- * currency translation (India INR → USD: profit 205,089.66, FCTR 939,726.38 Dr).
+ * currency translation (India INR → USD: profit 205,089.66, FCTR 939,726.38 Dr) → statements
+ * and notes (internal format INR and USD, Statutory, notes, Lakhs, Excel export).
  */
 const SAMPLES = path.join(__dirname, '..', 'samples');
 
@@ -15,7 +17,7 @@ async function step(page: Page, label: string) {
     .click();
 }
 
-test('SFS journey: upload → map → comparatives → translation (India, Aug-2026)', async ({
+test('SFS journey: upload → map → comparatives → translation → statements (India, Aug-2026)', async ({
   page,
 }) => {
   // Sign in.
@@ -81,4 +83,70 @@ test('SFS journey: upload → map → comparatives → translation (India, Aug-2
   });
   await expect(fctrRow).toContainText('939,726.38');
   await expect(page.getByText('Assets = liabilities + equity')).toBeVisible();
+
+  // Step 5: statements and notes, India. Monthly internal format in INR.
+  await step(page, 'Statements and notes');
+  await page.getByRole('tab', { name: /IN\s*India/ }).click();
+  await page.getByLabel('Format').selectOption({ label: 'Monthly internal (management)' });
+  await expect(page.getByText('Preview – not the task format')).toBeVisible();
+  const line = (key: string) => page.locator(`tr[data-row="${key}"]`);
+  await expect(page.getByRole('tab', { name: 'Profit and loss' })).toBeVisible();
+  await expect(line('total_assets')).toContainText('745,317,348.66');
+  await expect(line('total_assets')).toContainText('727,556,584.16');
+  await expect(line('total_eq_liab').getByLabel('Agrees to total assets')).toBeVisible();
+  await page.getByRole('tab', { name: 'Profit and loss' }).click();
+  await expect(line('revenue')).toContainText('59,870,764.50');
+  await expect(line('revenue')).toContainText('57,506,584.16');
+  await expect(line('ebitda')).toContainText('20,810,764.50');
+  await expect(line('net_profit')).toContainText('17,760,764.50');
+
+  // USD.
+  await page.getByLabel('Currency').selectOption('USD');
+  await expect(page.getByText(/USD · Actual · Translated from INR/).first()).toBeVisible();
+  await expect(line('net_profit')).toContainText('205,089.66');
+  await expect(line('net_profit')).toContainText('189,971.96');
+  await expect(line('revenue')).toContainText('691,348.32');
+
+  // Statutory (the task format), INR.
+  await page
+    .getByLabel('Format')
+    .selectOption({ label: 'Statutory FS (Schedule III, Division II) (task format)' });
+  await page.getByLabel('Currency').selectOption('INR');
+  await expect(page.getByText('Preview – not the task format')).toBeHidden();
+  await expect(line('total_income')).toContainText('60,120,764.50');
+  await expect(line('employee')).toContainText('33,310,000.00');
+  await expect(line('profit')).toContainText('17,760,764.50');
+
+  // Notes: Note 1 draft, a line note that ties, the intercompany note.
+  await page.getByRole('tab', { name: 'Notes to accounts' }).click();
+  await expect(page.getByText('Auto-drafted from the entity master')).toBeVisible();
+  await expect(page.getByText(/Aistra GenAI India Pvt Ltd \("the Company"\)/)).toBeVisible();
+  const empNote = page.getByRole('article', { name: /Employee benefits expense/ });
+  await expect(empNote).toContainText('33,310,000.00');
+  await expect(empNote.getByLabel('Agrees to the face').first()).toBeVisible();
+  await expect(
+    page.getByText(
+      'Related party balances – intercompany (full related party disclosure to follow)',
+    ),
+  ).toBeVisible();
+
+  // Lakhs, on the balance sheet.
+  await page.getByLabel('Units').selectOption('LAKHS');
+  await page.getByRole('tab', { name: 'Balance sheet' }).click();
+  await expect(line('total_assets')).toContainText('7,453.17');
+  await expect(page.getByText('Figures may not add due to rounding')).toBeVisible();
+
+  // Excel: a subtotal is a SUM formula over the lines above.
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export to Excel' }).click();
+  const file = await (await download).path();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(file);
+  const pl = wb.getWorksheet('P&L')!;
+  let formula = '';
+  pl.eachRow((r) => {
+    if (r.getCell(1).value === 'Total expenses (IV)')
+      formula = (r.getCell(3).value as { formula: string }).formula;
+  });
+  expect(formula).toMatch(/^SUM\(C\d+(,-?C\d+)+\)$/);
 });

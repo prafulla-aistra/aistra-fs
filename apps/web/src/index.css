@@ -134,3 +134,44 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Print / PDF (statements and notes): A4, statement pages only, page numbers in the footer. */
+@page {
+  size: A4;
+  margin: 16mm 14mm 18mm;
+  @bottom-right {
+    content: 'Page ' counter(page) ' of ' counter(pages);
+    font-size: 9pt;
+    color: #64748b;
+  }
+}
+@media print {
+  aside,
+  header,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+  body,
+  main {
+    background: #ffffff !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .statement-page {
+    border: none !important;
+    padding: 0 !important;
+    break-after: page;
+  }
+  .statement-page:last-of-type {
+    break-after: auto;
+  }
+  .note {
+    break-inside: avoid;
+  }
+  .pb-24 {
+    padding-bottom: 0 !important;
+  }
+}

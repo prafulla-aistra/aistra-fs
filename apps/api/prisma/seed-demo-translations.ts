@@ -71,13 +71,9 @@ export async function seedDemoTranslations(prisma: PrismaClient): Promise<void> 
         },
       };
       const before = await prisma.translationSnapshot.findUnique({ where: key });
-      if (
-        before &&
-        before.fctr.toFixed(2) === data.fctr &&
-        before.profit.toFixed(2) === data.profit &&
-        before.retained.toFixed(2) === data.retained
-      )
-        continue;
+      // Unchanged only if every translated line is the same (the totals alone can stay equal
+      // when the sample data is revised).
+      if (before && JSON.stringify(before.result) === JSON.stringify(data.result)) continue;
       await prisma.translationSnapshot.upsert({
         where: key,
         create: { taskId: task.id, entityCode: te.entityCode, targetCurrency: target, ...data },

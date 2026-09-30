@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { TaskPlaceholderPage } from './TaskPlaceholderPage';
 import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
+import { StatementsStep } from './statements/StatementsStep';
 import { TranslationStep } from './translation/TranslationStep';
 import { UploadStep } from './upload/UploadStep';
 
@@ -42,7 +43,7 @@ export function TaskWorkspacePage() {
 
   return (
     <>
-      <Button asChild variant="ghost" size="sm" className="mb-3">
+      <Button asChild variant="ghost" size="sm" className="no-print mb-3">
         <Link to="/dashboard" className="no-underline">
           <ArrowLeft /> Back to dashboard
         </Link>
@@ -72,6 +73,12 @@ export function TaskWorkspacePage() {
         <ComparativesStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
       ) : active === 'TRANSLATION' ? (
         <TranslationStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
+      ) : active === 'STATEMENTS' ? (
+        <StatementsStep
+          taskId={t.id}
+          onUpload={() => goTo('UPLOAD_DATA')}
+          onContinue={() => goTo('REVIEW')}
+        />
       ) : (
         <Card>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">

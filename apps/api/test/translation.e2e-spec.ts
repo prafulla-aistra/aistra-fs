@@ -163,7 +163,7 @@ describe('India INR → USD', () => {
     expect(line(c, '3001').basisLabel).toBe('historical');
     expect(line(c, '1010')).toMatchObject({
       name: 'Operating Bank',
-      translated: '4151592.29',
+      translated: '6039394.36', // 524,823,370.03 ÷ 86.90 (page 7 sample data: receivables moved to the bank)
       basisLabel: 'closing',
     });
     expect(line(c, '4000')).toMatchObject({

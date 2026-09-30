@@ -19,6 +19,7 @@ import { seedAccounts } from './seed-accounts';
 import { seedConfiguration } from './seed-configuration';
 import { seedDemoUsers } from './seed-demo';
 import { seedDemoTasks } from './seed-demo-tasks';
+import { seedDemoStatements } from './seed-demo-statements';
 import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
 import { seedFormats } from './seed-formats';
@@ -219,6 +220,7 @@ async function main(): Promise<void> {
     await seedDemoTasks(prisma);
     await seedDemoUploads(prisma);
     await seedDemoTranslations(prisma);
+    await seedDemoStatements(prisma);
   }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }

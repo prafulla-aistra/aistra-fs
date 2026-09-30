@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   type ClassifiedLine,
   deriveTaskStatus,
+  type MonthlyRate,
+  type TranslateTbResult,
   rollForwardCheck,
   type TranslationLineInput,
 } from '@finance-close/engine';
@@ -117,6 +119,59 @@ export class TranslationService {
     return rollForwardCheck({ basis: 'PREVIOUS_PERIOD', current, comparative }).status === 'PASS';
   }
 
+  /**
+   * The task entity's translation into each translated currency, exactly as this step shows
+   * it (retained earnings rolled forward from the finalised prior period when the check
+   * passes). Used by this step and by statements and notes.
+   */
+  async translate(
+    task: StepTask,
+    te: TaskEntityRow,
+    lines: TranslationLineInput[],
+    rates?: MonthlyRate[],
+  ): Promise<{ target: string; result: TranslateTbResult }[]> {
+    const functional = te.entity.functionalCurrency;
+    const targets = te.entity.translatedCurrencies
+      .map((t) => t.currencyCode)
+      .filter((c) => c !== functional)
+      .sort();
+    if (targets.length === 0) return [];
+    const period = {
+      startDate: fromDbDate(task.period.startDate),
+      endDate: fromDbDate(task.period.endDate),
+      label: task.period.label,
+    };
+    const monthly = rates ?? (await monthlyRates(this.prisma, [functional, ...targets], period));
+    const previous = await this.sources.period(task, 'PREVIOUS_PERIOD');
+    const passed = await this.rollForwardPassed(task, te, lines);
+    const out: { target: string; result: TranslateTbResult }[] = [];
+    for (const target of targets) {
+      const prior = await finalisedSnapshot(this.prisma, te.entityCode, target, previous.id);
+      const h = te.entity.historicalRates.find((r) => r.targetCurrency === target);
+      out.push({
+        target,
+        result: translateLines({
+          lines,
+          functionalCurrency: functional,
+          target,
+          period,
+          rates: monthly,
+          historicalRate: h ? h.rate.toString() : null,
+          prior: prior
+            ? {
+                periodLabel: previous.label,
+                retained: prior.retained.toFixed(2),
+                profit: prior.profit.toFixed(2),
+              }
+            : null,
+          priorPeriodLabel: previous.label,
+          rollForwardPassed: passed,
+        }),
+      });
+    }
+    return out;
+  }
+
   private async build(
     user: AuthUser,
     task: StepTask,
@@ -147,29 +202,8 @@ export class TranslationService {
 
     const currencies: CurrencyTranslationDto[] = [];
     if (lines) {
-      const previous = await this.sources.period(task, 'PREVIOUS_PERIOD');
       const comparative = await this.sources.period(task);
-      const passed = targets.length > 0 ? await this.rollForwardPassed(task, te, lines) : false;
-      for (const target of targets) {
-        const prior = await finalisedSnapshot(this.prisma, te.entityCode, target, previous.id);
-        const h = historical.find((r) => r.targetCurrency === target);
-        const r = translateLines({
-          lines,
-          functionalCurrency: functional,
-          target,
-          period,
-          rates,
-          historicalRate: h ? h.rate.toString() : null,
-          prior: prior
-            ? {
-                periodLabel: previous.label,
-                retained: prior.retained.toFixed(2),
-                profit: prior.profit.toFixed(2),
-              }
-            : null,
-          priorPeriodLabel: previous.label,
-          rollForwardPassed: passed,
-        });
+      for (const { target, result: r } of await this.translate(task, te, lines, rates)) {
         const comp =
           r.fctr !== null
             ? await finalisedSnapshot(this.prisma, te.entityCode, target, comparative.id)

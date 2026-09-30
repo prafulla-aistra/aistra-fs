@@ -157,6 +157,23 @@
 
 - Configuration C1: dated deactivation; ownership changes in finalised months; 2–4 letter codes.
 
+- Statements (page 7): draft comparatives are translated with retained earnings at the opening
+  rate; the demo UK Aug-2026 is finalised with 6390 unmapped (its stored figures cannot
+  translate); Excel exports actual amounts whatever units are shown.
+
+## Statements and notes (page 7) conventions
+- Statement faces, note numbers, line notes, the intercompany note, units and titles are engine
+  functions (statements.ts: buildStatement, fsliAmounts, noteNumbers, lineNote,
+  intercompanyNote, scaleAmount, statementTitle). The web only formats text (brackets, Indian
+  grouping).
+- StatementFiguresService builds account-level figures for every currency (current: the
+  translation step's result; comparative: page 5's source, from its finalised stored figures
+  where available). Finalised entities / done tasks read statement_snapshot.figures, never
+  rebuild. FINALISE snapshots are create-only; SEED (demo) snapshots follow demo-data revisions.
+- Note 1 / Note 2 text lives in statement_text (audited); Note 2 carries forward from the
+  entity's previous task. No journals or manual adjustments in SFS.
+- Excel via exceljs: real numbers, SUM formulas for subtotals, totals and note totals.
+
 ## Configuration (C1) conventions
 - Ownership is history (entity_ownership rows, effective from a month); never overwrite it.
   Entity.parentCode / heldByParentPct mirror the row in force this month. Structures, levels
