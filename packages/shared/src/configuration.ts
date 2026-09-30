@@ -57,6 +57,15 @@ export interface EntityDto {
   translatedCurrencies: string[];
   parentCode: string | null;
   parentName: string | null;
+  parentLegalName: string | null;
+  /** % ultimately held by the ultimate parent (58.49 for AE), this month. */
+  effectiveGroupPct: string | null;
+  /** Month the current ownership row applies from. */
+  ownershipEffectiveFrom: IsoDate | null;
+  incorporatedOn: IsoDate | null;
+  /** The functional currency can no longer change (the entity has finalised reports). */
+  functionalCurrencyLocked: boolean;
+  functionalCurrencyLockReason: string | null;
   /** % held by parent, e.g. "58.49"; null for the ultimate parent. */
   heldByParentPct: string | null;
   erp: ErpSystem;
@@ -88,6 +97,11 @@ export interface EntityInput {
   toBeConfirmedNote: string | null;
   /** Optional for older clients; null clears it. */
   materiality?: string | null;
+  incorporatedOn?: IsoDate | null;
+  /** Required when a currency (functional, reporting, translated) changes. */
+  reason?: string | null;
+  /** Create only: the month the ownership applies from (default: this month). */
+  ownershipEffectiveFrom?: IsoDate | null;
   historicalRates: {
     currency: string;
     rate: string;
@@ -111,6 +125,8 @@ export interface GroupTreeNode {
   functionalCurrency: string;
   reportingCurrency: string;
   heldByParentPct: string | null;
+  /** % ultimately held by the ultimate parent. */
+  effectiveGroupPct: string;
   toBeConfirmed: boolean;
   children: GroupTreeNode[];
 }
@@ -119,9 +135,14 @@ export interface ConsolidationLevelDto {
   level: number;
   name: string;
   parentCode: string;
-  /** Default level currency: the parent entity's reporting currency. */
+  /** Level currency: the override if set, else the parent's reporting currency. */
   currency: string;
-  members: { code: string; shortName: string }[];
+  defaultCurrency: string;
+  currencyOverridden: boolean;
+  parentLegalName: string;
+  members: { code: string; shortName: string; legalName: string; functionalCurrency: string }[];
+  /** Where non-controlling interests arise, e.g. India group 41.51%. */
+  nci: { entityCode: string; name: string; nciPct: string; members: string[] }[];
 }
 
 export interface GroupIssueDto {
@@ -134,6 +155,75 @@ export interface GroupStructureDto {
   /** null when the structure is invalid (see issues). */
   tree: GroupTreeNode | null;
   levels: ConsolidationLevelDto[];
+  issues: GroupIssueDto[];
+  /** The structure is shown as at this month (first day). */
+  asAt: IsoDate;
+}
+
+export interface OwnershipRowDto {
+  id: string;
+  parentCode: string | null;
+  parentLegalName: string | null;
+  heldByParentPct: string | null;
+  effectiveFrom: IsoDate;
+  reason: string;
+  by: string | null;
+  at: string;
+  /** In force this month. */
+  current: boolean;
+}
+
+export interface ChangeOwnershipRequest {
+  parentCode: string | null;
+  heldByParentPct: string | null;
+  /** First day of a month. */
+  effectiveFrom: IsoDate;
+  reason: string;
+}
+
+export interface EntityDetailDto {
+  entity: EntityDto;
+  ownership: OwnershipRowDto[];
+  /** Consolidation levels the entity belongs to this month. */
+  levels: { level: number; name: string; currency: string }[];
+  chartOfAccounts: { accounts: number; mapped: number; mappedPct: string };
+  tasks: {
+    id: string;
+    number: string;
+    type: StatementType;
+    periodLabel: string;
+    status: string;
+    itemStatus: string;
+  }[];
+  history: {
+    id: string;
+    timestamp: string;
+    action: string;
+    user: string | null;
+    oldValue: unknown;
+    newValue: unknown;
+  }[];
+  /** Why the entity cannot be deactivated now (null = it can). */
+  deactivateBlockedReason: string | null;
+}
+
+/** Live preview for the add-entity wizard. */
+export interface EntityPreviewRequest {
+  code: string;
+  functionalCurrency: string;
+  reportingCurrency: string;
+  translatedCurrencies: string[];
+  parentCode: string | null;
+  heldByParentPct: string | null;
+  effectiveFrom: IsoDate;
+}
+
+export interface EntityPreviewDto {
+  /** Ultimate parent first, ending with the new entity. */
+  path: { code: string; legalName: string }[];
+  effectiveGroupPct: string | null;
+  levels: { level: number; name: string; currency: string }[];
+  requiredHistoricalRates: { currency: string; reasons: string[] }[];
   issues: GroupIssueDto[];
 }
 
@@ -214,3 +304,45 @@ export const PERIOD_TYPE_LABELS: Record<PeriodType, string> = {
   QUARTERLY: 'Quarterly',
   ANNUAL: 'Annual',
 };
+
+// ---------------------------------------------------------------- reference data (read-only)
+
+export interface FsliDto {
+  code: string;
+  name: string;
+  statement: 'BS' | 'PL';
+  class: 'A' | 'L' | 'E' | 'I' | 'X';
+  rateBasis: string;
+  consolidationOnly: boolean;
+  needsCounterparty: boolean;
+  intercompany: boolean;
+  computed: boolean;
+  /** Accounts mapped to it, across all entities. */
+  accounts: number;
+}
+
+export interface AccountTypeDefaultDto {
+  erp: string;
+  accountType: string;
+  fsliCode: string;
+  fsliName: string;
+}
+
+export interface FormatDto {
+  code: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  tasks: number;
+}
+
+export interface ExchangeRateRowDto {
+  month: IsoDate;
+  currency: string;
+  opening: string | null;
+  closing: string | null;
+  average: string | null;
+  source: string;
+  enteredBy: string | null;
+  enteredAt: string;
+}

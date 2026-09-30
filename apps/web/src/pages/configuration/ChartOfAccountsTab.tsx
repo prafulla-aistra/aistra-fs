@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { SearchBox } from './common';
+import { ConfigPage, EditButton } from './ConfigPage';
 import { useEntities } from './hooks';
 
 /** Each entity's chart of accounts with its FSLI mapping and source (read-only for now). */
@@ -28,8 +29,18 @@ export function ChartOfAccountsTab() {
       a.sourceLabel.toLowerCase().includes(s),
   );
 
+  const mapped = (accounts.data ?? []).filter((a) => a.fsliCode).length;
   return (
-    <div className="space-y-4">
+    <ConfigPage
+      title="Chart of accounts"
+      purpose="Each entity's accounts and the FSLI they map to, with where each mapping came from."
+      count={accounts.data ? accounts.data.length + ' accounts · ' + mapped + ' mapped' : null}
+      action={
+        <EditButton disabled title="Mappings are set on step 2 of a task">
+          Add account
+        </EditButton>
+      }
+    >
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-72">
           <Field label="Entity" htmlFor="coa-entity">
@@ -95,6 +106,6 @@ export function ChartOfAccountsTab() {
           </tbody>
         </Table>
       )}
-    </div>
+    </ConfigPage>
   );
 }

@@ -68,6 +68,8 @@ model Entity {
   isActive           Boolean   @default(true) @map("is_active")
   toBeConfirmed      Boolean   @default(false) @map("to_be_confirmed")
   toBeConfirmedNote  String?   @map("to_be_confirmed_note") @db.VarChar(500)
+  /// Date of incorporation or acquisition.
+  incorporatedOn     DateTime? @map("incorporated_on") @db.Date
   /// Variance flags ignore movements below this amount (functional currency).
   materiality        Decimal?  @db.Decimal(20, 4)
   /// Display order (lists, group tree, level members).
@@ -87,6 +89,9 @@ model Entity {
   counterpartyAccounts EntityAccount[]            @relation("AccountCounterparty")
   uploadedFiles        UploadedFile[]             @relation("UploadedFileEntity")
   uploadProfile        UploadProfile?             @relation("UploadProfileEntity")
+  ownership            EntityOwnership[]          @relation("OwnershipEntity")
+  ownedEntities        EntityOwnership[]          @relation("OwnershipParent")
+  levelCurrency        LevelCurrencyOverride?
 
   @@map("entity")
 }
@@ -283,18 +288,20 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
-  financialYearsCreated FinancialYear[]       @relation("FinancialYearCreatedBy")
-  periodStatusChanges   Period[]              @relation("PeriodStatusChangedBy")
-  dueDateOverrides      DueDateOverride[]     @relation("DueDateOverrideCreatedBy")
-  tasksCreated          Task[]                @relation("TaskCreatedBy")
-  taskEntitiesFinalised TaskEntity[]          @relation("TaskEntityFinalisedBy")
-  taskLevelsFinalised   TaskLevel[]           @relation("TaskLevelFinalisedBy")
-  accountsUpdated       EntityAccount[]       @relation("EntityAccountUpdatedBy")
-  ratesEntered          ExchangeRate[]        @relation("ExchangeRateEnteredBy")
-  filesUploaded         UploadedFile[]        @relation("UploadedFileBy")
-  tbVersionsCreated     TbVersion[]           @relation("TbVersionCreatedBy")
-  uploadProfiles        UploadProfile[]       @relation("UploadProfileUpdatedBy")
-  varianceExplanations  VarianceExplanation[] @relation("VarianceExplanationBy")
+  financialYearsCreated FinancialYear[]         @relation("FinancialYearCreatedBy")
+  periodStatusChanges   Period[]                @relation("PeriodStatusChangedBy")
+  dueDateOverrides      DueDateOverride[]       @relation("DueDateOverrideCreatedBy")
+  tasksCreated          Task[]                  @relation("TaskCreatedBy")
+  taskEntitiesFinalised TaskEntity[]            @relation("TaskEntityFinalisedBy")
+  taskLevelsFinalised   TaskLevel[]             @relation("TaskLevelFinalisedBy")
+  accountsUpdated       EntityAccount[]         @relation("EntityAccountUpdatedBy")
+  ratesEntered          ExchangeRate[]          @relation("ExchangeRateEnteredBy")
+  filesUploaded         UploadedFile[]          @relation("UploadedFileBy")
+  tbVersionsCreated     TbVersion[]             @relation("TbVersionCreatedBy")
+  uploadProfiles        UploadProfile[]         @relation("UploadProfileUpdatedBy")
+  varianceExplanations  VarianceExplanation[]   @relation("VarianceExplanationBy")
+  ownershipChanges      EntityOwnership[]       @relation("OwnershipCreatedBy")
+  levelCurrencies       LevelCurrencyOverride[] @relation("LevelCurrencyBy")
 
   @@map("app_user")
 }
@@ -788,4 +795,39 @@ model TranslationSnapshot {
   @@unique([taskId, entityCode, targetCurrency])
   @@index([entityCode, targetCurrency, periodId])
   @@map("translation_snapshot")
+}
+
+/// Ownership history: the parent and % held from a month onwards. A change of parent or % held
+/// adds a row (never overwrites). Structures and consolidation use the row effective for the
+/// period; Entity.parentCode / heldByParentPct mirror the row in force this month.
+model EntityOwnership {
+  id              String   @id @default(uuid()) @db.Uuid
+  entityCode      String   @map("entity_code") @db.VarChar(10)
+  parentCode      String?  @map("parent_code") @db.VarChar(10)
+  heldByParentPct Decimal? @map("held_by_parent_pct") @db.Decimal(7, 4)
+  /// First day of the month the row applies from.
+  effectiveFrom   DateTime @map("effective_from") @db.Date
+  reason          String   @db.VarChar(500)
+  createdById     String?  @map("created_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entity    Entity  @relation("OwnershipEntity", fields: [entityCode], references: [code])
+  parent    Entity? @relation("OwnershipParent", fields: [parentCode], references: [code])
+  createdBy User?   @relation("OwnershipCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([entityCode, effectiveFrom])
+  @@map("entity_ownership")
+}
+
+/// Consolidation level currency set by hand (default: the level parent's reporting currency).
+model LevelCurrencyOverride {
+  parentEntityCode String   @id @map("parent_entity_code") @db.VarChar(10)
+  currency         String   @db.Char(3)
+  updatedById      String   @map("updated_by_id") @db.Uuid
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entity    Entity @relation(fields: [parentEntityCode], references: [code])
+  updatedBy User   @relation("LevelCurrencyBy", fields: [updatedById], references: [id])
+
+  @@map("level_currency_override")
 }

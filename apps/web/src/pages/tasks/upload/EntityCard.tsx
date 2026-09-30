@@ -267,6 +267,7 @@ function UploadRow({
           <input
             ref={input}
             type="file"
+            aria-label={`Choose ${title.toLowerCase()} file`}
             accept={accept}
             multiple={multiple}
             className="hidden"

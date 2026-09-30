@@ -6,7 +6,14 @@ import { AuditPage } from '@/pages/AuditPage';
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage';
 import { CalendarTab } from '@/pages/configuration/CalendarTab';
 import { ChartOfAccountsTab } from '@/pages/configuration/ChartOfAccountsTab';
-import { ComingNextStep } from '@/pages/configuration/common';
+import { EntityDetailPage } from '@/pages/configuration/EntityDetailPage';
+import { EntityWizardPage } from '@/pages/configuration/EntityWizardPage';
+import {
+  AccountTypeDefaultsPage,
+  ExchangeRatesPage,
+  FormatsPage,
+  FsliPage,
+} from '@/pages/configuration/ReferencePages';
 import { ConfigurationLayout } from '@/pages/configuration/ConfigurationLayout';
 import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
 import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
@@ -47,13 +54,17 @@ export function App() {
             <Route path="/configuration" element={<ConfigurationLayout />}>
               <Route index element={<Navigate to="entities" replace />} />
               <Route path="entities" element={<EntitiesTab />} />
+              <Route path="entities/new" element={<EntityWizardPage />} />
+              <Route path="entities/:code" element={<EntityDetailPage />} />
               <Route path="group" element={<GroupStructureTab />} />
               <Route path="currencies" element={<CurrenciesTab />} />
               <Route path="calendar" element={<CalendarTab />} />
               <Route path="due-dates" element={<DueDatesTab />} />
-              <Route path="formats" element={<ComingNextStep title="Formats" />} />
+              <Route path="formats" element={<FormatsPage />} />
+              <Route path="fslis" element={<FsliPage />} />
+              <Route path="account-type-defaults" element={<AccountTypeDefaultsPage />} />
               <Route path="chart-of-accounts" element={<ChartOfAccountsTab />} />
-              <Route path="exchange-rates" element={<ComingNextStep title="Exchange rates" />} />
+              <Route path="exchange-rates" element={<ExchangeRatesPage />} />
             </Route>
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/users').anyOf} />}>

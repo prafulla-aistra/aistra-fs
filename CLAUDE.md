@@ -148,6 +148,17 @@
 - Translation (page 6): roll-forward re-checked live against the previous period; FCTR movement
   comparative (task basis); unmapped accounts fail the translation.
 
+- Configuration C1: dated deactivation; ownership changes in finalised months; 2–4 letter codes.
+
+## Configuration (C1) conventions
+- Ownership is history (entity_ownership rows, effective from a month); never overwrite it.
+  Entity.parentCode / heldByParentPct mirror the row in force this month. Structures, levels
+  and new CFS tasks use the rows in force for the month concerned (EntitiesService
+  groupStructure(asAt)).
+- Configuration pages use ConfigPage (title, purpose, count, action) and EditButton: change
+  buttons are never hidden from view-only users, only disabled with the tooltip.
+- Browser tests: npm run test:browser (Playwright; test database, ports 3001/5174).
+
 ## Currency translation (page 6) conventions
 - translateTB (engine) is the only translation logic: rates at full precision, lines rounded
   to 2 dp half away from zero, FCTR = −(translated BS + PROFIT) so the translated TB nets to 0.

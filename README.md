@@ -396,6 +396,36 @@ opening 85.80 / average 86.10; GBP Jul 0.7380 / 0.7420 / 0.7400 and Aug 0.7420 /
 | UK GBP → USD | 165,212.77 Cr | 39,597.32 Cr | 11,738.76 Cr | 652,610.43 | 3,010.74 |
 | UK GBP → INR | 14,186,201.93 Cr | 3,429,127.52 Cr | 3,275,366.67 Cr | 56,711,847.39 | 32,771.03 |
 
+### Configuration: entities and group structure (C1)
+
+- **Layout**: a grouped left menu (Organisation · Currencies · Calendar · Reporting · Access).
+  Every page has a title, a one-line purpose, a count and its main action. Users without
+  CONFIG_MANAGE see "View only – you can see configuration but not change it."; change buttons
+  stay visible but disabled, with the tooltip "Needs configuration access – ask your
+  administrator".
+- **Entities**: list with effective group %, filters and search; "Add entity" wizard (basics,
+  currencies, ownership with a live preview of the tree and levels, historical rates, review);
+  entity page with Overview, Currencies and historical rates, Ownership history, Chart of
+  accounts, Tasks and reports, Change history.
+- **Rules (API)**: the code never changes (2–4 capital letters); the functional currency is
+  fixed once the entity has a finalised report; currency changes need a reason; the parent and
+  % held change only by adding an ownership row effective from a month (history kept, reason
+  required, structure validated from that month on); deactivation needs a reason and is blocked
+  by open tasks or active subsidiaries; no hard delete.
+- **Group structure**: org chart (legal name, code, currency, % held, effective group % =
+  engine `effectiveOwnership`), consolidation levels with "NCI arises for" (engine `nciPoints`)
+  and a level-currency override (audited), shown "as at" any month (engine `ownershipAsAt`).
+  New CFS tasks snapshot the levels in force for their period.
+- **Reference pages** (read-only for now): Exchange rates (with rate-file upload), Report
+  formats, FSLI master, Account-type defaults, Chart of accounts.
+
+### Browser tests
+
+`npm run test:browser` runs Playwright journeys in Chromium against a separate instance
+(API on 3001, web on 5174, the test database and ./data/uploads-test): the SFS journey (upload
+→ map → comparatives → translation) and the configuration journeys (add / view / deactivate an
+entity as master; view-only buttons as Priya). First time only: `npx playwright install chromium`.
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -415,6 +445,7 @@ AWS and selected with `STORAGE_DRIVER=s3`; business code does not change.
 | `npm run db:status`             | Show whether it is running                                          |
 | `npm run build`                 | Production build of all packages and apps                           |
 | `npm test`                      | Run all tests: engine (Vitest), API unit and API integration (Jest) |
+| `npm run test:browser`          | Browser journeys (Playwright) on a separate test instance |
 | `npm run typecheck`             | TypeScript check across all workspaces                              |
 | `npm run lint`                  | ESLint                                                              |
 | `npm run format`                | Prettier (write). `npm run format:check` only checks                |
@@ -570,6 +601,14 @@ These need confirmation from the process owners before the related features are 
     period, or same period last year). Confirm which the statements should show.
 24. **Unmapped accounts** stop the translation of that currency (a "fail"). Confirm, or should
     they be translated at closing / average by default?
+25. **Deactivating in the middle of a period.** Deactivation has no "effective from" date: an
+    inactive entity drops out of every structure, including earlier months (finalised
+    consolidations keep their snapshot). Confirm, or should deactivation be dated like ownership?
+26. **Ownership changes in finalised months.** An ownership change may be effective from a month
+    whose consolidation is already finalised; the finalised snapshot is unaffected, but a new
+    task for that month would use the new structure. Should such changes be blocked?
+27. **Entity code length.** New codes are 2–4 capital letters (as requested); the seeded codes
+    are 2 letters. Confirm that digits are never needed.
 
 ## Known dependency warnings (clean-up later)
 

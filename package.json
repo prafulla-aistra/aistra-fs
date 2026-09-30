@@ -33,10 +33,12 @@
     "db:studio": "npm run db:studio -w @finance-close/api",
     "master:reset-password": "npm run master:reset-password -w @finance-close/api",
     "demo:remove-tasks": "npm run demo:remove-tasks -w @finance-close/api",
-    "samples:generate": "npm run samples:generate -w @finance-close/api"
+    "samples:generate": "npm run samples:generate -w @finance-close/api",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
     "concurrently": "^9.2.4",
     "embedded-postgres": "^16.14.0-beta.17",
     "eslint": "^9.39.5",

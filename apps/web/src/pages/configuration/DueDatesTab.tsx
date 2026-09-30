@@ -14,14 +14,20 @@ import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { SearchBox } from './common';
-import { matches, useCanEditConfig } from './hooks';
+import { matches, NO_CONFIG_ACCESS, useCanEditConfig } from './hooks';
+import { ConfigPage, EditButton } from './ConfigPage';
 
 export function DueDatesTab() {
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      <RulesCard />
-      <HolidaysCard />
-    </div>
+    <ConfigPage
+      title="Due dates and holidays"
+      purpose="How many working days after the period end each task is due, and the holidays that are not working days."
+    >
+      <div className="grid gap-6 xl:grid-cols-2">
+        <RulesCard />
+        <HolidaysCard />
+      </div>
+    </ConfigPage>
   );
 }
 
@@ -81,9 +87,11 @@ function RulesCard() {
                     {PERIOD_TYPE_LABELS[r.periodType]} {STATEMENT_LABELS[r.statementType]}
                   </Td>
                   <Td>
-                    {canEdit ? (
+                    {
                       <div className="flex items-center gap-2">
                         <Input
+                          disabled={!canEdit}
+                          title={canEdit ? undefined : NO_CONFIG_ACCESS}
                           aria-label={`Working days for ${PERIOD_TYPE_LABELS[r.periodType]} ${r.statementType}`}
                           className="w-20"
                           inputMode="numeric"
@@ -92,21 +100,19 @@ function RulesCard() {
                           onChange={(e) => setDrafts({ ...drafts, [key]: e.target.value })}
                         />
                         {changed && (
-                          <Button
+                          <EditButton
                             size="sm"
                             disabled={!valid || save.isPending}
                             onClick={() => save.mutate({ ...r, workingDays: Number(draft) })}
                           >
                             Save
-                          </Button>
+                          </EditButton>
                         )}
                         {!valid && (
                           <span className="text-xs text-destructive">0–120 whole days</span>
                         )}
                       </div>
-                    ) : (
-                      r.workingDays
-                    )}
+                    }
                   </Td>
                 </tr>
               );
@@ -119,7 +125,6 @@ function RulesCard() {
 }
 
 function HolidaysCard() {
-  const canEdit = useCanEditConfig();
   const queryClient = useQueryClient();
   const holidays = useQuery({
     queryKey: ['config', 'holidays'],
@@ -144,11 +149,9 @@ function HolidaysCard() {
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SearchBox value={query} onChange={setQuery} placeholder="Search holidays" />
-          {canEdit && (
-            <Button size="sm" onClick={() => setDialog({})}>
-              <Plus /> Add holiday
-            </Button>
-          )}
+          <EditButton size="sm" onClick={() => setDialog({})}>
+            <Plus /> Add holiday
+          </EditButton>
         </div>
         {(remove.error || holidays.error) && (
           <Alert>{errorMessage(remove.error ?? holidays.error)}</Alert>
@@ -158,7 +161,7 @@ function HolidaysCard() {
             <tr>
               <Th>Date</Th>
               <Th>Description</Th>
-              {canEdit && <Th className="text-right">Actions</Th>}
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -166,13 +169,17 @@ function HolidaysCard() {
               <tr key={h.id}>
                 <Td className="whitespace-nowrap">{formatDate(h.date)}</Td>
                 <Td>{h.description}</Td>
-                {canEdit && (
+                {
                   <Td>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setDialog({ holiday: h })}>
+                      <EditButton
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDialog({ holiday: h })}
+                      >
                         Edit
-                      </Button>
-                      <Button
+                      </EditButton>
+                      <EditButton
                         variant="ghost"
                         size="sm"
                         className="text-destructive"
@@ -180,10 +187,10 @@ function HolidaysCard() {
                         onClick={() => remove.mutate(h)}
                       >
                         Delete
-                      </Button>
+                      </EditButton>
                     </div>
                   </Td>
-                )}
+                }
               </tr>
             ))}
             {holidays.data && rows.length === 0 && (

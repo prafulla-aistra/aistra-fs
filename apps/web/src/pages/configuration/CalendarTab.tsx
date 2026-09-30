@@ -18,12 +18,12 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { SearchBox } from './common';
-import { matches, useCanEditConfig } from './hooks';
+import { ConfigPage, EditButton } from './ConfigPage';
+import { matches } from './hooks';
 
 const TYPES: PeriodType[] = ['MONTHLY', 'QUARTERLY', 'ANNUAL'];
 
 export function CalendarTab() {
-  const canEdit = useCanEditConfig();
   const queryClient = useQueryClient();
   const years = useQuery({
     queryKey: ['config', 'financial-years'],
@@ -57,7 +57,16 @@ export function CalendarTab() {
   const fy = years.data?.find((y) => y.startYear === selected);
 
   return (
-    <div className="space-y-4">
+    <ConfigPage
+      title="Financial years and periods"
+      purpose="The April–March financial years, their months, quarters and years, and which are open."
+      count={years.data ? `${years.data.length} financial years` : null}
+      action={
+        <EditButton onClick={() => setCreating(true)}>
+          <CalendarPlus /> Create financial year
+        </EditButton>
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1" role="tablist" aria-label="Financial year">
           {years.data?.map((y) => (
@@ -73,11 +82,6 @@ export function CalendarTab() {
         </div>
         <div className="flex gap-2">
           <SearchBox value={query} onChange={setQuery} placeholder="Search periods" />
-          {canEdit && (
-            <Button onClick={() => setCreating(true)}>
-              <CalendarPlus /> Create financial year
-            </Button>
-          )}
         </div>
       </div>
       {(error || years.error) && <Alert>{error ?? errorMessage(years.error)}</Alert>}
@@ -106,7 +110,7 @@ export function CalendarTab() {
                       <Th>Status</Th>
                       <Th>SFS due</Th>
                       <Th>CFS due</Th>
-                      {canEdit && <Th className="text-right">Actions</Th>}
+                      <Th className="text-right">Actions</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -134,16 +138,12 @@ export function CalendarTab() {
                         </Td>
                         {p.dueDates.map((d) => (
                           <Td key={d.statementType} className="whitespace-nowrap">
-                            <DueDateCell
-                              due={d}
-                              canEdit={canEdit}
-                              onEdit={() => setDueDate({ period: p, due: d })}
-                            />
+                            <DueDateCell due={d} onEdit={() => setDueDate({ period: p, due: d })} />
                           </Td>
                         ))}
-                        {canEdit && (
+                        {
                           <Td className="text-right">
-                            <Button
+                            <EditButton
                               variant="ghost"
                               size="sm"
                               disabled={status.isPending}
@@ -158,9 +158,9 @@ export function CalendarTab() {
                                   <LockOpen /> Reopen
                                 </>
                               )}
-                            </Button>
+                            </EditButton>
                           </Td>
-                        )}
+                        }
                       </tr>
                     ))}
                   </tbody>
@@ -183,19 +183,11 @@ export function CalendarTab() {
       {dueDate && (
         <DueDateDialog period={dueDate.period} due={dueDate.due} onClose={() => setDueDate(null)} />
       )}
-    </div>
+    </ConfigPage>
   );
 }
 
-function DueDateCell({
-  due,
-  canEdit,
-  onEdit,
-}: {
-  due: DueDateDto;
-  canEdit: boolean;
-  onEdit: () => void;
-}) {
+function DueDateCell({ due, onEdit }: { due: DueDateDto; onEdit: () => void }) {
   return (
     <div className="flex items-center gap-1.5">
       <div>
@@ -211,17 +203,15 @@ function DueDateCell({
           <div className="text-xs text-muted-foreground">{due.workingDays} working days</div>
         )}
       </div>
-      {canEdit && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label={`Override ${due.statementType} due date`}
-          onClick={onEdit}
-        >
-          <Pencil className="size-3.5" />
-        </Button>
-      )}
+      <EditButton
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        aria-label={`Override ${due.statementType} due date`}
+        onClick={onEdit}
+      >
+        <Pencil className="size-3.5" />
+      </EditButton>
     </div>
   );
 }

@@ -8,10 +8,10 @@ import { Alert, Field, Input } from '@/components/ui/form';
 import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
 import { api, errorMessage } from '@/lib/api';
 import { SearchBox } from './common';
-import { matches, useCanEditConfig, useCurrencies } from './hooks';
+import { ConfigPage, EditButton } from './ConfigPage';
+import { matches, useCurrencies } from './hooks';
 
 export function CurrenciesTab() {
-  const canEdit = useCanEditConfig();
   const currencies = useCurrencies();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -46,15 +46,17 @@ export function CurrenciesTab() {
   const rows = (currencies.data ?? []).filter((c) => matches(query, c.code, c.name));
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SearchBox value={query} onChange={setQuery} placeholder="Search currencies" />
-        {canEdit && (
-          <Button onClick={() => setDialog({})}>
-            <Plus /> Add currency
-          </Button>
-        )}
-      </div>
+    <ConfigPage
+      title="Currencies"
+      purpose="Currencies entities report and translate in."
+      count={currencies.data ? `${currencies.data.length} currencies` : null}
+      action={
+        <EditButton onClick={() => setDialog({})}>
+          <Plus /> Add currency
+        </EditButton>
+      }
+    >
+      <SearchBox value={query} onChange={setQuery} placeholder="Search currencies" />
       {notice && <Alert variant="success">{notice}</Alert>}
       {(error || currencies.error) && <Alert>{error ?? errorMessage(currencies.error)}</Alert>}
       <Table>
@@ -65,7 +67,7 @@ export function CurrenciesTab() {
             <Th>Symbol</Th>
             <Th>Status</Th>
             <Th>Used by</Th>
-            {canEdit && <Th className="text-right">Actions</Th>}
+            <Th className="text-right">Actions</Th>
           </tr>
         </thead>
         <tbody>
@@ -84,13 +86,17 @@ export function CurrenciesTab() {
               <Td className="font-mono text-xs text-muted-foreground">
                 {c.usedBy.join(', ') || '—'}
               </Td>
-              {canEdit && (
+              {
                 <Td>
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setDialog({ currency: c })}>
+                    <EditButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDialog({ currency: c })}
+                    >
                       Edit
-                    </Button>
-                    <Button
+                    </EditButton>
+                    <EditButton
                       variant="ghost"
                       size="sm"
                       disabled={act.isPending}
@@ -99,9 +105,9 @@ export function CurrenciesTab() {
                       }
                     >
                       {c.isActive ? 'Deactivate' : 'Reactivate'}
-                    </Button>
+                    </EditButton>
                     {c.usedBy.length === 0 && (
-                      <Button
+                      <EditButton
                         variant="ghost"
                         size="sm"
                         className="text-destructive"
@@ -109,11 +115,11 @@ export function CurrenciesTab() {
                         onClick={() => act.mutate({ c, action: 'delete' })}
                       >
                         Delete
-                      </Button>
+                      </EditButton>
                     )}
                   </div>
                 </Td>
-              )}
+              }
             </tr>
           ))}
         </tbody>
@@ -133,7 +139,7 @@ export function CurrenciesTab() {
           }}
         />
       )}
-    </div>
+    </ConfigPage>
   );
 }
 

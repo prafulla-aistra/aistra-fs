@@ -260,3 +260,83 @@ export function missingHistoricalRates(
     .map(([currency, reasons]) => ({ currency, reasons }))
     .sort((a, b) => a.currency.localeCompare(b.currency));
 }
+
+/**
+ * Effective group % of every active entity: the % ultimately held by the ultimate parent,
+ * i.e. the product of "% held by parent" up the chain (IN 58.49% → AE 58.49% × 100%).
+ * The ultimate parent is 100. Returned as decimal strings, at most 4 decimals ("58.49").
+ */
+export function effectiveOwnership(entities: readonly GroupEntity[]): Record<string, string> {
+  const active = activeOnly(entities);
+  const byCode = new Map(active.map((e) => [e.code, e]));
+  const memo = new Map<string, Decimal>();
+  const of = (code: string, seen: Set<string>): Decimal => {
+    const known = memo.get(code);
+    if (known) return known;
+    const e = byCode.get(code);
+    if (!e || e.parentCode === null || seen.has(code)) return new Decimal(100);
+    seen.add(code);
+    const own = toDecimal(e.heldByParentPct ?? '100').dividedBy(100);
+    const value = of(e.parentCode, seen).times(own);
+    memo.set(code, value);
+    return value;
+  };
+  return Object.fromEntries(
+    active.map((e) => [e.code, of(e.code, new Set()).toDecimalPlaces(4).toString()]),
+  );
+}
+
+export interface NciPoint {
+  /** The partly owned entity (NCI arises here). */
+  entityCode: string;
+  /** 100 − % held by its parent, e.g. "41.51". */
+  nciPct: string;
+  /** The entity and its descendants in the level (its sub-group). */
+  members: string[];
+}
+
+/**
+ * Where non-controlling interests arise in a consolidation level: every member (other than
+ * the level parent) that its parent holds less than 100% of; the NCI covers its sub-group.
+ */
+export function nciPoints(level: ConsolidationLevel, entities: readonly GroupEntity[]): NciPoint[] {
+  const inLevel = new Set(level.members);
+  const active = activeOnly(entities).filter((e) => inLevel.has(e.code));
+  const descendants = (code: string): string[] =>
+    active.filter((c) => c.parentCode === code).flatMap((c) => [c.code, ...descendants(c.code)]);
+  return active
+    .filter(
+      (e) =>
+        e.code !== level.parentCode &&
+        e.heldByParentPct !== null &&
+        toDecimal(e.heldByParentPct).lessThan(100),
+    )
+    .map((e) => ({
+      entityCode: e.code,
+      nciPct: new Decimal(100).minus(e.heldByParentPct!).toDecimalPlaces(4).toString(),
+      members: [e.code, ...descendants(e.code)],
+    }));
+}
+
+export interface OwnershipRow {
+  entityCode: string;
+  parentCode: string | null;
+  heldByParentPct: string | null;
+  /** First day of the month the row applies from. */
+  effectiveFrom: string;
+}
+
+/**
+ * The ownership row in force for each entity in a month: the latest row effective on or
+ * before that month. Entities with no row yet (acquired later) are left out.
+ */
+export function ownershipAsAt(
+  rows: readonly OwnershipRow[],
+  month: string,
+): Map<string, OwnershipRow> {
+  const out = new Map<string, OwnershipRow>();
+  for (const r of [...rows].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))) {
+    if (r.effectiveFrom <= month) out.set(r.entityCode, r);
+  }
+  return out;
+}

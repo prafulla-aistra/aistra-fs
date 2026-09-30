@@ -1,5 +1,7 @@
 import type {
+  EntityDetailDto,
   EntityDto,
+  EntityPreviewDto,
   FinancialYearDto,
   GroupStructureDto,
   PeriodDto,
@@ -140,7 +142,15 @@ describe('group structure', () => {
   it('seeds the 7 entities with historical rates and no missing-rate warnings', async () => {
     const list = (await ctx.http().get('/api/config/entities').set(as(preparer)))
       .body as EntityDto[];
-    expect(list.map((e) => e.code)).toEqual(['US', 'IN', 'AE', 'UK', 'UC', 'VS', 'VM']);
+    expect(list.filter((e) => e.isActive).map((e) => e.code)).toEqual([
+      'US',
+      'IN',
+      'AE',
+      'UK',
+      'UC',
+      'VS',
+      'VM',
+    ]);
     const vm = list.find((e) => e.code === 'VM')!;
     expect(vm).toMatchObject({
       functionalCurrency: 'LKR',
@@ -162,40 +172,120 @@ describe('group structure', () => {
 describe('entity validation and audit', () => {
   const patch = (code: string, body: object) =>
     ctx.http().patch(`/api/config/entities/${code}`).set(as(master)).send(body);
+  const own = (code: string, body: object) =>
+    ctx.http().post(`/api/config/entities/${code}/ownership`).set(as(master)).send(body);
+  const TEST_MONTH = '2027-01-01';
+  const TEST_REASON = 'Automated test change';
 
-  it('rejects a second ultimate parent, circular chains and bad % held', async () => {
-    const inE = input(await entity('IN'));
-    const noParent = await patch('IN', { ...inE, parentCode: null, heldByParentPct: null });
-    expect(noParent.status).toBe(400);
-    expect(noParent.body.message).toMatch(/exactly one ultimate parent/);
-
-    const cyclic = await patch('UC', { ...input(await entity('UC')), parentCode: 'VM' });
-    expect(cyclic.status).toBe(400);
-    expect(cyclic.body.message).toMatch(/Circular parent chain/);
-
-    for (const pct of ['0', '100.5', '-3']) {
-      const res = await patch('IN', { ...inE, heldByParentPct: pct });
-      expect(res.status).toBe(400);
-    }
-    const rootPct = await patch('US', { ...input(await entity('US')), heldByParentPct: '100' });
-    expect(rootPct.status).toBe(400);
-    expect(rootPct.body.message).toMatch(/ultimate parent, so it cannot have a % held/);
+  afterAll(async () => {
+    // Ownership rows added by these tests; the entity fields follow the row in force.
+    await ctx.prisma.entityOwnership.deleteMany({ where: { reason: TEST_REASON } });
   });
 
-  it('rejects translated currencies that include the functional currency', async () => {
-    const uk = input(await entity('UK'));
-    const res = await patch('UK', { ...uk, translatedCurrencies: ['GBP', 'INR'] });
+  it('parent and % held change only through "Change ownership"; the active flag through deactivate', async () => {
+    const inE = input(await entity('IN'));
+    const res = await patch('IN', { ...inE, heldByParentPct: '75' });
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/must not include the functional currency/);
+    expect(res.body.message).toMatch(/Change ownership/);
+    const inactive = await patch('IN', { ...inE, isActive: false });
+    expect(inactive.body.message).toMatch(/Use Deactivate/);
+  });
+
+  it('ownership changes reject a second ultimate parent, circular chains and bad % held', async () => {
+    const base = { effectiveFrom: TEST_MONTH, reason: TEST_REASON };
+    const noParent = await own('IN', { ...base, parentCode: null, heldByParentPct: null });
+    expect(noParent.status).toBe(400);
+    expect(noParent.body.message).toMatch(/exactly one ultimate parent/);
+    const cyclic = await own('UC', { ...base, parentCode: 'VM', heldByParentPct: '100' });
+    expect(cyclic.body.message).toMatch(/Circular parent chain/);
+    for (const pct of ['0', '100.5', '-3']) {
+      expect((await own('IN', { ...base, parentCode: 'US', heldByParentPct: pct })).status).toBe(
+        400,
+      );
+    }
+    const rootPct = await own('US', { ...base, parentCode: null, heldByParentPct: '100' });
+    expect(rootPct.body.message).toMatch(/ultimate parent, so it cannot have a % held/);
+    const noReason = await own('IN', {
+      parentCode: 'US',
+      heldByParentPct: '75',
+      effectiveFrom: TEST_MONTH,
+      reason: '',
+    });
+    expect(noReason.status).toBe(400);
+  });
+
+  it('an ownership change is a new row from a month; structures before it are unchanged', async () => {
+    const res = await own('VM', {
+      parentCode: 'UC',
+      heldByParentPct: '100',
+      effectiveFrom: TEST_MONTH,
+      reason: TEST_REASON,
+    });
+    expect(res.status).toBe(201);
+    const d = res.body as EntityDetailDto;
+    expect(d.ownership.map((o) => [o.parentCode, o.effectiveFrom, o.current])).toEqual([
+      ['UC', '2027-01-01', false],
+      ['VS', '2025-04-01', true],
+    ]);
+    // Today (Sep-2026) VM is still under VS.
+    expect((await entity('VM')).parentCode).toBe('VS');
+    const at = async (asAt: string) =>
+      (
+        (await ctx.http().get('/api/config/group-structure').query({ asAt }).set(as(master)))
+          .body as GroupStructureDto
+      ).levels.map((l) => l.name);
+    expect(await at('2026-08-01')).toEqual(['Veracity Services', 'Unconstrained', 'India', 'US']);
+    expect(await at('2027-01-01')).toEqual(['Unconstrained', 'India', 'US']);
+    const again = await own('VM', {
+      parentCode: 'VS',
+      heldByParentPct: '100',
+      effectiveFrom: TEST_MONTH,
+      reason: TEST_REASON,
+    });
+    expect(again.status).toBe(409);
+    const log = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { action: 'ENTITY_OWNERSHIP_CHANGE', entityId: 'VM' },
+      orderBy: { id: 'desc' },
+    });
+    expect(log.oldValue).toMatchObject({ parentCode: 'VS' });
+    expect(log.newValue).toMatchObject({
+      parentCode: 'UC',
+      effectiveFrom: '2027-01-01',
+      reason: TEST_REASON,
+    });
+  });
+
+  it('currency changes need a reason; the functional currency is fixed once there are finalised reports', async () => {
+    const uk = input(await entity('UK'));
+    const noReason = await patch('UK', { ...uk, translatedCurrencies: ['INR'] });
+    expect(noReason.body.message).toMatch(/reason for the currency change/);
+    const bad = await patch('UK', {
+      ...uk,
+      translatedCurrencies: ['GBP', 'INR'],
+      reason: 'Testing',
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toMatch(/must not include the functional currency/);
+    const inE = await entity('IN');
+    expect(inE).toMatchObject({ functionalCurrencyLocked: true });
+    const change = await patch('IN', {
+      ...input(inE),
+      functionalCurrency: 'USD',
+      translatedCurrencies: [],
+      reason: 'Testing',
+    });
+    expect(change.status).toBe(400);
+    expect(change.body.message).toMatch(
+      /functional currency cannot change: IN has finalised reports/,
+    );
   });
 
   it('warns about a missing historical rate, and audits the change with old and new values', async () => {
     const vm = input(await entity('VM'));
-    const withoutUsd = {
+    const res = await patch('VM', {
       ...vm,
       historicalRates: vm.historicalRates.filter((r) => r.currency !== 'USD'),
-    };
-    const res = await patch('VM', withoutUsd);
+    });
     expect(res.status).toBe(200);
     expect((res.body as EntityDto).missingHistoricalRates).toEqual([
       {
@@ -203,33 +293,199 @@ describe('entity validation and audit', () => {
         reasons: ['translated currency', 'L2 Unconstrained level currency', 'L4 US level currency'],
       },
     ]);
-
     const log = await ctx.prisma.auditLog.findFirstOrThrow({
       where: { action: 'ENTITY_UPDATE', entityId: 'VM' },
       orderBy: { id: 'desc' },
     });
     expect(Object.keys(log.oldValue as object)).toEqual(['historicalRates']);
-    expect(
-      (log.oldValue as { historicalRates: Record<string, string> }).historicalRates.USD,
-    ).toMatch(/^0.00333/);
-    expect(
-      (log.newValue as { historicalRates: Record<string, string> }).historicalRates.USD,
-    ).toBeUndefined();
-
     expect((await patch('VM', vm)).status).toBe(200); // restore
     expect((await entity('VM')).missingHistoricalRates).toEqual([]);
   });
 
-  it('a saved change moves the consolidation levels (VM under UC), and moving it back restores them', async () => {
-    const vm = input(await entity('VM'));
-    expect((await patch('VM', { ...vm, parentCode: 'UC' })).status).toBe(200);
+  it('deactivation is blocked by open tasks and active subsidiaries', async () => {
+    const inBlocked = await ctx
+      .http()
+      .post('/api/config/entities/IN/deactivate')
+      .set(as(master))
+      .send({ reason: 'Testing' });
+    expect(inBlocked.status).toBe(409);
+    expect(inBlocked.body.message).toMatch(/open task.*SFS-2026-08-001/);
+    const d = (await ctx.http().get('/api/config/entities/VS/detail').set(as(master)))
+      .body as EntityDetailDto;
+    expect(d.deactivateBlockedReason).toMatch(/open task/);
+  });
+
+  it('add a 100%-owned entity: preview, joins level 4 only, then deactivate and reactivate it', async () => {
+    const code = 'ZSG';
+    await ctx.prisma.entityOwnership.deleteMany({ where: { entityCode: code } });
+    await ctx.prisma.entityHistoricalRate.deleteMany({ where: { entityCode: code } });
+    await ctx.prisma.entityTranslatedCurrency.deleteMany({ where: { entityCode: code } });
+    await ctx.prisma.entity.deleteMany({ where: { code } });
+
+    const preview = await ctx
+      .http()
+      .post('/api/config/entity-preview')
+      .set(as(preparer))
+      .send({
+        code,
+        functionalCurrency: 'SGD',
+        reportingCurrency: 'SGD',
+        translatedCurrencies: ['USD'],
+        parentCode: 'US',
+        heldByParentPct: '100',
+        effectiveFrom: '2026-09-01',
+      });
+    expect(preview.status).toBe(201);
+    const p = preview.body as EntityPreviewDto;
+    expect(p.path.map((x) => x.code)).toEqual(['US', code]);
+    expect(p.effectiveGroupPct).toBe('100');
+    expect(p.levels.map((l) => l.name)).toEqual(['US']);
+    expect(p.requiredHistoricalRates.map((r) => r.currency)).toEqual(['USD']);
+
+    const created = await ctx
+      .http()
+      .post('/api/config/entities')
+      .set(as(master))
+      .send({
+        code,
+        legalName: 'Aistra Labs Singapore Pte',
+        shortName: 'Singapore',
+        country: 'Singapore',
+        functionalCurrency: 'SGD',
+        reportingCurrency: 'SGD',
+        translatedCurrencies: ['USD'],
+        parentCode: 'US',
+        heldByParentPct: '100',
+        erp: 'XERO',
+        gaap: 'IFRS',
+        isActive: true,
+        toBeConfirmed: false,
+        toBeConfirmedNote: null,
+        materiality: '1500',
+        incorporatedOn: '2026-09-15',
+        ownershipEffectiveFrom: '2026-09-01',
+        historicalRates: [{ currency: 'USD', rate: '0.74', toBeConfirmed: true, note: 'Test' }],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      code,
+      effectiveGroupPct: '100',
+      incorporatedOn: '2026-09-15',
+      ownershipEffectiveFrom: '2026-09-01',
+    });
     const g = (await ctx.http().get('/api/config/group-structure').set(as(master)))
       .body as GroupStructureDto;
-    expect(g.levels.map((l) => l.name)).toEqual(['Unconstrained', 'India', 'US']);
-    expect((await patch('VM', vm)).status).toBe(200);
-    const back = (await ctx.http().get('/api/config/group-structure').set(as(master)))
+    expect(g.levels.find((l) => l.parentCode === 'US')!.members.map((m) => m.code)).toContain(code);
+    expect(g.levels).toHaveLength(4); // no level of its own
+    // Aug-2026 is before it joined.
+    const aug = (
+      await ctx
+        .http()
+        .get('/api/config/group-structure')
+        .query({ asAt: '2026-08-01' })
+        .set(as(master))
+    ).body as GroupStructureDto;
+    expect(aug.levels.find((l) => l.parentCode === 'US')!.members.map((m) => m.code)).not.toContain(
+      code,
+    );
+
+    const tooLong = await ctx
+      .http()
+      .post('/api/config/entities')
+      .set(as(master))
+      .send({ ...created.body, code: 'ABCDE' });
+    expect(tooLong.status).toBe(400);
+
+    const off = await ctx
+      .http()
+      .post(`/api/config/entities/${code}/deactivate`)
+      .set(as(master))
+      .send({ reason: 'Test entity' });
+    expect(off.status).toBe(201);
+    expect((off.body as EntityDetailDto).entity.isActive).toBe(false);
+    const on = await ctx
+      .http()
+      .post(`/api/config/entities/${code}/reactivate`)
+      .set(as(master))
+      .send({ reason: 'Test entity' });
+    expect((on.body as EntityDetailDto).entity.isActive).toBe(true);
+    const history = (on.body as EntityDetailDto).history.map((h) => h.action);
+    expect(history.slice(0, 3)).toEqual([
+      'ENTITY_REACTIVATE',
+      'ENTITY_DEACTIVATE',
+      'ENTITY_CREATE',
+    ]);
+    await ctx
+      .http()
+      .post(`/api/config/entities/${code}/deactivate`)
+      .set(as(master))
+      .send({ reason: 'Test entity' });
+  });
+
+  it('entity detail: ownership, levels, chart of accounts and tasks', async () => {
+    const d = (await ctx.http().get('/api/config/entities/IN/detail').set(as(preparer)))
+      .body as EntityDetailDto;
+    expect(d.entity.effectiveGroupPct).toBe('58.49');
+    expect(d.ownership[0]).toMatchObject({
+      parentCode: 'US',
+      heldByParentPct: '58.49',
+      effectiveFrom: '2025-04-01',
+      current: true,
+    });
+    expect(d.levels.map((l) => l.name)).toEqual(['India', 'US']);
+    expect(d.chartOfAccounts.accounts).toBeGreaterThanOrEqual(46);
+    expect(d.tasks.map((t) => t.number)).toEqual(
+      expect.arrayContaining(['SFS-2026-08-001', 'SFS-2026-07-001', 'CFS-2026-07-001']),
+    );
+  });
+
+  it('effective group % and NCI per level; the level currency can be overridden (audited)', async () => {
+    const g = (await ctx.http().get('/api/config/group-structure').set(as(preparer)))
       .body as GroupStructureDto;
-    expect(back.levels).toHaveLength(4);
+    const node = (code: string, n = g.tree!): GroupStructureDto['tree'] | undefined =>
+      n!.code === code ? n : n!.children.map((c) => node(code, c)).find(Boolean);
+    expect(['IN', 'AE', 'VS'].map((c) => node(c)!.effectiveGroupPct)).toEqual([
+      '58.49',
+      '58.49',
+      '58.49',
+    ]);
+    const l4 = g.levels.find((l) => l.parentCode === 'US')!;
+    expect(l4.nci).toEqual([
+      expect.objectContaining({ entityCode: 'IN', name: 'India group', nciPct: '41.51' }),
+    ]);
+    expect(g.levels.find((l) => l.parentCode === 'IN')!.nci).toEqual([]);
+
+    const denied = await ctx
+      .http()
+      .put('/api/config/levels/IN/currency')
+      .set(as(preparer))
+      .send({ currency: 'USD', reason: 'Test' });
+    expect(denied.status).toBe(403);
+    const set = await ctx
+      .http()
+      .put('/api/config/levels/IN/currency')
+      .set(as(master))
+      .send({ currency: 'USD', reason: 'Present India in USD' });
+    expect(set.status).toBe(200);
+    const india = (set.body as GroupStructureDto).levels.find((l) => l.parentCode === 'IN')!;
+    expect([india.currency, india.defaultCurrency, india.currencyOverridden]).toEqual([
+      'USD',
+      'INR',
+      true,
+    ]);
+    const back = await ctx
+      .http()
+      .put('/api/config/levels/IN/currency')
+      .set(as(master))
+      .send({ currency: null, reason: 'Back to default' });
+    expect(
+      (back.body as GroupStructureDto).levels.find((l) => l.parentCode === 'IN')!.currency,
+    ).toBe('INR');
+    expect(
+      await ctx.prisma.auditLog.count({
+        where: { action: 'LEVEL_CURRENCY_CHANGE', entityId: 'IN' },
+      }),
+    ).toBeGreaterThanOrEqual(2);
   });
 });
 

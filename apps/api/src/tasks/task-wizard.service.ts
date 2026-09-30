@@ -252,8 +252,9 @@ export class TaskWizardService {
 
   async levelChoices(user: AuthUser, periodId: string): Promise<WizardLevelsDto> {
     this.assertCanPrepare(user, 'CFS');
-    await this.findPeriod(periodId);
-    const structure = await this.entities.groupStructure();
+    const levelPeriod = await this.findPeriod(periodId);
+    // Consolidation uses the ownership in force for the period.
+    const structure = await this.entities.groupStructure(fromDbDate(levelPeriod.endDate));
     const [sfsTasks, cfsTask] = await Promise.all([
       this.prisma.task.findMany({
         where: { type: 'SFS', periodId },
@@ -338,7 +339,7 @@ export class TaskWizardService {
       if (outside.length > 0)
         throw ApiError.notAllowed(`Your access does not include: ${outside.join(', ')}.`);
     } else {
-      const structure = await this.entities.groupStructure();
+      const structure = await this.entities.groupStructure(fromDbDate(period.endDate));
       if (structure.issues.length > 0 || structure.levels.length === 0) {
         throw ApiError.notAllowed(
           'Consolidation levels cannot be derived from the group structure.',

@@ -3,16 +3,42 @@ import { Permission, type CurrencyDto, type EntityDto } from '@finance-close/sha
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
 
-export const CONFIG_TABS = [
-  { to: 'entities', label: 'Entities' },
-  { to: 'group', label: 'Group structure' },
-  { to: 'currencies', label: 'Currencies' },
-  { to: 'calendar', label: 'Financial years and periods' },
-  { to: 'due-dates', label: 'Due dates and holidays' },
-  { to: 'formats', label: 'Formats', later: true },
-  { to: 'chart-of-accounts', label: 'Chart of accounts' },
-  { to: 'exchange-rates', label: 'Exchange rates', later: true },
+/** The Configuration side menu, grouped. */
+export const CONFIG_SECTIONS = [
+  {
+    title: 'Organisation',
+    items: [
+      { to: '/configuration/entities', label: 'Entities' },
+      { to: '/configuration/group', label: 'Group structure' },
+    ],
+  },
+  {
+    title: 'Currencies',
+    items: [
+      { to: '/configuration/currencies', label: 'Currencies' },
+      { to: '/configuration/exchange-rates', label: 'Exchange rates' },
+    ],
+  },
+  {
+    title: 'Calendar',
+    items: [
+      { to: '/configuration/calendar', label: 'Financial years and periods' },
+      { to: '/configuration/due-dates', label: 'Due dates and holidays' },
+    ],
+  },
+  {
+    title: 'Reporting',
+    items: [
+      { to: '/configuration/formats', label: 'Report formats' },
+      { to: '/configuration/fslis', label: 'FSLI master' },
+      { to: '/configuration/account-type-defaults', label: 'Account-type defaults' },
+      { to: '/configuration/chart-of-accounts', label: 'Chart of accounts' },
+    ],
+  },
+  { title: 'Access', items: [{ to: '/users', label: 'Users (User management)', adminOnly: true }] },
 ] as const;
+
+export const NO_CONFIG_ACCESS = 'Needs configuration access – ask your administrator';
 
 /** Only CONFIG_MANAGE can edit; REPORTS_VIEW users see the same pages read-only. */
 export function useCanEditConfig(): boolean {

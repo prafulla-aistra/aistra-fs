@@ -31,3 +31,7 @@ Thumbs.db
 
 # Office lock files (docs/)
 ~$*
+
+# Playwright
+test-results/
+playwright-report/

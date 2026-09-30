@@ -220,6 +220,21 @@ export async function seedAccounts(prisma: PrismaClient): Promise<void> {
   if (revisedAccounts > 0)
     console.log(`Seeded accounts revised to the current sample data: ${revisedAccounts}.`);
 
+  // Ownership history: every entity starts with its current parent and % held, from Apr-2025.
+  const noHistory = await prisma.entity.findMany({ where: { ownership: { none: {} } } });
+  if (noHistory.length > 0) {
+    await prisma.entityOwnership.createMany({
+      data: noHistory.map((e) => ({
+        entityCode: e.code,
+        parentCode: e.parentCode,
+        heldByParentPct: e.heldByParentPct,
+        effectiveFrom: toDbDate('2025-04-01'),
+        reason: 'Initial group structure',
+      })),
+    });
+    console.log(`Ownership history started (Apr-2025) for ${noHistory.length} entities.`);
+  }
+
   // Materiality for variance flags (page 5), where not set yet.
   for (const [code, amount] of Object.entries(SAMPLE_MATERIALITY)) {
     await prisma.entity.updateMany({
