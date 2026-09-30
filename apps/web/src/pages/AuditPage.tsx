@@ -46,6 +46,8 @@ const ACTION_LABELS: Record<string, string> = {
   RATES_UPDATE: 'Exchange rates changed',
   TASK_STEP_CONTINUE: 'Task moved to the next step',
   ACCOUNT_MAP: 'Account mapping changed',
+  COMPARATIVE_BASIS_CHANGE: 'Comparative period changed',
+  VARIANCE_EXPLAIN: 'Variance explained',
   SEED_APPLIED: 'Initial data loaded',
 };
 const SUBJECT_LABELS: Record<string, string> = {

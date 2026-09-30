@@ -18,6 +18,7 @@ import {
 import {
   ApiErrorCode,
   AuditAction,
+  type AccountToMapDto,
   type EntityMappingDto,
   type MappingInputDto,
   type MappingRowIssuesDto,
@@ -36,6 +37,7 @@ import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { inScope } from '../tasks/tasks.service';
+import { ComparativeSourceService } from './comparative-source.service';
 import {
   assertEditable,
   assertViewable,
@@ -79,9 +81,10 @@ export class MappingStepService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly comparatives: ComparativeSourceService,
   ) {}
 
-  private async fslis(): Promise<MappingFsli[]> {
+  async fslis(): Promise<MappingFsli[]> {
     return (
       await this.prisma.fsli.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } })
     ).map(toMappingFsli);
@@ -94,7 +97,7 @@ export class MappingStepService {
     fslis: MappingFsli[],
   ): Promise<EntityData> {
     const latest = await this.prisma.tbVersion.findFirst({
-      where: { taskId, entityCode },
+      where: { taskId, entityCode, purpose: 'CURRENT' },
       orderBy: { version: 'desc' },
       include: { lines: { orderBy: { accountCode: 'asc' } }, file: true },
     });
@@ -181,68 +184,7 @@ export class MappingStepService {
     const rates = await this.rates(task, te);
 
     const byCode = new Map(d.coa.map((a) => [a.accountCode, a]));
-    const others = d.toMap.length
-      ? (
-          await this.prisma.entityAccount.findMany({
-            where: { entityCode: { not: te.entityCode }, fsliCode: { not: null } },
-          })
-        ).map((a): MappedAccount => ({
-          entityCode: a.entityCode,
-          accountCode: a.accountCode,
-          accountName: a.accountName,
-          accountType: a.accountType,
-          fsliCode: a.fsliCode,
-          counterpartyCode: a.counterpartyCode,
-        }))
-      : [];
-    const defaults = await this.prisma.accountTypeDefault.findMany({
-      where: { erp: { in: [te.entity.erp, 'ZOHO'] } },
-    });
-    const typeDefaults: Record<string, string> = {};
-    // Zoho defaults, overridden by the entity's own ERP list where one exists.
-    for (const dft of defaults.filter((x) => x.erp === 'ZOHO'))
-      typeDefaults[dft.accountType] = dft.fsliCode;
-    for (const dft of defaults.filter((x) => x.erp === te.entity.erp))
-      typeDefaults[dft.accountType] = dft.fsliCode;
-
-    const toMap = d.toMap.map(({ line, account, reasons }) => {
-      const type = account?.accountType ?? line.accountType;
-      let suggestion = suggestFsli(
-        { code: line.accountCode, name: line.accountName, type },
-        {
-          entityCode: te.entityCode,
-          otherAccounts: others,
-          entities: allEntities.map((e) => ({
-            code: e.code,
-            shortName: e.shortName,
-            legalName: e.legalName,
-          })),
-          typeDefaults,
-          intercompanyFslis: IC_FSLIS,
-        },
-      );
-      // Account already has an FSLI but lacks a counterparty: keep the FSLI.
-      if (account?.fsliCode && suggestion?.fsliCode !== account.fsliCode)
-        suggestion = {
-          fsliCode: account.fsliCode,
-          counterpartyCode: null,
-          source: 'Current mapping',
-        };
-      return {
-        code: line.accountCode,
-        name: line.accountName,
-        amount: line.amount,
-        accountType: type,
-        inCoa: account !== null,
-        reasons,
-        reasonText: reasons.map((r) => MAP_REASON_TEXT[r]).join('; '),
-        current: {
-          fsliCode: account?.fsliCode ?? null,
-          counterpartyCode: account?.counterpartyCode ?? null,
-        },
-        suggestion,
-      };
-    });
+    const toMap = await this.toMapRows(te, d.toMap, allEntities);
 
     const mappedLines = d.lines.map((l) => {
       const a = byCode.get(l.accountCode);
@@ -321,23 +263,107 @@ export class MappingStepService {
           toMap.length === 0 &&
           counterpartiesComplete,
       },
-      options: {
-        fslis: mappableFslis(fslis).map((f) => ({
-          code: f.code,
-          name: f.name,
-          statement: f.statement,
-          class: f.class,
-          needsCounterparty: f.needsCounterparty,
-        })),
-        accountTypes: ZOHO_ACCOUNT_TYPES,
-        counterparties: allEntities
-          .filter((e) => e.isActive && e.code !== te.entityCode)
-          .map((e) => ({
+      options: this.mappingOptions(te, fslis, allEntities),
+    };
+  }
+
+  /** Rows of the "Accounts to map" panel, with suggestions (also used by the comparatives step). */
+  async toMapRows(
+    te: TaskEntityRow,
+    items: ReturnType<typeof accountsToMap>,
+    allEntities: { code: string; shortName: string; legalName: string }[],
+  ): Promise<AccountToMapDto[]> {
+    const others = items.length
+      ? (
+          await this.prisma.entityAccount.findMany({
+            where: { entityCode: { not: te.entityCode }, fsliCode: { not: null } },
+          })
+        ).map((a): MappedAccount => ({
+          entityCode: a.entityCode,
+          accountCode: a.accountCode,
+          accountName: a.accountName,
+          accountType: a.accountType,
+          fsliCode: a.fsliCode,
+          counterpartyCode: a.counterpartyCode,
+        }))
+      : [];
+    const defaults = await this.prisma.accountTypeDefault.findMany({
+      where: { erp: { in: [te.entity.erp, 'ZOHO'] } },
+    });
+    const typeDefaults: Record<string, string> = {};
+    // Zoho defaults, overridden by the entity's own ERP list where one exists.
+    for (const dft of defaults.filter((x) => x.erp === 'ZOHO'))
+      typeDefaults[dft.accountType] = dft.fsliCode;
+    for (const dft of defaults.filter((x) => x.erp === te.entity.erp))
+      typeDefaults[dft.accountType] = dft.fsliCode;
+
+    return items.map(({ line, account, reasons }) => {
+      const type = account?.accountType ?? line.accountType;
+      let suggestion = suggestFsli(
+        { code: line.accountCode, name: line.accountName, type },
+        {
+          entityCode: te.entityCode,
+          otherAccounts: others,
+          entities: allEntities.map((e) => ({
             code: e.code,
-            name: e.legalName,
-            directSubsidiary: e.parentCode === te.entityCode,
+            shortName: e.shortName,
+            legalName: e.legalName,
           })),
-      },
+          typeDefaults,
+          intercompanyFslis: IC_FSLIS,
+        },
+      );
+      // Account already has an FSLI but lacks a counterparty: keep the FSLI.
+      if (account?.fsliCode && suggestion?.fsliCode !== account.fsliCode)
+        suggestion = {
+          fsliCode: account.fsliCode,
+          counterpartyCode: null,
+          source: 'Current mapping',
+        };
+      return {
+        code: line.accountCode,
+        name: line.accountName,
+        amount: line.amount,
+        accountType: type,
+        inCoa: account !== null,
+        reasons,
+        reasonText: reasons.map((r) => MAP_REASON_TEXT[r]).join('; '),
+        current: {
+          fsliCode: account?.fsliCode ?? null,
+          counterpartyCode: account?.counterpartyCode ?? null,
+        },
+        suggestion,
+      };
+    });
+  }
+
+  /** Select options for mapping (FSLIs, account types, counterparties). */
+  mappingOptions(
+    te: TaskEntityRow,
+    fslis: MappingFsli[],
+    allEntities: {
+      code: string;
+      legalName: string;
+      isActive: boolean;
+      parentCode: string | null;
+    }[],
+  ): EntityMappingDto['options'] {
+    return {
+      fslis: mappableFslis(fslis).map((f) => ({
+        code: f.code,
+        name: f.name,
+        statement: f.statement,
+        class: f.class,
+        needsCounterparty: f.needsCounterparty,
+      })),
+      accountTypes: ZOHO_ACCOUNT_TYPES,
+      counterparties: allEntities
+        .filter((e) => e.isActive && e.code !== te.entityCode)
+        .map((e) => ({
+          code: e.code,
+          name: e.legalName,
+          directSubsidiary: e.parentCode === te.entityCode,
+        })),
     };
   }
 
@@ -419,7 +445,11 @@ export class MappingStepService {
     const entities = await this.prisma.entity.findMany({
       select: { code: true, isActive: true, parentCode: true },
     });
-    const lineBy = new Map(d.lines.map((l) => [l.accountCode, l]));
+    // Accounts of the current TB, and of the comparative TB (mapped from the comparatives step).
+    const comparative = await this.comparatives.resolve(task, entityCode);
+    const lineBy = new Map(
+      [...this.comparatives.lines(comparative.version), ...d.lines].map((l) => [l.accountCode, l]),
+    );
     const coaBy = new Map(d.coa.map((a) => [a.accountCode, a]));
 
     const errors: MappingRowIssuesDto[] = [];
@@ -436,7 +466,10 @@ export class MappingStepService {
         errors.push({
           accountCode: input.accountCode,
           errors: [
-            { code: 'NOT_IN_TB', message: `${input.accountCode} is not in this trial balance.` },
+            {
+              code: 'NOT_IN_TB',
+              message: `${input.accountCode} is not in this trial balance or its comparative.`,
+            },
           ],
           warnings: [],
         });

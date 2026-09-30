@@ -27,6 +27,7 @@ const entityInput = z.object({
     .transform((s) => s.toUpperCase())
     .nullable(),
   heldByParentPct: z.string().trim().max(20).nullable(),
+  materiality: z.string().trim().max(24).nullable().optional(),
   erp: z.enum([ErpSystem.Zoho, ErpSystem.Xero, ErpSystem.Other]),
   gaap: z.enum([Gaap.IndAs, Gaap.Ifrs, Gaap.UsGaap, Gaap.UkGaap, Gaap.Other]),
   isActive: z.boolean(),

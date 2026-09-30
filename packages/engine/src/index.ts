@@ -1,5 +1,6 @@
 export * from './amounts';
 export * from './coa-parser';
+export * from './comparatives';
 export * from './dates';
 export * from './due-dates';
 export * from './fsli-inference';

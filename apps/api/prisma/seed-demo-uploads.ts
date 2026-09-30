@@ -47,7 +47,7 @@ export async function seedDemoUploads(prisma: PrismaClient): Promise<void> {
       if (!sample) continue;
       const body = trialBalanceFile(sample, month);
       const existing = await prisma.tbVersion.findMany({
-        where: { taskId: task.id, entityCode: te.entityCode },
+        where: { taskId: task.id, entityCode: te.entityCode, purpose: 'CURRENT' },
         include: { file: true },
       });
       if (existing.length > 0) {

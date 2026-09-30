@@ -49,6 +49,7 @@ export function EntityDrawer({ entity, entities, currencies, readOnly, onClose, 
     entity ? entity.parentCode : (entities[0]?.code ?? null),
   );
   const [pct, setPct] = useState(entity?.heldByParentPct ?? '100');
+  const [materiality, setMateriality] = useState(entity?.materiality ?? '');
   const [erp, setErp] = useState<ErpSystem>(entity?.erp ?? 'ZOHO');
   const [gaap, setGaap] = useState<Gaap>(entity?.gaap ?? 'IFRS');
   const [isActive, setIsActive] = useState(entity?.isActive ?? true);
@@ -79,6 +80,7 @@ export function EntityDrawer({ entity, entities, currencies, readOnly, onClose, 
         translatedCurrencies: translated,
         parentCode,
         heldByParentPct: parentCode ? pct.trim() : null,
+        materiality: materiality.trim().replace(/,/g, '') || null,
         erp,
         gaap,
         isActive,
@@ -297,6 +299,18 @@ export function EntityDrawer({ entity, entities, currencies, readOnly, onClose, 
                   value={parentCode ? pct : ''}
                   disabled={!parentCode}
                   onChange={(e) => setPct(e.target.value)}
+                />
+              </Field>
+              <Field
+                label={`Materiality (${functional})`}
+                htmlFor="e-materiality"
+                hint="Variances below this amount are not flagged on the comparatives step."
+              >
+                <Input
+                  id="e-materiality"
+                  inputMode="decimal"
+                  value={materiality}
+                  onChange={(e) => setMateriality(e.target.value)}
                 />
               </Field>
             </div>

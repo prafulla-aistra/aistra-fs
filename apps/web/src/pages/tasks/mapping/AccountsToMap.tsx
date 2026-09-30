@@ -25,7 +25,10 @@ export function AccountsToMap({
   onSaved,
 }: {
   taskId: string;
-  mapping: EntityMappingDto;
+  /** Step 2 passes its whole entity; the comparatives step passes the same fields. */
+  mapping: Pick<EntityMappingDto, 'toMap' | 'options' | 'canEdit'> & {
+    entity: { code: string; shortName: string };
+  };
   onSaved: (m: EntityMappingDto) => Promise<void>;
 }) {
   const [rows, setRows] = useState<Record<string, RowState>>(() =>

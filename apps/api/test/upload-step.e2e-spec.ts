@@ -487,7 +487,7 @@ describe('chart of accounts and documents', () => {
     );
     expect(res.status).toBe(201);
     const s = res.body as CoaMergeSummaryDto;
-    expect(s).toMatchObject({ added: 4, updated: 0, unchanged: 37 });
+    expect(s).toMatchObject({ added: 4, updated: 0, unchanged: 46 });
     expect(s.addedAccounts.map((a) => [a.code, a.fsliCode]).sort()).toEqual([
       ['1060', 'CASH'],
       ['1455', 'CUR_OTH'],

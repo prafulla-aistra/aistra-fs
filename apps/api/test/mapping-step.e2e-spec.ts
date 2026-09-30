@@ -48,8 +48,14 @@ async function cleanUp() {
   });
   // Seeded accounts changed by the edit test go back to their seeded mapping.
   await ctx.prisma.entityAccount.updateMany({
-    where: { entityCode: 'IN', accountCode: '1200' },
-    data: { fsliCode: 'CUR_OTH', source: 'SEED', mappedInTaskId: null, suggested: true },
+    where: { entityCode: 'IN', accountCode: '1300' },
+    data: {
+      fsliCode: 'CUR_OTH',
+      source: 'SEED',
+      mappedInTaskId: null,
+      suggested: true,
+      updatedById: null,
+    },
   });
 }
 
@@ -175,7 +181,7 @@ describe('India Aug-2026 (expected results with the sample data)', () => {
   it('changing an existing mapping needs a reason', async () => {
     const noReason = await save(augTaskId, 'IN', [
       {
-        accountCode: '1200',
+        accountCode: '1300',
         accountType: 'Other Current Asset',
         fsliCode: 'CUR_FIN',
         counterpartyCode: null,
@@ -185,7 +191,7 @@ describe('India Aug-2026 (expected results with the sample data)', () => {
     expect(noReason.body.rows[0].errors[0].code).toBe('REASON_REQUIRED');
     const ok = await save(augTaskId, 'IN', [
       {
-        accountCode: '1200',
+        accountCode: '1300',
         accountType: 'Other Current Asset',
         fsliCode: 'CUR_FIN',
         counterpartyCode: null,
@@ -194,7 +200,7 @@ describe('India Aug-2026 (expected results with the sample data)', () => {
     ]);
     expect(ok.status).toBe(200);
     const audit = await ctx.prisma.auditLog.findFirst({
-      where: { action: 'ACCOUNT_MAP', entityId: 'IN:1200' },
+      where: { action: 'ACCOUNT_MAP', entityId: 'IN:1300' },
       orderBy: { id: 'desc' },
     });
     expect(audit!.oldValue).toMatchObject({ fsli: 'CUR_OTH' });

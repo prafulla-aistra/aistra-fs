@@ -17,10 +17,13 @@ export async function saveTbVersion(
     acknowledged: string[];
     createdById: string;
     createdAt?: Date;
+    /** COMPARATIVE: uploaded on the comparatives step for another period (this task only). */
+    purpose?: 'CURRENT' | 'COMPARATIVE';
+    periodId?: string | null;
   },
 ): Promise<TbVersion> {
   const last = await db.tbVersion.findFirst({
-    where: { taskId: v.taskId, entityCode: v.entityCode },
+    where: { taskId: v.taskId, entityCode: v.entityCode, purpose: v.purpose ?? 'CURRENT' },
     orderBy: { version: 'desc' },
     select: { version: true },
   });
@@ -30,6 +33,8 @@ export async function saveTbVersion(
       taskId: v.taskId,
       entityCode: v.entityCode,
       version: (last?.version ?? 0) + 1,
+      purpose: v.purpose ?? 'CURRENT',
+      periodId: v.periodId ?? null,
       fileId: v.fileId,
       status: c.status,
       debits: c.totals.debits,

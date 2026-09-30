@@ -10,6 +10,7 @@ export const TASK_STEPS = [
   { code: 'UPLOAD_DATA', label: 'Upload data' },
   { code: 'MAPPING', label: 'Review and map' },
   { code: 'COMPARATIVES', label: 'Comparatives' },
+  { code: 'TRANSLATION', label: 'Currency translation' },
   { code: 'REVIEW', label: 'Review' },
   { code: 'FINALISED', label: 'Finalised' },
 ] as const;

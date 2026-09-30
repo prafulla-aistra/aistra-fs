@@ -326,6 +326,42 @@ updates seeded rates and demo TBs that nobody has changed):
 | IN INR→USD | opening 0.0115740741 · closing 0.0115074799 · average 0.0115473441 · historical 0.0133333333 |
 | UK | 6390 Bank Charges → OTH_EXP; profit 29,500.00 GBP after mapping |
 
+### Comparatives (page 5)
+
+Step 3 of the SFS workspace (`/tasks/:id?step=COMPARATIVES`), same entity tabs as step 2.
+
+- **Compare with** "Previous period" (month → previous month, April → March of the previous
+  FY; Q1 → previous Q4; year → previous FY) or "Same period last year"; saved per task.
+- **Source**, resolved by the API: Finalised (the entity's finalised SFS for that period) →
+  Draft – not finalised (a validated TB in another task; with a warning) → Uploaded here (a
+  comparative TB uploaded on this step: same column dialog and checks as step 1, stored for
+  this task only) → None (blank columns; continue is still allowed). No upload when a
+  finalised source exists.
+- Comparative lines use the entity's current chart of accounts; unmapped comparative accounts
+  show the step 2 "Accounts to map" panel, and the comparative stays blank until they are
+  mapped.
+- **Retained-earnings roll-forward** (engine `rollForwardCheck`): opening RE = prior RE + prior
+  profit within 1.00, previous-period basis only. The result is stored on continue for the
+  translation step.
+- **Comparison table**, Account or FSLI view: current, comparative, variance, variance %,
+  flags (≥ 20% of the comparative AND ≥ the entity's materiality; retained earnings never;
+  a nil comparative is tagged New), tags New / Nil this period, filters, and explanations on
+  flagged rows (audited). Materiality is a new entity-master field; the 20% is the global
+  setting `VARIANCE_PCT_THRESHOLD` (table `app_setting`).
+- **Continue to currency translation** is always enabled; unexplained flags are a warning.
+
+The sample data was revised again for page 5: **monthly TBs now hold the month's P&L only**,
+and each month's opening retained earnings = the previous month's retained earnings + profit.
+India's accounts follow the page 5 list (1300 Prepaid Expenses, 6400 Office Expenses, 48
+accounts in Aug, 46 in Jul). All page 4 results still hold.
+
+| Aug-2026 vs Jul-2026 | Expected |
+|---|---|
+| IN source | Finalised (SFS-2026-07-001), 46 accounts, 769,056,584.16 |
+| IN roll-forward | 165,000,000.00 Cr + 16,356,584.16 Cr = 181,356,584.16 Cr ✓ |
+| IN flags | 1300 Prepaid Expenses −33.3%; 6400 Office Expenses −50.0%; New 1455, 6120 |
+| UK | 95,000.00 Cr + 27,000.00 Cr = 122,000.00 Cr ✓; no flags; New 6390 (900.00) |
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -482,6 +518,17 @@ These need confirmation from the process owners before the related features are 
 17. **Keyword list for suggestions.** "fee" → Other expenses is checked after the
     professional-fees keywords, and "rent" matches the whole word only (so "current account"
     is not rent). Confirm the keyword list and order.
+18. **Finalised comparatives.** A finalised comparative uses its TB lines mapped with the
+    entity's *current* chart of accounts. Storing each finalised report's own mapped lines
+    comes with the finalise step; until then a later re-mapping also changes finalised
+    comparatives. Confirm this is acceptable meanwhile.
+19. **Variance explanations** are per account (Account view). Should FSLI-level flags also
+    need an explanation?
+20. **Materiality not set.** An entity without a materiality amount is flagged on the 20%
+    rule alone. Confirm, or require materiality for every entity.
+21. **Month-only trial balances (resolves question 12).** Page 5's roll-forward (Aug opening
+    RE = Jul RE + Jul profit) implies monthly TBs carry only that month's P&L. The sample
+    data now follows this. Confirm with the Zoho/Xero export settings.
 
 ## Known dependency warnings (clean-up later)
 

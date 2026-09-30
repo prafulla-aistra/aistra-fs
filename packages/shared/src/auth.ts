@@ -228,6 +228,9 @@ export const AuditAction = {
   TaskStepContinue: 'TASK_STEP_CONTINUE',
   // Review and map (page 4)
   AccountMap: 'ACCOUNT_MAP',
+  // Comparatives (page 5)
+  ComparativeBasisChange: 'COMPARATIVE_BASIS_CHANGE',
+  VarianceExplain: 'VARIANCE_EXPLAIN',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

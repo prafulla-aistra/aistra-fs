@@ -64,6 +64,8 @@ export interface EntityDto {
   isActive: boolean;
   toBeConfirmed: boolean;
   toBeConfirmedNote: string | null;
+  /** Variance flags ignore movements below this (functional currency); null = not set. */
+  materiality: string | null;
   sortOrder: number;
   historicalRates: HistoricalRateDto[];
   /** Historical rates this entity needs but does not have. */
@@ -84,6 +86,8 @@ export interface EntityInput {
   isActive: boolean;
   toBeConfirmed: boolean;
   toBeConfirmedNote: string | null;
+  /** Optional for older clients; null clears it. */
+  materiality?: string | null;
   historicalRates: {
     currency: string;
     rate: string;

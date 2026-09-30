@@ -48,6 +48,12 @@ import { columnLetter, readSheetRows } from './sheets';
 import { storeUpload } from './stored-files';
 import { saveTbVersion } from './tb-versions';
 
+/** A comparative TB (comparatives step): for another period, stored for this task only. */
+export interface TbTarget {
+  purpose: 'COMPARATIVE';
+  period: { id: string; label: string; startDate: string; endDate: string };
+}
+
 export interface UploadedBlob {
   buffer: Buffer;
   originalname: string;
@@ -185,7 +191,7 @@ export class UploadStepService {
 
     const [versions, files, counts] = await Promise.all([
       this.prisma.tbVersion.findMany({
-        where: { taskId, entityCode: { in: codes } },
+        where: { taskId, entityCode: { in: codes }, purpose: 'CURRENT' },
         include: versionInclude,
         orderBy: { version: 'desc' },
       }),
@@ -196,7 +202,7 @@ export class UploadStepService {
       }),
       this.prisma.tbVersion.groupBy({
         by: ['entityCode'],
-        where: { taskId, entityCode: { in: codes } },
+        where: { taskId, entityCode: { in: codes }, purpose: 'CURRENT' },
         _count: true,
       }),
     ]);
@@ -289,6 +295,7 @@ export class UploadStepService {
     taskId: string,
     entityCode: string,
     blob: UploadedBlob | undefined,
+    target?: TbTarget,
   ): Promise<TbPreviewDto> {
     const file = this.checkFile(blob, TB_FILE_EXTENSIONS);
     const { task, te } = await this.editable(user, taskId, entityCode);
@@ -309,7 +316,16 @@ export class UploadStepService {
     // The remembered profile wins if its columns still exist in this file.
     const fromProfile = profile ? (profile.settings as unknown as TbColumnSettings) : null;
     const usable = fromProfile && this.settingsFit(fromProfile, rows) ? fromProfile : null;
-    const settings = usable ?? layout.settings;
+    // Profiles saved before the account-type column existed take it from the detection.
+    const settings = usable
+      ? {
+          ...usable,
+          typeColumn:
+            usable.typeColumn !== undefined
+              ? usable.typeColumn
+              : (layout.settings?.typeColumn ?? null),
+        }
+      : layout.settings;
     return this.preview(
       task,
       te.entity,
@@ -319,6 +335,7 @@ export class UploadStepService {
       layout,
       settings,
       usable ? 'PROFILE' : settings ? 'DETECTED' : 'NONE',
+      target,
     );
   }
 
@@ -328,6 +345,7 @@ export class UploadStepService {
     entityCode: string,
     fileId: string,
     settings: TbColumnSettingsDto,
+    target?: TbTarget,
   ): Promise<TbPreviewDto> {
     const { task, te } = await this.editable(user, taskId, entityCode);
     const { file, rows } = await this.loadTbFile(taskId, entityCode, fileId);
@@ -341,6 +359,7 @@ export class UploadStepService {
       detectTbLayout(rows),
       settings,
       'EDITED',
+      target,
     );
   }
 
@@ -350,12 +369,13 @@ export class UploadStepService {
     entityCode: string,
     body: { fileId: string; settings: TbColumnSettingsDto; acknowledged: string[] },
     ip: string | null,
+    target?: TbTarget,
   ): Promise<TbVersionDto> {
     const { task, te } = await this.editable(user, taskId, entityCode);
     const { file, rows } = await this.loadTbFile(taskId, entityCode, body.fileId);
     this.assertSettingsFit(body.settings, rows);
     const layout = detectTbLayout(rows);
-    const check = await this.check(task, te.entity, file.id, rows, layout, body.settings);
+    const check = await this.check(task, te.entity, file.id, rows, layout, body.settings, target);
     const missing = check.needsAcknowledgement.filter((w) => !body.acknowledged.includes(w.code));
     if (missing.length > 0) {
       throw new ApiError(
@@ -377,13 +397,15 @@ export class UploadStepService {
         layout,
         acknowledged,
         createdById: user.id,
+        purpose: target?.purpose ?? 'CURRENT',
+        periodId: target?.period.id ?? null,
       });
       await tx.uploadProfile.upsert({
         where: { entityCode },
         create: { entityCode, settings: { ...body.settings }, updatedById: user.id },
         update: { settings: { ...body.settings }, updatedById: user.id },
       });
-      if (te.status === 'NOT_STARTED') {
+      if (te.status === 'NOT_STARTED' && !target) {
         await tx.taskEntity.update({
           where: { taskId_entityCode: { taskId, entityCode } },
           data: { status: 'IN_PROGRESS' },
@@ -396,7 +418,7 @@ export class UploadStepService {
           action: AuditAction.TbUpload,
           entityType: 'TB_VERSION',
           entityId: v.id,
-          oldValue: te.status === 'NOT_STARTED' ? { entityStatus: 'NOT_STARTED' } : null,
+          oldValue: te.status === 'NOT_STARTED' && !target ? { entityStatus: 'NOT_STARTED' } : null,
           newValue: {
             task: task.number,
             entity: entityCode,
@@ -410,7 +432,8 @@ export class UploadStepService {
             lines: check.lines.length,
             newAccounts: check.newAccounts.map((a) => a.code),
             settings: body.settings,
-            ...(te.status === 'NOT_STARTED' ? { entityStatus: 'IN_PROGRESS' } : {}),
+            ...(te.status === 'NOT_STARTED' && !target ? { entityStatus: 'IN_PROGRESS' } : {}),
+            ...(target ? { purpose: 'COMPARATIVE', period: target.period.label } : {}),
           },
           ip,
         },
@@ -448,7 +471,7 @@ export class UploadStepService {
   async tbVersions(user: AuthUser, taskId: string, entityCode: string): Promise<TbVersionDto[]> {
     await this.viewable(user, taskId, entityCode);
     const rows = await this.prisma.tbVersion.findMany({
-      where: { taskId, entityCode },
+      where: { taskId, entityCode, purpose: 'CURRENT' },
       include: versionInclude,
       orderBy: { version: 'desc' },
     });
@@ -519,7 +542,14 @@ export class UploadStepService {
     rows: Cell[][],
     layout: TbLayout,
     settings: TbColumnSettings,
+    target?: TbTarget,
   ): Promise<TbCheckResult> {
+    const period = target?.period ?? {
+      id: task.periodId,
+      label: task.period.label,
+      startDate: fromDbDate(task.period.startDate),
+      endDate: fromDbDate(task.period.endDate),
+    };
     const file = await this.prisma.uploadedFile.findUniqueOrThrow({ where: { id: fileId } });
     const [accounts, sameHash] = await Promise.all([
       this.prisma.entityAccount.findMany({
@@ -535,7 +565,7 @@ export class UploadStepService {
     const elsewhere = [
       ...new Set(
         sameHash
-          .filter((f) => f.entityCode !== entity.code || f.task?.periodId !== task.periodId)
+          .filter((f) => f.entityCode !== entity.code || f.task?.periodId !== period.id)
           .map(
             (f) =>
               `${f.entityCode ?? '?'} · ${f.task?.period.label ?? '?'} (${f.task?.number ?? '?'})`,
@@ -546,11 +576,7 @@ export class UploadStepService {
       rows,
       settings,
       layout,
-      period: {
-        startDate: fromDbDate(task.period.startDate),
-        endDate: fromDbDate(task.period.endDate),
-        label: task.period.label,
-      },
+      period: { startDate: period.startDate, endDate: period.endDate, label: period.label },
       legalName: entity.legalName,
       knownAccounts: new Set(accounts.map((a) => a.accountCode)),
       sameFileElsewhere: elsewhere,
@@ -566,6 +592,7 @@ export class UploadStepService {
     layout: TbLayout,
     settings: TbColumnSettings | null,
     source: TbPreviewDto['settingsSource'],
+    target?: TbTarget,
   ): Promise<TbPreviewDto> {
     const headerRow = settings?.headerRow ?? layout.headerRow ?? 0;
     const width = Math.min(50, Math.max(0, ...rows.slice(0, 200).map((r) => r.length)));
@@ -574,7 +601,9 @@ export class UploadStepService {
       const h = String(header[i] ?? '').trim();
       return { index: i, label: `Column ${columnLetter(i)}${h ? ` · ${h}` : ''}` };
     });
-    const check = settings ? await this.check(task, entity, fileId, rows, layout, settings) : null;
+    const check = settings
+      ? await this.check(task, entity, fileId, rows, layout, settings, target)
+      : null;
     return {
       fileId,
       fileName,
@@ -824,7 +853,7 @@ export class UploadStepService {
         'This task is done and locked.',
       );
     const latest = await this.prisma.tbVersion.findMany({
-      where: { taskId },
+      where: { taskId, purpose: 'CURRENT' },
       orderBy: { version: 'desc' },
       distinct: ['entityCode'],
     });

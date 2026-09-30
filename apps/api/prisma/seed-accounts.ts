@@ -19,7 +19,12 @@ import {
 } from '@prisma/client';
 import { ACCOUNT_TYPE_DEFAULTS, inferMapping } from '@finance-close/engine';
 import { toDbDate } from '../src/common/db-dates';
-import { AUG_ONLY_ACCOUNTS, SAMPLE_ENTITIES, SAMPLE_RATES } from './sample-data';
+import {
+  AUG_ONLY_ACCOUNTS,
+  SAMPLE_ENTITIES,
+  SAMPLE_MATERIALITY,
+  SAMPLE_RATES,
+} from './sample-data';
 
 type Flag = 'consolidationOnly' | 'needsCounterparty' | 'intercompany' | 'computed';
 type FsliSeed = [
@@ -146,6 +151,7 @@ export async function seedAccounts(prisma: PrismaClient): Promise<void> {
   });
   const known = new Set(entities.map((e) => e.code));
   let accounts = 0;
+  let revisedAccounts = 0;
   for (const e of SAMPLE_ENTITIES) {
     if (!known.has(e.code)) continue;
     const skip = new Set(AUG_ONLY_ACCOUNTS[e.code] ?? []);
@@ -168,6 +174,58 @@ export async function seedAccounts(prisma: PrismaClient): Promise<void> {
       skipDuplicates: true,
     });
     accounts += res.count;
+
+    // Seeded accounts nobody has changed (source SEED, never updated by a user) follow
+    // revisions of the sample data.
+    const untouched = await prisma.entityAccount.findMany({
+      where: { entityCode: e.code, source: 'SEED', updatedById: null },
+    });
+    for (const row of untouched) {
+      const a = e.accounts.find((x) => x.code === row.accountCode);
+      if (!a || skip.has(a.code)) continue;
+      const m = inferMapping({ name: a.name, type: a.type }, entities, e.code);
+      const next = {
+        accountName: a.name,
+        accountType: a.type,
+        fsliCode: m.fsliCode,
+        counterpartyCode: m.counterpartyCode,
+      };
+      if (
+        row.accountName === next.accountName &&
+        row.accountType === next.accountType &&
+        row.fsliCode === next.fsliCode &&
+        row.counterpartyCode === next.counterpartyCode
+      )
+        continue;
+      await prisma.$transaction([
+        prisma.entityAccount.update({ where: { id: row.id }, data: next }),
+        prisma.auditLog.create({
+          data: {
+            action: 'ACCOUNT_MAP',
+            entityType: 'ENTITY_ACCOUNT',
+            entityId: `${e.code}:${row.accountCode}`,
+            oldValue: {
+              accountName: row.accountName,
+              accountType: row.accountType,
+              fsli: row.fsliCode,
+              counterparty: row.counterpartyCode,
+            },
+            newValue: { ...next, source: 'seed (sample data revised)' },
+          },
+        }),
+      ]);
+      revisedAccounts++;
+    }
+  }
+  if (revisedAccounts > 0)
+    console.log(`Seeded accounts revised to the current sample data: ${revisedAccounts}.`);
+
+  // Materiality for variance flags (page 5), where not set yet.
+  for (const [code, amount] of Object.entries(SAMPLE_MATERIALITY)) {
+    await prisma.entity.updateMany({
+      where: { code, materiality: null },
+      data: { materiality: amount },
+    });
   }
 
   const currencies = new Set(

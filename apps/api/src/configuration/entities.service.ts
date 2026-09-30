@@ -219,6 +219,11 @@ export class EntitiesService {
         `% held by parent must be a number with at most 4 decimals (got "${req.heldByParentPct}").`,
       );
     }
+    if (req.materiality && !/^\d{1,16}(\.\d{1,4})?$/.test(req.materiality)) {
+      problems.push(
+        `Materiality must be a positive amount with at most 4 decimals (got "${req.materiality}").`,
+      );
+    }
     if (req.toBeConfirmed && !req.toBeConfirmedNote?.trim()) {
       problems.push('Add a note explaining what is to be confirmed.');
     }
@@ -261,6 +266,7 @@ function scalarData(req: EntityInput) {
     isActive: req.isActive,
     toBeConfirmed: req.toBeConfirmed,
     toBeConfirmedNote: req.toBeConfirmed ? req.toBeConfirmedNote?.trim() || null : null,
+    ...(req.materiality !== undefined ? { materiality: req.materiality || null } : {}),
   };
 }
 
@@ -306,6 +312,7 @@ function snapshot(r: EntityRow) {
     isActive: r.isActive,
     toBeConfirmed: r.toBeConfirmed,
     toBeConfirmedNote: r.toBeConfirmedNote,
+    materiality: r.materiality?.toString() ?? null,
     historicalRates: Object.fromEntries(
       [...r.historicalRates]
         .sort((a, b) => a.targetCurrency.localeCompare(b.targetCurrency))
@@ -334,6 +341,7 @@ function toDto(r: EntityRow, missing: EntityDto['missingHistoricalRates']): Enti
     isActive: r.isActive,
     toBeConfirmed: r.toBeConfirmed,
     toBeConfirmedNote: r.toBeConfirmedNote,
+    materiality: r.materiality?.toFixed(2) ?? null,
     sortOrder: r.sortOrder,
     historicalRates: [...r.historicalRates]
       .sort((a, b) => a.targetCurrency.localeCompare(b.targetCurrency))

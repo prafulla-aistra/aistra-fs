@@ -40,14 +40,20 @@ export function TbColumnsDialog({
   initial,
   onClose,
   onSaved,
+  basePath,
+  title,
 }: {
   taskId: string;
-  entity: UploadEntityCardDto;
+  entity: Pick<UploadEntityCardDto, 'code'>;
   initial: TbPreviewDto;
   onClose: () => void;
   onSaved: () => void;
+  /** Upload endpoint (default: the step 1 TB); the comparatives step uses its own. */
+  basePath?: string;
+  /** Dialog title (default: "Confirm columns — <code> trial balance"). */
+  title?: string;
 }) {
-  const base = `/tasks/${taskId}/entities/${entity.code}/tb`;
+  const base = basePath ?? `/tasks/${taskId}/entities/${entity.code}/tb`;
   const [p, setP] = useState(initial);
   const [settings, setSettings] = useState<TbColumnSettingsDto>(initial.settings ?? EMPTY);
   const [acks, setAcks] = useState<string[]>([]);
@@ -113,7 +119,7 @@ export function TbColumnsDialog({
       open
       size="xl"
       onClose={onClose}
-      title={`Confirm columns — ${entity.code} trial balance`}
+      title={title ?? `Confirm columns — ${entity.code} trial balance`}
       description={
         <>
           {p.fileName} · organisation in file: {p.detectedOrganisation ?? 'not stated'} · period in

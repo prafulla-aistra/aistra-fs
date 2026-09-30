@@ -141,6 +141,19 @@
 - Review and map (page 4): mapping a finalised entity's accounts (only from another task
   today); keyword list/order for suggestions.
 
+- Comparatives (page 5): finalised comparatives mapped with the current COA until the
+  finalise step stores mapped lines; FSLI-level explanations; entities without materiality;
+  confirm monthly TBs are month-only (the sample data assumes so).
+
+## Comparatives (page 5) conventions
+- Monthly TBs carry that month's P&L only; opening retained earnings roll forward
+  (prior RE + prior profit). Sample data follows this.
+- comparativePeriod, rollForwardCheck, varianceFlag, compareAccounts / compareFslis are
+  engine functions. The API resolves the source (Finalised → Draft → Uploaded here → None).
+- TbVersion.purpose: CURRENT (the task period's TB) or COMPARATIVE (uploaded on step 3, this
+  task only). Every "latest TB" query for a task must filter purpose CURRENT.
+- The roll-forward result is stored on TaskEntity.rollForward when step 3 is completed.
+
 ## Review and map (page 4) conventions
 - Accounts to map, FSLI suggestions, mapping validation, FSLI totals, intercompany summary
   and cross rates are engine functions (mapping.ts, rates.ts crossRate). The API only loads

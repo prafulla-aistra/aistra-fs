@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { TaskPlaceholderPage } from './TaskPlaceholderPage';
+import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
 import { UploadStep } from './upload/UploadStep';
 
@@ -66,6 +67,8 @@ export function TaskWorkspacePage() {
         <UploadStep taskId={t.id} onContinue={() => goTo('MAPPING')} />
       ) : active === 'MAPPING' ? (
         <MappingStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
+      ) : active === 'COMPARATIVES' ? (
+        <ComparativesStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
       ) : (
         <Card>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">

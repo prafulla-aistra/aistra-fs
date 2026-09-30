@@ -68,6 +68,8 @@ model Entity {
   isActive           Boolean   @default(true) @map("is_active")
   toBeConfirmed      Boolean   @default(false) @map("to_be_confirmed")
   toBeConfirmedNote  String?   @map("to_be_confirmed_note") @db.VarChar(500)
+  /// Variance flags ignore movements below this amount (functional currency).
+  materiality        Decimal?  @db.Decimal(20, 4)
   /// Display order (lists, group tree, level members).
   sortOrder          Int       @default(0) @map("sort_order")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -281,17 +283,18 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
-  financialYearsCreated FinancialYear[]   @relation("FinancialYearCreatedBy")
-  periodStatusChanges   Period[]          @relation("PeriodStatusChangedBy")
-  dueDateOverrides      DueDateOverride[] @relation("DueDateOverrideCreatedBy")
-  tasksCreated          Task[]            @relation("TaskCreatedBy")
-  taskEntitiesFinalised TaskEntity[]      @relation("TaskEntityFinalisedBy")
-  taskLevelsFinalised   TaskLevel[]       @relation("TaskLevelFinalisedBy")
-  accountsUpdated       EntityAccount[]   @relation("EntityAccountUpdatedBy")
-  ratesEntered          ExchangeRate[]    @relation("ExchangeRateEnteredBy")
-  filesUploaded         UploadedFile[]    @relation("UploadedFileBy")
-  tbVersionsCreated     TbVersion[]       @relation("TbVersionCreatedBy")
-  uploadProfiles        UploadProfile[]   @relation("UploadProfileUpdatedBy")
+  financialYearsCreated FinancialYear[]       @relation("FinancialYearCreatedBy")
+  periodStatusChanges   Period[]              @relation("PeriodStatusChangedBy")
+  dueDateOverrides      DueDateOverride[]     @relation("DueDateOverrideCreatedBy")
+  tasksCreated          Task[]                @relation("TaskCreatedBy")
+  taskEntitiesFinalised TaskEntity[]          @relation("TaskEntityFinalisedBy")
+  taskLevelsFinalised   TaskLevel[]           @relation("TaskLevelFinalisedBy")
+  accountsUpdated       EntityAccount[]       @relation("EntityAccountUpdatedBy")
+  ratesEntered          ExchangeRate[]        @relation("ExchangeRateEnteredBy")
+  filesUploaded         UploadedFile[]        @relation("UploadedFileBy")
+  tbVersionsCreated     TbVersion[]           @relation("TbVersionCreatedBy")
+  uploadProfiles        UploadProfile[]       @relation("UploadProfileUpdatedBy")
+  varianceExplanations  VarianceExplanation[] @relation("VarianceExplanationBy")
 
   @@map("app_user")
 }
@@ -411,36 +414,39 @@ enum TaskItemStatus {
 }
 
 model Task {
-  id           String        @id @default(uuid()) @db.Uuid
+  id               String           @id @default(uuid()) @db.Uuid
   /// e.g. SFS-2026-08-001
-  number       String        @unique @db.VarChar(30)
-  type         StatementType
+  number           String           @unique @db.VarChar(30)
+  type             StatementType
   /// Financial year and period type come from the period.
-  periodId     String        @map("period_id") @db.Uuid
+  periodId         String           @map("period_id") @db.Uuid
   /// Statement format. Required for new tasks (older demo rows may have none).
-  formatCode   String?       @map("format_code") @db.VarChar(40)
+  formatCode       String?          @map("format_code") @db.VarChar(40)
   /// Optional note from the preparer to the reviewer.
-  reviewerNote String?       @map("reviewer_note") @db.VarChar(1000)
-  description  String        @db.VarChar(300)
-  dueDate      DateTime      @map("due_date") @db.Date
+  reviewerNote     String?          @map("reviewer_note") @db.VarChar(1000)
+  description      String           @db.VarChar(300)
+  dueDate          DateTime         @map("due_date") @db.Date
   /// Workflow step the task was left at (the task workspace defines the steps).
-  currentStep  String        @map("current_step") @db.VarChar(40)
-  createdById  String        @map("created_by_id") @db.Uuid
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  currentStep      String           @map("current_step") @db.VarChar(40)
+  createdById      String           @map("created_by_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   /// Set when every entity/level is finalised; the task is then locked.
-  completedAt  DateTime?     @map("completed_at") @db.Timestamptz(3)
+  completedAt      DateTime?        @map("completed_at") @db.Timestamptz(3)
   /// Demo data (seeded only in demo mode; removable with npm run demo:remove-tasks).
-  isDemo       Boolean       @default(false) @map("is_demo")
+  isDemo           Boolean          @default(false) @map("is_demo")
+  /// Comparatives step: which period the task is compared with.
+  comparativeBasis ComparativeBasis @default(PREVIOUS_PERIOD) @map("comparative_basis")
 
-  period         Period          @relation(fields: [periodId], references: [id])
-  format         Format?         @relation(fields: [formatCode], references: [code])
-  createdBy      User            @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  entities       TaskEntity[]
-  levels         TaskLevel[]
-  files          UploadedFile[]
-  mappedAccounts EntityAccount[]
-  tbVersions     TbVersion[]
+  period               Period                @relation(fields: [periodId], references: [id])
+  format               Format?               @relation(fields: [formatCode], references: [code])
+  createdBy            User                  @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  entities             TaskEntity[]
+  levels               TaskLevel[]
+  files                UploadedFile[]
+  varianceExplanations VarianceExplanation[]
+  mappedAccounts       EntityAccount[]
+  tbVersions           TbVersion[]
 
   @@index([periodId])
   @@map("task")
@@ -453,6 +459,9 @@ model TaskEntity {
   currentStep   String         @map("current_step") @db.VarChar(40)
   finalisedById String?        @map("finalised_by_id") @db.Uuid
   finalisedAt   DateTime?      @map("finalised_at") @db.Timestamptz(3)
+  /// Retained-earnings roll-forward check, stored when the comparatives step is completed
+  /// (read by the translation step).
+  rollForward   Json?          @map("roll_forward")
 
   task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   entity      Entity @relation(fields: [entityCode], references: [code])
@@ -650,36 +659,76 @@ enum TbStatus {
 
 /// One confirmed trial-balance upload for an entity in a task. Replacing a TB adds a version.
 model TbVersion {
-  id                   String   @id @default(uuid()) @db.Uuid
-  taskId               String   @map("task_id") @db.Uuid
-  entityCode           String   @map("entity_code") @db.VarChar(10)
+  id                   String    @id @default(uuid()) @db.Uuid
+  taskId               String    @map("task_id") @db.Uuid
+  entityCode           String    @map("entity_code") @db.VarChar(10)
   version              Int
-  fileId               String   @map("file_id") @db.Uuid
+  /// CURRENT = the task period's TB; COMPARATIVE = uploaded on the comparatives step, for
+  /// this task only (never the official TB of that period).
+  purpose              TbPurpose @default(CURRENT)
+  /// The period the TB is for (comparative uploads only; current TBs use the task period).
+  periodId             String?   @map("period_id") @db.Uuid
+  fileId               String    @map("file_id") @db.Uuid
   status               TbStatus
-  debits               Decimal  @db.Decimal(20, 4)
-  credits              Decimal  @db.Decimal(20, 4)
-  difference           Decimal  @db.Decimal(20, 4)
-  lineCount            Int      @map("line_count")
+  debits               Decimal   @db.Decimal(20, 4)
+  credits              Decimal   @db.Decimal(20, 4)
+  difference           Decimal   @db.Decimal(20, 4)
+  lineCount            Int       @map("line_count")
   /// Accounts not in the entity's chart of accounts ([{code, name}]), mapped on the next step.
-  newAccounts          Json     @map("new_accounts")
+  newAccounts          Json      @map("new_accounts")
   /// { errors, warnings, info } from the engine parser and the upload checks.
   issues               Json
   /// Column settings used (header row, columns, sign convention).
   settings             Json
-  detectedPeriod       Json?    @map("detected_period")
-  detectedOrganisation String?  @map("detected_organisation") @db.VarChar(300)
+  detectedPeriod       Json?     @map("detected_period")
+  detectedOrganisation String?   @map("detected_organisation") @db.VarChar(300)
   /// Warning codes the uploader acknowledged (period / organisation mismatch).
   acknowledgements     Json
-  createdById          String   @map("created_by_id") @db.Uuid
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById          String    @map("created_by_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
   file      UploadedFile @relation(fields: [fileId], references: [id], onDelete: NoAction)
   createdBy User         @relation("TbVersionCreatedBy", fields: [createdById], references: [id])
   lines     TbLine[]
 
-  @@unique([taskId, entityCode, version])
+  @@unique([taskId, entityCode, purpose, version])
   @@map("tb_version")
+}
+
+enum TbPurpose {
+  CURRENT
+  COMPARATIVE
+}
+
+enum ComparativeBasis {
+  PREVIOUS_PERIOD
+  SAME_PERIOD_LAST_YEAR
+}
+
+/// Explanation of a flagged variance on the comparatives step (one per task, entity, account).
+model VarianceExplanation {
+  taskId      String   @map("task_id") @db.Uuid
+  entityCode  String   @map("entity_code") @db.VarChar(10)
+  accountCode String   @map("account_code") @db.VarChar(40)
+  text        String   @db.VarChar(500)
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  updatedBy User @relation("VarianceExplanationBy", fields: [updatedById], references: [id])
+
+  @@id([taskId, entityCode, accountCode])
+  @@map("variance_explanation")
+}
+
+/// Global settings (key → value), e.g. VARIANCE_PCT_THRESHOLD = 0.20.
+model AppSetting {
+  key       String   @id @db.VarChar(60)
+  value     String   @db.VarChar(200)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_setting")
 }
 
 model TbLine {
