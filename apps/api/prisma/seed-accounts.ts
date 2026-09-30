@@ -10,7 +10,13 @@
  * Aug-26 TBs (IN 1455, IN 6120, UK 6390) are deliberately left out, so uploading the Aug TBs
  * shows them as new accounts to map.
  */
-import type { FsliClass, FsliStatement, PrismaClient, RateBasis } from '@prisma/client';
+import {
+  Prisma,
+  type FsliClass,
+  type FsliStatement,
+  type PrismaClient,
+  type RateBasis,
+} from '@prisma/client';
 import { ACCOUNT_TYPE_DEFAULTS, inferMapping } from '@finance-close/engine';
 import { toDbDate } from '../src/common/db-dates';
 import { AUG_ONLY_ACCOUNTS, SAMPLE_ENTITIES, SAMPLE_RATES } from './sample-data';
@@ -178,6 +184,48 @@ export async function seedAccounts(prisma: PrismaClient): Promise<void> {
     })),
     skipDuplicates: true,
   });
+
+  // Rates still exactly as seeded (source unchanged) follow revisions of the sample data.
+  // Anything entered or uploaded by a person has another source and is never touched.
+  const seeded = await prisma.exchangeRate.findMany({ where: { source: RATE_SEED_SOURCE } });
+  let revised = 0;
+  for (const row of seeded) {
+    const s = SAMPLE_RATES.find(
+      (r) => r.currency === row.currencyCode && toDbDate(r.month).getTime() === row.month.getTime(),
+    );
+    if (!s) continue;
+    const differs = (['opening', 'closing', 'average'] as const).some(
+      (f) => row[f]?.toString() !== new Prisma.Decimal(s[f]).toString(),
+    );
+    if (!differs) continue;
+    await prisma.$transaction([
+      prisma.exchangeRate.update({
+        where: { month_currencyCode: { month: row.month, currencyCode: row.currencyCode } },
+        data: { opening: s.opening, closing: s.closing, average: s.average },
+      }),
+      prisma.auditLog.create({
+        data: {
+          action: 'RATES_UPDATE',
+          entityType: 'EXCHANGE_RATE',
+          entityId: `${row.currencyCode}:${s.month}`,
+          oldValue: {
+            opening: row.opening?.toString() ?? null,
+            closing: row.closing?.toString() ?? null,
+            average: row.average?.toString() ?? null,
+          },
+          newValue: {
+            opening: s.opening,
+            closing: s.closing,
+            average: s.average,
+            source: 'seed (sample data revised)',
+          },
+        },
+      }),
+    ]);
+    revised++;
+  }
+  if (revised > 0)
+    console.log(`Seeded exchange rates revised to the current sample data: ${revised}.`);
 
   if (fslis.count + defaults.count + accounts + rates.count > 0) {
     await prisma.auditLog.create({

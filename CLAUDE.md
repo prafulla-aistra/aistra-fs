@@ -138,6 +138,19 @@
   re-uploading a TB In review resets it to In progress (today: no); Xero account-type
   defaults; whether rate locking should ignore finalised reports that use no rates.
 
+- Review and map (page 4): mapping a finalised entity's accounts (only from another task
+  today); keyword list/order for suggestions.
+
+## Review and map (page 4) conventions
+- Accounts to map, FSLI suggestions, mapping validation, FSLI totals, intercompany summary
+  and cross rates are engine functions (mapping.ts, rates.ts crossRate). The API only loads
+  data and saves; the web app only displays.
+- Mappings live in the entity chart of accounts (shared by all tasks); a save records
+  source TASK_MAPPING and the task ("Mapped in task …"), audited old → new. Changing an
+  existing mapping needs a reason.
+- Sample data (apps/api/prisma/sample-data.ts) is tuned so the page 4 expected results hold
+  exactly; tests assert them. Change it only together with those tests.
+
 ## Upload data (page 3) conventions
 - TB parsing, checks, COA merge and rate-file parsing are engine functions (tb-parser,
   tb-checks, coa-parser, rates, fsli-inference). The API reads spreadsheets (SheetJS, in

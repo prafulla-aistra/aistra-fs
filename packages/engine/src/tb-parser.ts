@@ -21,6 +21,8 @@ export interface TbColumnSettings {
   balanceColumn: number | null;
   debitColumn: number | null;
   creditColumn: number | null;
+  /** Account type column (optional; older saved settings have none). */
+  typeColumn?: number | null;
   signConvention: SignConvention;
 }
 
@@ -44,6 +46,8 @@ export interface TbIssue {
 export interface ParsedTbLine {
   accountCode: string;
   accountName: string;
+  /** From the account type column, when there is one. */
+  accountType: string | null;
   /** Exact decimal, debit positive / credit negative. */
   amount: string;
   /** 1-based spreadsheet rows (several if a duplicate code was combined). */
@@ -67,7 +71,9 @@ export const HEADER_SCAN_ROWS = 40;
 
 export function cellText(c: Cell): string {
   if (c === null || c === undefined) return '';
-  return String(c).replace(/\u00A0/g, ' ').trim();
+  return String(c)
+    .replace(/\u00A0/g, ' ')
+    .trim();
 }
 
 const norm = (c: Cell) =>
@@ -81,6 +87,7 @@ const IS_NAME = /^(account|account name|account description|description|name)$/;
 const IS_BALANCE = /^(closing balance|net balance|balance|closing|amount)$/;
 const IS_DEBIT = /^(net )?(debit|dr)$/;
 const IS_CREDIT = /^(net )?(credit|cr)$/;
+const IS_TYPE = /^(account type|type)$/;
 
 function dmyToIso(d: string, m: string, y: string): IsoDate | null {
   try {
@@ -139,6 +146,7 @@ export function detectTbLayout(rows: readonly (readonly Cell[])[]): TbLayout {
   const balanceColumn = find(IS_BALANCE);
   const debitColumn = find(IS_DEBIT);
   const creditColumn = find(IS_CREDIT);
+  const typeColumn = find(IS_TYPE);
   const separate = balanceColumn < 0 && debitColumn >= 0 && creditColumn >= 0;
 
   return {
@@ -153,6 +161,7 @@ export function detectTbLayout(rows: readonly (readonly Cell[])[]): TbLayout {
       balanceColumn: separate ? null : balanceColumn >= 0 ? balanceColumn : null,
       debitColumn: debitColumn >= 0 ? debitColumn : null,
       creditColumn: creditColumn >= 0 ? creditColumn : null,
+      typeColumn: typeColumn >= 0 ? typeColumn : null,
       signConvention: separate ? 'SEPARATE_COLUMNS' : 'DEBIT_POSITIVE',
     },
   };
@@ -170,7 +179,10 @@ export function parseTrialBalance(
   const errors: TbIssue[] = [];
   const warnings: TbIssue[] = [];
   const info: TbIssue[] = [];
-  const byCode = new Map<string, { name: string; amount: Decimal; rows: number[] }>();
+  const byCode = new Map<
+    string,
+    { name: string; type: string | null; amount: Decimal; rows: number[] }
+  >();
   const noCode: number[] = [];
   const skippedTotals: number[] = [];
 
@@ -233,7 +245,12 @@ export function parseTrialBalance(
       existing.amount = existing.amount.plus(amount.value);
       existing.rows.push(excelRow);
     } else {
-      byCode.set(code, { name, amount: amount.value, rows: [excelRow] });
+      byCode.set(code, {
+        name,
+        type: s.typeColumn != null ? cellText(row[s.typeColumn]) || null : null,
+        amount: amount.value,
+        rows: [excelRow],
+      });
     }
   }
 
@@ -263,6 +280,7 @@ export function parseTrialBalance(
   const lines: ParsedTbLine[] = [...byCode.entries()].map(([accountCode, v]) => ({
     accountCode,
     accountName: v.name,
+    accountType: v.type,
     amount: v.amount.toFixed(),
     sourceRows: v.rows,
     zero: v.amount.isZero(),

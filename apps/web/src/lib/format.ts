@@ -45,3 +45,13 @@ export function amountText(value: string): string {
   const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `${value.startsWith('-') ? '-' : ''}${grouped}${dec !== undefined ? `.${dec}` : ''}`;
 }
+
+/** Signed amount for statements: debits as is, credits in brackets ("(1,234.00)"). */
+export function bracketAmount(value: string): string {
+  return value.startsWith('-') ? `(${amountText(value.slice(1))})` : amountText(value);
+}
+
+/** "Dr 400,000.00" / "Cr 1,250.00" */
+export function drCr(amount: string): string {
+  return amount.startsWith('-') ? `Cr ${amountText(amount.slice(1))}` : `Dr ${amountText(amount)}`;
+}

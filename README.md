@@ -289,6 +289,43 @@ total; the web app only shows them.
   entity is read-only (409); rates need SFS_PREPARE, CFS_PREPARE or CONFIG_MANAGE. Every
   upload, rate change, acknowledgement and "continue" is audited.
 
+### Review and map (page 4)
+
+Step 2 of the SFS workspace (`/tasks/:id?step=MAPPING`). One entity at a time (tabs, or a
+dropdown on small screens; the choice is remembered per task). An entity without a validated
+TB shows "Upload a trial balance first".
+
+- **Exchange rates:** "1 <functional> = X <target>" for each translated currency — opening,
+  closing, average (10 decimals, cross rates from the USD master; the formula shows on hover)
+  and the historical rate from the entity master. Missing rates are red with a link to fix them.
+- **Accounts to map:** TB accounts not in the chart of accounts, without an FSLI, or without a
+  needed counterparty. Suggested FSLI: the same account name in another entity's chart of
+  accounts, then keywords in the name, then the account-type default (the source is shown).
+  Saving validates (FSLI required; counterparty required for IC_REC / IC_PAY / IC_REV / IC_EXP /
+  INV_SUB, not the entity itself, active; INV_SUB only a direct subsidiary; account type vs
+  FSLI class conflict must be ticked) and writes to the chart of accounts as "Mapped in task …",
+  audited. Partial saves are allowed.
+- **Trial balance with mapping:** filters, search, debit/credit columns and a totals tick.
+  Changing an existing mapping needs a reason.
+- **FSLI summary** (profit for the period; FSLI total = TB total check) and **intercompany
+  summary** per counterparty. Engine: `crossRate`, `suggestFsli`, `validateMapping`,
+  `fsliTotals`, `intercompanySummary`.
+- **Continue to comparatives** needs: TB balanced, 0 accounts to map, every IC/investment line
+  with a counterparty. Missing rates only warn here. The entity's step is saved.
+- **Configuration → Chart of accounts** lists each entity's accounts with FSLI and source
+  (read-only for now).
+
+The sample data was revised on page 4 so the expected results below hold exactly (the seed
+updates seeded rates and demo TBs that nobody has changed):
+
+| Aug-2026 | Expected |
+|---|---|
+| IN debits = credits | 787,777,348.66 INR |
+| IN accounts to map | 1455 Advance to Suppliers Dr 400,000.00 → CUR_OTH; 6120 Staff Welfare Expenses Dr 350,000.00 → EMP |
+| IN profit after mapping | 17,760,764.50 INR |
+| IN INR→USD | opening 0.0115740741 · closing 0.0115074799 · average 0.0115473441 · historical 0.0133333333 |
+| UK | 6390 Bank Charges → OTH_EXP; profit 29,500.00 GBP after mapping |
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -439,6 +476,12 @@ These need confirmation from the process owners before the related features are 
 15. **Rate locking scope.** A month locks when any report for a period containing it is
     finalised — including a USD entity's SFS that uses no rates. Confirm, or lock only on
     reports that actually use the rates.
+16. **Mapping finalised entities.** A chart-of-accounts mapping is shared by all tasks, but a
+    finalised entity's task is read-only — so UK 6390 (UK is finalised in the Aug-2026 demo
+    task) can only be mapped from another task, or after an edit-access request. Confirm.
+17. **Keyword list for suggestions.** "fee" → Other expenses is checked after the
+    professional-fees keywords, and "rent" matches the whole word only (so "current account"
+    is not rent). Confirm the keyword list and order.
 
 ## Known dependency warnings (clean-up later)
 

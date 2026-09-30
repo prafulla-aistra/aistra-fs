@@ -5,6 +5,7 @@ import { AppShell } from '@/components/AppShell';
 import { AuditPage } from '@/pages/AuditPage';
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage';
 import { CalendarTab } from '@/pages/configuration/CalendarTab';
+import { ChartOfAccountsTab } from '@/pages/configuration/ChartOfAccountsTab';
 import { ComingNextStep } from '@/pages/configuration/common';
 import { ConfigurationLayout } from '@/pages/configuration/ConfigurationLayout';
 import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
@@ -51,10 +52,7 @@ export function App() {
               <Route path="calendar" element={<CalendarTab />} />
               <Route path="due-dates" element={<DueDatesTab />} />
               <Route path="formats" element={<ComingNextStep title="Formats" />} />
-              <Route
-                path="chart-of-accounts"
-                element={<ComingNextStep title="Chart of accounts" />}
-              />
+              <Route path="chart-of-accounts" element={<ChartOfAccountsTab />} />
               <Route path="exchange-rates" element={<ComingNextStep title="Exchange rates" />} />
             </Route>
           </Route>

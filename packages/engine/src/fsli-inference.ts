@@ -42,7 +42,7 @@ const ASSET_TYPES = /asset|receivable|stock|cash|bank/i;
 const EXPENSE_TYPES = /expense|cost of goods/i;
 
 /** Intercompany name patterns → FSLI; the rest of the name identifies the counterparty. */
-const IC_PATTERNS: [RegExp, string][] = [
+export const IC_NAME_PATTERNS: [RegExp, string][] = [
   [/^due from\s+(.+)$/i, 'IC_REC'],
   [/^due to\s+(.+)$/i, 'IC_PAY'],
   [/^ic revenue\s*[-–:]\s*(.+)$/i, 'IC_REV'],
@@ -98,7 +98,7 @@ const NAME_RULES: [RegExp, string, RegExp?][] = [
   [/cash on hand|petty cash|bank|current account|savings account/i, 'CASH', /cash|bank/i],
 ];
 
-function findCounterparty(
+export function findCounterparty(
   text: string,
   entities: readonly InferenceEntity[],
   self?: string,
@@ -124,7 +124,7 @@ export function inferMapping(
   const name = account.name.trim();
   const type = account.type?.trim() ?? '';
 
-  for (const [re, fsli] of IC_PATTERNS) {
+  for (const [re, fsli] of IC_NAME_PATTERNS) {
     const m = re.exec(name);
     if (m) {
       const cp = findCounterparty(m[1]!, entities, self);

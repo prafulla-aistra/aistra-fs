@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { TaskPlaceholderPage } from './TaskPlaceholderPage';
+import { MappingStep } from './mapping/MappingStep';
 import { UploadStep } from './upload/UploadStep';
 
 /**
@@ -63,12 +64,14 @@ export function TaskWorkspacePage() {
       <Stepper active={active} onSelect={goTo} />
       {active === 'UPLOAD_DATA' ? (
         <UploadStep taskId={t.id} onContinue={() => goTo('MAPPING')} />
+      ) : active === 'MAPPING' ? (
+        <MappingStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
       ) : (
         <Card>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <Construction className="size-4" />
             {TASK_STEPS.find((s) => s.code === active)!.label} is built on the next page. Entities
-            that passed step 1 wait here.
+            that finished the earlier steps wait here.
           </CardContent>
         </Card>
       )}

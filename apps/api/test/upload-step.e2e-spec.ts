@@ -74,7 +74,12 @@ beforeAll(async () => {
   ctx = await createTestApp();
   await deleteNonDemoTasks(ctx);
   // Accounts added by an earlier run's chart-of-accounts upload would hide the "new accounts".
-  await ctx.prisma.entityAccount.deleteMany({ where: { source: 'COA_UPLOAD' } });
+  await ctx.prisma.entityAccount.deleteMany({
+    where: {
+      source: { in: ['COA_UPLOAD', 'TASK_MAPPING'] },
+      accountCode: { in: ['1455', '6120', '6390', '6150', '1060'] },
+    },
+  });
   priya = await tokenFor(ctx, 'priya@financeclose.local', pw('priya@financeclose.local'));
   master = await tokenFor(ctx, MASTER.email, MASTER.password);
 
@@ -109,7 +114,12 @@ beforeAll(async () => {
 afterAll(async () => {
   if (ctx) {
     await deleteNonDemoTasks(ctx);
-    await ctx.prisma.entityAccount.deleteMany({ where: { source: 'COA_UPLOAD' } });
+    await ctx.prisma.entityAccount.deleteMany({
+      where: {
+        source: { in: ['COA_UPLOAD', 'TASK_MAPPING'] },
+        accountCode: { in: ['1455', '6120', '6390', '6150', '1060'] },
+      },
+    });
   }
   await ctx?.app.close();
 });
@@ -477,7 +487,7 @@ describe('chart of accounts and documents', () => {
     );
     expect(res.status).toBe(201);
     const s = res.body as CoaMergeSummaryDto;
-    expect(s).toMatchObject({ added: 4, updated: 0, unchanged: 33 });
+    expect(s).toMatchObject({ added: 4, updated: 0, unchanged: 37 });
     expect(s.addedAccounts.map((a) => [a.code, a.fsliCode]).sort()).toEqual([
       ['1060', 'CASH'],
       ['1455', 'CUR_OTH'],

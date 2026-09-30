@@ -10,7 +10,7 @@ export const CONFIG_TABS = [
   { to: 'calendar', label: 'Financial years and periods' },
   { to: 'due-dates', label: 'Due dates and holidays' },
   { to: 'formats', label: 'Formats', later: true },
-  { to: 'chart-of-accounts', label: 'Chart of accounts', later: true },
+  { to: 'chart-of-accounts', label: 'Chart of accounts' },
   { to: 'exchange-rates', label: 'Exchange rates', later: true },
 ] as const;
 

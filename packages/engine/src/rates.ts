@@ -239,3 +239,65 @@ export function parseRateSheet(rows: readonly (readonly RateCell[])[]): RateShee
     errors.push({ row: 0, message: 'The file has no rates.' });
   return { rates, errors };
 }
+
+export type RateKind = 'opening' | 'closing' | 'average';
+
+/**
+ * A currency's rate per 1 USD for a period (CLAUDE.md): opening = first month's opening,
+ * closing = last month's closing, average = simple mean of the monthly averages. USD is 1.
+ * `missing` lists the monthly figures that are not entered ("INR Aug-2026 closing").
+ */
+export function periodUsdRate(
+  rates: readonly MonthlyRate[],
+  period: { startDate: IsoDate; endDate: IsoDate },
+  currency: string,
+  kind: RateKind,
+): { value: Decimal | null; missing: string[] } {
+  if (currency === 'USD') return { value: new Decimal(1), missing: [] };
+  const months = monthsBetween(period.startDate, period.endDate);
+  const get = (m: IsoDate) =>
+    rates.find((r) => r.currency === currency && r.month === m)?.[kind] ?? null;
+  const pick = kind === 'opening' ? [months[0]!] : kind === 'closing' ? [months.at(-1)!] : months;
+  const values = pick.map((m) => ({ m, v: get(m) }));
+  const missing = values
+    .filter((x) => x.v === null)
+    .map((x) => `${currency} ${monthLabel(x.m)} ${kind}`);
+  if (missing.length > 0) return { value: null, missing };
+  const sum = values.reduce((s, x) => s.plus(x.v!), new Decimal(0));
+  return { value: sum.dividedBy(values.length), missing: [] };
+}
+
+/** Rate text for formulas: at least 2 decimals, no trailing zeros beyond that ("86.90", "1"). */
+function rateText(d: Decimal): string {
+  if (d.equals(1)) return '1';
+  const t = d.toDecimalPlaces(10).toFixed();
+  const dp = t.includes('.') ? t.split('.')[1]!.length : 0;
+  return dp >= 2 ? t : d.toFixed(2);
+}
+
+export interface CrossRate {
+  /** Units of `to` per 1 unit of `from`, 10 decimals; null if a rate is missing. */
+  value: string | null;
+  /** How it was derived, e.g. "1 ÷ 86.90" (units of `to` per USD ÷ units of `from` per USD). */
+  formula: string | null;
+  missing: string[];
+}
+
+/** Cross rate from the USD rate master: A→B = (units of B per USD) ÷ (units of A per USD). */
+export function crossRate(
+  rates: readonly MonthlyRate[],
+  period: { startDate: IsoDate; endDate: IsoDate },
+  from: string,
+  to: string,
+  kind: RateKind,
+): CrossRate {
+  const a = periodUsdRate(rates, period, from, kind);
+  const b = periodUsdRate(rates, period, to, kind);
+  const missing = [...a.missing, ...b.missing];
+  if (!a.value || !b.value) return { value: null, formula: null, missing };
+  return {
+    value: b.value.dividedBy(a.value).toDecimalPlaces(10, Decimal.ROUND_HALF_UP).toFixed(10),
+    formula: `${rateText(b.value)} ÷ ${rateText(a.value)}`,
+    missing,
+  };
+}

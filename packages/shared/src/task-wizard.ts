@@ -8,7 +8,8 @@ import type { TaskStatus } from './tasks';
 /** Workflow steps of a task. The task workspace (next pages) implements them. */
 export const TASK_STEPS = [
   { code: 'UPLOAD_DATA', label: 'Upload data' },
-  { code: 'MAPPING', label: 'Mapping' },
+  { code: 'MAPPING', label: 'Review and map' },
+  { code: 'COMPARATIVES', label: 'Comparatives' },
   { code: 'REVIEW', label: 'Review' },
   { code: 'FINALISED', label: 'Finalised' },
 ] as const;

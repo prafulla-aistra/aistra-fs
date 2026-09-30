@@ -59,6 +59,7 @@ const settingsSchema = z
     balanceColumn: column.nullable(),
     debitColumn: column.nullable(),
     creditColumn: column.nullable(),
+    typeColumn: column.nullable().optional(),
     signConvention: z.enum([
       'DEBIT_POSITIVE',
       'CREDIT_POSITIVE',

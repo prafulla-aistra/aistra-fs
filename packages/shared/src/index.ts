@@ -5,3 +5,4 @@ export * from './health';
 export * from './task-wizard';
 export * from './tasks';
 export * from './upload-step';
+export * from './mapping-step';

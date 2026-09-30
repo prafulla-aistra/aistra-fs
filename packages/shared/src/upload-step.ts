@@ -21,6 +21,8 @@ export interface TbColumnSettingsDto {
   balanceColumn: number | null;
   debitColumn: number | null;
   creditColumn: number | null;
+  /** Account type column (optional). */
+  typeColumn?: number | null;
   signConvention: SignConvention;
 }
 

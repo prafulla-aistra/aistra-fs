@@ -109,6 +109,8 @@ export const ApiErrorCode = {
   AcknowledgementRequired: 'ACKNOWLEDGEMENT_REQUIRED',
   /** The uploaded file is the wrong type, too large, or unreadable. */
   FileRejected: 'FILE_REJECTED',
+  /** A warning must be confirmed (ticked) before saving. */
+  ConfirmationRequired: 'CONFIRMATION_REQUIRED',
   /** The API process is not reachable (not started yet, restarting, or stopped). */
   ApiUnavailable: 'API_UNAVAILABLE',
   /** The API is up but cannot reach its database. */
@@ -224,6 +226,8 @@ export const AuditAction = {
   RatesUpload: 'RATES_UPLOAD',
   RatesUpdate: 'RATES_UPDATE',
   TaskStepContinue: 'TASK_STEP_CONTINUE',
+  // Review and map (page 4)
+  AccountMap: 'ACCOUNT_MAP',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

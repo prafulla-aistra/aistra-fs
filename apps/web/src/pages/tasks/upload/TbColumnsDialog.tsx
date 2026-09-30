@@ -169,6 +169,21 @@ export function TbColumnsDialog({
           ) : (
             colSelect('Balance column', settings.balanceColumn, (v) => update({ balanceColumn: v }))
           )}
+          <Field label="Account type column" hint="Optional; used to suggest FSLIs">
+            <Select
+              value={settings.typeColumn ?? ''}
+              onChange={(e) =>
+                update({ typeColumn: e.target.value === '' ? null : Number(e.target.value) })
+              }
+            >
+              <option value="">None</option>
+              {columns.map((c) => (
+                <option key={c.index} value={c.index}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
         <div>

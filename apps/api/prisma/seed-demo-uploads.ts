@@ -12,7 +12,7 @@ import { fromDbDate } from '../src/common/db-dates';
 import { resolveFromRepoRoot } from '../src/config/paths';
 import { LocalStorageService } from '../src/storage/local-storage.service';
 import { readSheetRows } from '../src/uploads/sheets';
-import { storeUpload } from '../src/uploads/stored-files';
+import { sha256, storeUpload } from '../src/uploads/stored-files';
 import { saveTbVersion } from '../src/uploads/tb-versions';
 import { SAMPLE_ENTITIES } from './sample-data';
 import { type SampleMonth, tbFileName, trialBalanceFile } from './sample-files';
@@ -35,6 +35,7 @@ export async function seedDemoUploads(prisma: PrismaClient): Promise<void> {
     ['SFS-2026-08-001', 'aug', ['US', 'IN', 'AE', 'UK', 'UC'], '2026-09-03T11:00:00+05:30'],
   ];
   let created = 0;
+  let replaced = 0;
   for (const [number, month, codes, at] of plan) {
     const task = await prisma.task.findUnique({
       where: { number },
@@ -42,13 +43,29 @@ export async function seedDemoUploads(prisma: PrismaClient): Promise<void> {
     });
     if (!task?.isDemo) continue;
     for (const te of task.entities.filter((x) => codes.includes(x.entityCode))) {
-      if (
-        await prisma.tbVersion.findFirst({ where: { taskId: task.id, entityCode: te.entityCode } })
-      )
-        continue;
       const sample = SAMPLE_ENTITIES.find((e) => e.code === te.entityCode);
       if (!sample) continue;
       const body = trialBalanceFile(sample, month);
+      const existing = await prisma.tbVersion.findMany({
+        where: { taskId: task.id, entityCode: te.entityCode },
+        include: { file: true },
+      });
+      if (existing.length > 0) {
+        // Keep anything a person uploaded. Only a seeded version whose sample file has since
+        // changed (the sample data was revised) is replaced.
+        const seededOnly = existing.every(
+          (v) => v.createdById === priya.id && v.createdAt.getTime() === new Date(at).getTime(),
+        );
+        if (!seededOnly || existing.every((v) => v.file.sha256 === sha256(body))) continue;
+        await prisma.$transaction(async (tx) => {
+          await tx.tbVersion.deleteMany({ where: { id: { in: existing.map((v) => v.id) } } });
+          await tx.uploadedFile.deleteMany({
+            where: { id: { in: existing.map((v) => v.fileId) } },
+          });
+        });
+        for (const v of existing) await storage.delete(v.file.storageKey);
+        replaced++;
+      }
       const fileName = tbFileName(sample.code, month);
       const rows = readSheetRows(body, fileName);
       const layout = detectTbLayout(rows);
@@ -105,5 +122,8 @@ export async function seedDemoUploads(prisma: PrismaClient): Promise<void> {
       created++;
     }
   }
-  if (created > 0) console.log(`Demo trial balances uploaded: ${created}`);
+  if (created > 0)
+    console.log(
+      `Demo trial balances uploaded: ${created}${replaced > 0 ? ` (${replaced} replaced by revised sample data)` : ''}`,
+    );
 }

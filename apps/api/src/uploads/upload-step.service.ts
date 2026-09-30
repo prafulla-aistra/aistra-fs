@@ -3,8 +3,8 @@ import type { Prisma, TbVersion, UploadKind } from '@prisma/client';
 import {
   type Cell,
   checkTrialBalance,
-  detectTbLayout,
   deriveTaskStatus,
+  detectTbLayout,
   parseChartOfAccounts,
   planCoaMerge,
   type TbCheckResult,
@@ -34,7 +34,14 @@ import { ApiError } from '../common/api-error';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageNotFoundError, StorageService } from '../storage/storage.service';
-import { inScope, taskInclude, taskVisibleTo } from '../tasks/tasks.service';
+import { inScope } from '../tasks/tasks.service';
+import {
+  assertEditable,
+  isTaskLocked,
+  loadStepTask,
+  readOnlyReason,
+  type StepTask,
+} from './step-access';
 import { toFileRef } from './file-ref';
 import { RatesService } from './rates.service';
 import { columnLetter, readSheetRows } from './sheets';
@@ -47,16 +54,6 @@ export interface UploadedBlob {
   mimetype: string;
   size: number;
 }
-
-const stepInclude = {
-  ...taskInclude,
-  entities: {
-    include: {
-      entity: { include: { translatedCurrencies: true } },
-    },
-  },
-} satisfies Prisma.TaskInclude;
-type StepTask = Prisma.TaskGetPayload<{ include: typeof stepInclude }>;
 
 const fileInclude = { uploadedBy: { select: { name: true } } } satisfies Prisma.UploadedFileInclude;
 const versionInclude = {
@@ -125,49 +122,22 @@ export class UploadStepService {
   // Loading and access rules
   // ---------------------------------------------------------------------------------------
 
-  private async loadTask(user: AuthUser, taskId: string): Promise<StepTask> {
-    const task = await this.prisma.task.findUnique({ where: { id: taskId }, include: stepInclude });
-    if (!task || !taskVisibleTo(task, user.entityScope)) throw ApiError.notFound('Task not found.');
-    if (task.type !== 'SFS')
-      throw ApiError.validation('Uploading data is part of standalone (SFS) tasks.');
-    return task;
+  private loadTask(user: AuthUser, taskId: string): Promise<StepTask> {
+    return loadStepTask(this.prisma, user, taskId);
   }
 
   private isLocked(task: StepTask): boolean {
-    return deriveTaskStatus(task.entities.map((e) => e.status)) === 'DONE';
+    return isTaskLocked(task);
   }
 
-  /** Why this user cannot upload for the entity now, or null if they can. */
   private readOnlyReason(user: AuthUser, task: StepTask, entityCode: string): string | null {
-    const te = task.entities.find((e) => e.entityCode === entityCode);
-    if (this.isLocked(task)) return 'This task is done and locked.';
-    if (te?.status === 'FINALISED') return 'Finalised — read-only.';
-    if (!user.permissions.has(Permission.SfsPrepare))
-      return 'You do not have permission to prepare statements.';
-    if (!inScope(user.entityScope, entityCode)) return 'Outside your entity scope.';
-    return null;
+    return readOnlyReason(user, task, entityCode);
   }
 
   /** Loads the task and checks the user may upload for the entity (403 / 404 / 409). */
   private async editable(user: AuthUser, taskId: string, entityCode: string) {
     const task = await this.loadTask(user, taskId);
-    const te = task.entities.find((e) => e.entityCode === entityCode);
-    if (!te) throw ApiError.notFound(`Entity ${entityCode} is not in this task.`);
-    if (!inScope(user.entityScope, entityCode))
-      throw ApiError.notAllowed(`${entityCode} is outside your entity scope.`);
-    if (this.isLocked(task))
-      throw new ApiError(
-        HttpStatus.CONFLICT,
-        ApiErrorCode.TaskLocked,
-        'This task is done and locked. Its data cannot change.',
-      );
-    if (te.status === 'FINALISED')
-      throw new ApiError(
-        HttpStatus.CONFLICT,
-        ApiErrorCode.EntityFinalised,
-        `${te.entity.shortName} is finalised in this task. Its data is read-only; changes need an approved edit-access request.`,
-      );
-    return { task, te };
+    return { task, te: assertEditable(user, task, entityCode) };
   }
 
   private checkFile(file: UploadedBlob | undefined, allowed: readonly string[]): UploadedBlob {

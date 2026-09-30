@@ -58,6 +58,7 @@ export async function saveTbVersion(
       amount: l.amount,
       sourceRows: l.sourceRows,
       zero: l.zero,
+      accountType: l.accountType?.slice(0, 60) ?? null,
     })),
   });
   return version;

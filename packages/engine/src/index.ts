@@ -4,6 +4,7 @@ export * from './dates';
 export * from './due-dates';
 export * from './fsli-inference';
 export * from './group';
+export * from './mapping';
 export * from './money';
 export * from './periods';
 export * from './rates';

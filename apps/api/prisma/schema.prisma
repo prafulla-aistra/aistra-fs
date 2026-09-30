@@ -433,13 +433,14 @@ model Task {
   /// Demo data (seeded only in demo mode; removable with npm run demo:remove-tasks).
   isDemo       Boolean       @default(false) @map("is_demo")
 
-  period     Period         @relation(fields: [periodId], references: [id])
-  format     Format?        @relation(fields: [formatCode], references: [code])
-  createdBy  User           @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  entities   TaskEntity[]
-  levels     TaskLevel[]
-  files      UploadedFile[]
-  tbVersions TbVersion[]
+  period         Period          @relation(fields: [periodId], references: [id])
+  format         Format?         @relation(fields: [formatCode], references: [code])
+  createdBy      User            @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  entities       TaskEntity[]
+  levels         TaskLevel[]
+  files          UploadedFile[]
+  mappedAccounts EntityAccount[]
+  tbVersions     TbVersion[]
 
   @@index([periodId])
   @@map("task")
@@ -565,6 +566,8 @@ model EntityAccount {
   source            AccountSource
   /// The FSLI was suggested automatically (from the name or account type), not yet confirmed.
   suggested         Boolean       @default(true)
+  /// Task in which the mapping was set (source TASK_MAPPING): "Mapped in task <number>".
+  mappedInTaskId    String?       @map("mapped_in_task_id") @db.Uuid
   updatedById       String?       @map("updated_by_id") @db.Uuid
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -573,6 +576,7 @@ model EntityAccount {
   fsli         Fsli?   @relation(fields: [fsliCode], references: [code])
   counterparty Entity? @relation("AccountCounterparty", fields: [counterpartyCode], references: [code])
   updatedBy    User?   @relation("EntityAccountUpdatedBy", fields: [updatedById], references: [id])
+  mappedInTask Task?   @relation(fields: [mappedInTaskId], references: [id], onDelete: SetNull)
 
   @@unique([entityCode, accountCode])
   @@map("entity_account")
@@ -688,6 +692,8 @@ model TbLine {
   /// 1-based spreadsheet rows (several when duplicate codes were combined).
   sourceRows  Int[]   @map("source_rows")
   zero        Boolean @default(false)
+  /// From the TB file's account type column, when it has one.
+  accountType String? @map("account_type") @db.VarChar(60)
 
   tbVersion TbVersion @relation(fields: [tbVersionId], references: [id], onDelete: Cascade)
 
