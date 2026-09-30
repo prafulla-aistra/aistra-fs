@@ -145,6 +145,18 @@
   finalise step stores mapped lines; FSLI-level explanations; entities without materiality;
   confirm monthly TBs are month-only (the sample data assumes so).
 
+- Translation (page 6): roll-forward re-checked live against the previous period; FCTR movement
+  comparative (task basis); unmapped accounts fail the translation.
+
+## Currency translation (page 6) conventions
+- translateTB (engine) is the only translation logic: rates at full precision, lines rounded
+  to 2 dp half away from zero, FCTR = −(translated BS + PROFIT) so the translated TB nets to 0.
+- apps/api/src/uploads/translation-inputs.ts loads its inputs; the API and the demo seed both
+  use it. Snapshots (translation_snapshot) are the finalised translations used as the prior
+  period (RE roll-forward) and the FCTR movement comparative.
+- The sample data is tuned so pages 4–6 expected results hold to the cent; change it only with
+  those tests (apps/api/prisma/sample-data.ts explains the tuning).
+
 ## Comparatives (page 5) conventions
 - Monthly TBs carry that month's P&L only; opening retained earnings roll forward
   (prior RE + prior profit). Sample data follows this.

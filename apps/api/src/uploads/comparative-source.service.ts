@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { comparativePeriod, generatePeriods, type TbLineInput } from '@finance-close/engine';
-import type { ComparativeSourceKind } from '@finance-close/shared';
+import type { ComparativeBasis, ComparativeSourceKind } from '@finance-close/shared';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
 import type { StepTask } from './step-access';
@@ -39,14 +39,18 @@ const include = { lines: { orderBy: { accountCode: 'asc' as const } }, file: tru
 export class ComparativeSourceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async period(task: StepTask): Promise<ComparativePeriodRef> {
+  /** The comparative period (the task's basis unless another is given). */
+  async period(
+    task: StepTask,
+    basis: ComparativeBasis = task.comparativeBasis,
+  ): Promise<ComparativePeriodRef> {
     const ref = comparativePeriod(
       {
         type: task.period.type,
         sequence: task.period.sequence,
         fyStartYear: task.period.financialYear.startYear,
       },
-      task.comparativeBasis,
+      basis,
     );
     const row = await this.prisma.period.findFirst({
       where: {
@@ -77,8 +81,12 @@ export class ComparativeSourceService {
     });
   }
 
-  async resolve(task: StepTask, entityCode: string): Promise<ResolvedComparative> {
-    const period = await this.period(task);
+  async resolve(
+    task: StepTask,
+    entityCode: string,
+    basis: ComparativeBasis = task.comparativeBasis,
+  ): Promise<ResolvedComparative> {
+    const period = await this.period(task, basis);
     if (!period.id) return { period, kind: 'NONE', version: null, finalisedExists: false };
 
     const others = await this.prisma.taskEntity.findMany({

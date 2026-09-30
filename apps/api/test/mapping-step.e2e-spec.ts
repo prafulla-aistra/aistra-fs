@@ -261,8 +261,8 @@ describe('UK and the other entities, Aug-2026', () => {
     expect(us.rates.noTranslation).toBe('No translation needed: reports in USD.');
     const uk = await get(augTaskId, 'UK');
     expect(uk.rates.rows.map((r) => [r.target, r.closing.formula])).toEqual([
-      ['INR', '86.90 ÷ 0.7842'],
-      ['USD', '1 ÷ 0.7842'],
+      ['INR', '86.90 ÷ 0.747'],
+      ['USD', '1 ÷ 0.747'],
     ]);
   });
 });

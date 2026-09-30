@@ -13,3 +13,4 @@ export * from './task-numbers';
 export * from './tb-checks';
 export * from './tasks';
 export * from './tb-parser';
+export * from './translation';

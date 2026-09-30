@@ -11,6 +11,7 @@ export const TASK_STEPS = [
   { code: 'MAPPING', label: 'Review and map' },
   { code: 'COMPARATIVES', label: 'Comparatives' },
   { code: 'TRANSLATION', label: 'Currency translation' },
+  { code: 'STATEMENTS', label: 'Statements and notes' },
   { code: 'REVIEW', label: 'Review' },
   { code: 'FINALISED', label: 'Finalised' },
 ] as const;

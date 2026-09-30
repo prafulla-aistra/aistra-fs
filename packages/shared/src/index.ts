@@ -7,3 +7,4 @@ export * from './tasks';
 export * from './upload-step';
 export * from './mapping-step';
 export * from './comparatives-step';
+export * from './translation-step';

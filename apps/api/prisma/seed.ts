@@ -19,6 +19,7 @@ import { seedAccounts } from './seed-accounts';
 import { seedConfiguration } from './seed-configuration';
 import { seedDemoUsers } from './seed-demo';
 import { seedDemoTasks } from './seed-demo-tasks';
+import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
 import { withConnectionDefaults } from '../src/prisma/database-url';
 
@@ -209,6 +210,7 @@ async function main(): Promise<void> {
     await seedDemoUsers(prisma, Number.parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10));
     await seedDemoTasks(prisma);
     await seedDemoUploads(prisma);
+    await seedDemoTranslations(prisma);
   }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }

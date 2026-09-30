@@ -445,6 +445,7 @@ model Task {
   levels               TaskLevel[]
   files                UploadedFile[]
   varianceExplanations VarianceExplanation[]
+  translationSnapshots TranslationSnapshot[]
   mappedAccounts       EntityAccount[]
   tbVersions           TbVersion[]
 
@@ -761,4 +762,30 @@ model UploadProfile {
   updatedBy User   @relation("UploadProfileUpdatedBy", fields: [updatedById], references: [id])
 
   @@map("upload_profile")
+}
+
+/// A stored translation (step 4 result) of one entity into one currency. Written when the
+/// entity is finalised (page 8; the demo Jul-2026 task is seeded with them) and read as the
+/// prior period for the retained-earnings roll-forward and the FCTR movement.
+model TranslationSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  taskId         String   @map("task_id") @db.Uuid
+  entityCode     String   @map("entity_code") @db.VarChar(10)
+  targetCurrency String   @map("target_currency") @db.Char(3)
+  periodId       String   @map("period_id") @db.Uuid
+  /// Translated retained earnings, profit and FCTR (signed, credit negative).
+  retained       Decimal  @db.Decimal(20, 4)
+  profit         Decimal  @db.Decimal(20, 4)
+  fctr           Decimal  @db.Decimal(20, 4)
+  /// The full engine result (rates, lines, totals, method, warnings).
+  result         Json
+  /// SEED (demo data) or FINALISE.
+  source         String   @db.VarChar(20)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, entityCode, targetCurrency])
+  @@index([entityCode, targetCurrency, periodId])
+  @@map("translation_snapshot")
 }

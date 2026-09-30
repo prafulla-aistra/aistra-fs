@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { TaskPlaceholderPage } from './TaskPlaceholderPage';
 import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
+import { TranslationStep } from './translation/TranslationStep';
 import { UploadStep } from './upload/UploadStep';
 
 /**
@@ -69,6 +70,8 @@ export function TaskWorkspacePage() {
         <MappingStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
       ) : active === 'COMPARATIVES' ? (
         <ComparativesStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
+      ) : active === 'TRANSLATION' ? (
+        <TranslationStep taskId={t.id} onUpload={() => goTo('UPLOAD_DATA')} />
       ) : (
         <Card>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">

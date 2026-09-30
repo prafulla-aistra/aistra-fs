@@ -6,6 +6,7 @@ import type {
   WizardOptionsDto,
   WizardPeriodDto,
 } from '@finance-close/shared';
+import { Decimal } from '@finance-close/engine';
 import { SAMPLE_ENTITIES, type SampleEntity } from '../prisma/sample-data';
 import { tbFileName, trialBalanceFile } from '../prisma/sample-files';
 import { DEMO_USERS } from '../prisma/seed-demo';
@@ -240,7 +241,7 @@ describe('same period last year', () => {
       ...base,
       accounts: [
         ...base.accounts.map((a) =>
-          a.code === '1001' ? { ...a, jul: (Number(a.jul) + 1000).toFixed(2) } : a,
+          a.code === '1010' ? { ...a, jul: new Decimal(a.jul).plus(1000).toFixed(2) } : a,
         ),
         { code: '4600', name: 'Sundry Income', type: 'Other Income', jul: '-1000.00', aug: '' },
       ],

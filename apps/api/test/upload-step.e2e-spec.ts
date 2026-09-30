@@ -10,7 +10,7 @@ import type {
   WizardOptionsDto,
 } from '@finance-close/shared';
 import { DEMO_USERS } from '../prisma/seed-demo';
-import { SAMPLE_ENTITIES } from '../prisma/sample-data';
+import { SAMPLE_ENTITIES, SAMPLE_RATES } from '../prisma/sample-data';
 import {
   chartOfAccountsInFile,
   exchangeRatesFile,
@@ -449,6 +449,13 @@ describe('exchange rates', () => {
   });
 
   it('refuses to change a locked month (409), but accepts the same values again', async () => {
+    // Start from the sample rates (an earlier run may have left manual edits in the test DB).
+    for (const r of SAMPLE_RATES) {
+      await ctx.prisma.exchangeRate.updateMany({
+        where: { month: new Date(r.month), currencyCode: r.currency },
+        data: { opening: r.opening, closing: r.closing, average: r.average },
+      });
+    }
     const locked = await put([
       { month: '2026-08-01', currency: 'INR', opening: '83.9', closing: '85', average: '84.01' },
     ]);

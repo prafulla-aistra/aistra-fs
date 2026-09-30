@@ -273,3 +273,13 @@ describe('rates', () => {
     expect(w[1]!.message).toMatch(/closing 93.9 moved 12.5%/);
   });
 });
+
+describe('inferMapping: gratuity', () => {
+  it('a gratuity expense is an employee benefit; a gratuity provision is a provision', () => {
+    expect(inferMapping({ name: 'Gratuity Expense', type: 'Expense' }, []).fsliCode).toBe('EMP');
+    expect(
+      inferMapping({ name: 'Provision for Gratuity', type: 'Other Current Liability' }, [])
+        .fsliCode,
+    ).toBe('NC_PROV');
+  });
+});

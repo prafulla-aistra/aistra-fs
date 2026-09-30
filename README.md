@@ -362,6 +362,40 @@ accounts in Aug, 46 in Jul). All page 4 results still hold.
 | IN flags | 1300 Prepaid Expenses −33.3%; 6400 Office Expenses −50.0%; New 1455, 6120 |
 | UK | 95,000.00 Cr + 27,000.00 Cr = 122,000.00 Cr ✓; no flags; New 6390 (900.00) |
 
+### Currency translation (page 6)
+
+Step 4 of the SFS workspace (`/tasks/:id?step=TRANSLATION`), same entity tabs, one tab per
+translated currency ("INR → USD").
+
+- **Engine `translateTB`**: closing for assets and liabilities, average for P&L, historical for
+  share capital and premium (opening + warning if missing), opening for other reserves,
+  retained earnings rolled forward from the finalised prior-period translation when the
+  roll-forward check passes (else opening + warning), account rate-basis overrides. Rates at
+  full precision (40 significant digits); each line rounded to 2 dp half away from zero;
+  PROFIT = translated P&L; FCTR = −(translated balance sheet + PROFIT), so the translated TB
+  nets to exactly 0.00. A missing opening / closing / average rate, or an unmapped account,
+  fails that currency.
+- Page: rates card (with source months for quarters/years), method card and warnings,
+  translated TB (basis filter, override badges, FCTR row, totals with ticks), summary in the
+  target currency (assets = liabilities + equity ✓), FCTR movement against the finalised
+  comparative ("Exchange differences on translation (OCI) – for information"), and a
+  collapsible explanation of the rules. Recalculated each time it opens; a notice appears when
+  rates changed since you last viewed. Continue needs every currency translated.
+- Translations are stored as snapshots (`translation_snapshot`) when an entity is finalised
+  (page 8). The demo Jul-2026 task is seeded with snapshots made by `translateTB` (Jul RE at
+  the opening rate, as there is no finalised June), so Aug-2026 rolls forward from them.
+
+The sample data was revised again for page 6 (India: 1010 Operating Bank, 4000 Sales,
+securities premium 400,000,000, no contra-asset accounts; UK share capital 200,000; INR Jul
+opening 85.80 / average 86.10; GBP Jul 0.7380 / 0.7420 / 0.7400 and Aug 0.7420 / 0.7470 /
+0.7450). All page 4 and 5 results still hold.
+
+| Aug-2026 | RE | Profit | FCTR | Total assets | FCTR movement |
+|---|---|---|---|---|---|
+| IN INR → USD | 2,113,048.88 Cr | 205,089.66 Cr | 939,726.38 Dr | 8,576,724.39 | 46,082.42 |
+| UK GBP → USD | 165,212.77 Cr | 39,597.32 Cr | 11,738.76 Cr | 652,610.43 | 3,010.74 |
+| UK GBP → INR | 14,186,201.93 Cr | 3,429,127.52 Cr | 3,275,366.67 Cr | 56,711,847.39 | 32,771.03 |
+
 ### File storage: local folder
 
 Uploaded files go through one `StorageService` interface
@@ -529,6 +563,13 @@ These need confirmation from the process owners before the related features are 
 21. **Month-only trial balances (resolves question 12).** Page 5's roll-forward (Aug opening
     RE = Jul RE + Jul profit) implies monthly TBs carry only that month's P&L. The sample
     data now follows this. Confirm with the Zoho/Xero export settings.
+22. **Roll-forward source on page 6.** Translation re-runs the retained-earnings check against
+    the immediately preceding period itself (it does not rely on the result stored when step 3
+    was completed), so it is always current. Confirm.
+23. **FCTR movement comparative.** The movement uses the task's comparative basis (previous
+    period, or same period last year). Confirm which the statements should show.
+24. **Unmapped accounts** stop the translation of that currency (a "fail"). Confirm, or should
+    they be translated at closing / average by default?
 
 ## Known dependency warnings (clean-up later)
 

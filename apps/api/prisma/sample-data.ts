@@ -2,24 +2,27 @@
  * SAMPLE DATA (illustrative, not real figures). One definition used for:
  *   - the Zoho-format files in ./samples (npm run samples:generate)
  *   - the seed: each entity's chart of accounts (from its Jul-26 TB) and exchange rates
- *   - the automated tests of pages 3 and 4 (expected results are listed below).
+ *   - the automated tests of pages 3–6 (expected results are listed below).
  *
- * Every TB balances: the entity's main bank account is the balancing figure. Intercompany
- * accounts come in matching pairs, each side in its own currency at the Aug-26 rates
- * (closing for balances, average for revenue/charges). The Aug-26 TBs contain three accounts
- * that are NOT in the seeded chart of accounts: IN 1455 Advance to Suppliers, IN 6120 Staff
- * Welfare Expenses and UK 6390 Bank Charges.
+ * Every TB balances. TBs are for the month: P&L is that month only, and each month's
+ * retained earnings = the previous month's retained earnings + profit (the roll-forward).
+ * Intercompany accounts come in matching pairs, each side in its own currency at the Aug-26
+ * rates (closing for balances, average for revenue/charges). The Aug-26 TBs contain three
+ * accounts that are NOT in the seeded chart of accounts: IN 1455 Advance to Suppliers,
+ * IN 6120 Staff Welfare Expenses and UK 6390 Bank Charges.
  *
- * TBs are for the month: P&L is that month only, and Aug retained earnings = Jul retained
- * earnings + Jul profit (the roll-forward page 5 checks).
+ * India and UK are specified so the page 4–6 expected results hold to the cent; a small
+ * "tuning" step moves a few rupees / pence between two accounts so that each translated
+ * total (every line rounded to 2 dp) lands exactly on its expected value.
  *
- * Expected results (Aug-2026; Jul-2026 IN debits 769,056,584.16, RE 165,000,000.00 Cr, profit
- * 16,356,584.16; UK Jul RE 95,000.00 Cr, profit 27,000.00):
- *   IN  debits = credits = 787,777,348.66 INR; profit 17,760,764.50 INR
- *       IC receivables US 30,849,500.00 · UK 9,073,895.58 · AE 6,862,083.05 · UC 9,993,500.00
- *       IC revenue     US 15,588,000.00 · UK 4,649,664.43 · AE 3,537,100.07 · UC 5,196,000.00
- *   UK  profit 29,500.00 GBP
- *   INR per USD: opening 86.40, closing 86.90, average 86.60.
+ * Expected results:
+ *   IN Aug  debits = credits 787,777,348.66 INR; profit 17,760,764.50; RE 181,356,584.16 Cr
+ *   IN Jul  debits = credits 769,056,584.16 INR; profit 16,356,584.16; RE 165,000,000.00 Cr
+ *   IN → USD  Jul: assets 8,420,793.78, profit 189,971.96, FCTR 893,643.96 Dr
+ *             Aug: assets 8,576,724.39, profit 205,089.66, FCTR 939,726.38 Dr
+ *   UK Aug  profit 29,500.00 GBP; RE 122,000.00 Cr (Jul RE 95,000.00 + Jul profit 27,000.00)
+ *   UK → USD Aug: assets 652,610.43, FCTR 11,738.76 Cr; → INR: assets 56,711,847.39,
+ *             FCTR 3,275,366.67 Cr
  */
 import { Decimal } from '@finance-close/engine';
 
@@ -40,6 +43,9 @@ export interface SampleEntity {
   accounts: SampleAccount[];
 }
 
+type Month = 'jul' | 'aug';
+type Kind = 'opening' | 'closing' | 'average';
+
 /** Units of currency per 1 USD (Apr-26 to Aug-26). Opening = prior month's closing. */
 const RATE_TABLE: Record<
   string,
@@ -48,8 +54,8 @@ const RATE_TABLE: Record<
   INR: [
     ['2026-04-01', '83.4000', '84.1000', '83.7500'],
     ['2026-05-01', '84.1000', '84.9500', '84.5000'],
-    ['2026-06-01', '84.9500', '85.6000', '85.3000'],
-    ['2026-07-01', '85.6000', '86.4000', '86.0000'],
+    ['2026-06-01', '84.9500', '85.8000', '85.3000'],
+    ['2026-07-01', '85.8000', '86.4000', '86.1000'],
     ['2026-08-01', '86.4000', '86.9000', '86.6000'],
   ],
   AED: ['2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01'].map((m) => [
@@ -61,9 +67,9 @@ const RATE_TABLE: Record<
   GBP: [
     ['2026-04-01', '0.7900', '0.7880', '0.7892'],
     ['2026-05-01', '0.7880', '0.7925', '0.7901'],
-    ['2026-06-01', '0.7925', '0.7860', '0.7890'],
-    ['2026-07-01', '0.7860', '0.7815', '0.7838'],
-    ['2026-08-01', '0.7815', '0.7842', '0.7829'],
+    ['2026-06-01', '0.7925', '0.7380', '0.7650'],
+    ['2026-07-01', '0.7380', '0.7420', '0.7400'],
+    ['2026-08-01', '0.7420', '0.7470', '0.7450'],
   ],
   SGD: [
     ['2026-04-01', '1.3450', '1.3480', '1.3462'],
@@ -91,14 +97,25 @@ export const SAMPLE_RATES = Object.entries(RATE_TABLE).flatMap(([currency, rows]
   })),
 );
 
-const aug = (currency: string, kind: 'closing' | 'average') => {
-  if (currency === 'USD') return new Decimal(1);
-  const r = RATE_TABLE[currency]!.at(-1)!;
-  return new Decimal(kind === 'closing' ? r[2] : r[3]);
-};
+const d = (s: string | number) => new Decimal(String(s));
+
+/** Units of `currency` per USD for Jul-26 / Aug-26. */
+function usd(currency: string, month: Month, kind: Kind): Decimal {
+  if (currency === 'USD') return d(1);
+  const row = RATE_TABLE[currency]!.find(
+    (r) => r[0] === (month === 'jul' ? '2026-07-01' : '2026-08-01'),
+  )!;
+  return d(kind === 'opening' ? row[1] : kind === 'closing' ? row[2] : row[3]);
+}
+/** Cross rate at full precision, exactly as the translation engine computes it. */
+const cross = (from: string, to: string, month: Month, kind: Kind) =>
+  usd(to, month, kind).dividedBy(usd(from, month, kind));
 /** Converts an Aug-26 amount between currencies (via USD), 2 dp. */
 const convert = (amount: string, from: string, to: string, kind: 'closing' | 'average') =>
-  new Decimal(amount).dividedBy(aug(from, kind)).times(aug(to, kind)).toDecimalPlaces(2).toFixed(2);
+  d(amount)
+    .times(cross(from, to, 'aug', kind))
+    .toDecimalPlaces(2)
+    .toFixed(2);
 
 interface Line {
   code: string;
@@ -112,6 +129,8 @@ interface Line {
   usdK?: string;
   /** Only in the Aug-26 TB. */
   augOnly?: boolean;
+  /** Leave a template line out for this entity. */
+  omit?: boolean;
 }
 
 /** Accounts every entity has (unless overridden); amounts scaled by entity size and currency. */
@@ -154,19 +173,14 @@ const TEMPLATE: Line[] = [
 ];
 
 /**
- * India (INR), both months fully specified. Plugs: 1001 bank and 2001 accounts payable (to
- * hit the debit totals), 4001 consulting revenue (to hit the profit), and Aug 3200 retained
- * earnings = Jul retained earnings + Jul profit.
+ * India (INR), both months fully specified: 48 accounts in Aug, 46 in Jul. No contra-asset
+ * accounts (fixed assets are shown net). Plugs: 1100 receivables (Aug) and 1010 bank (Jul)
+ * balance the TB; Aug 3200 retained earnings = Jul RE + Jul profit.
  */
 const IN_LINES: Line[] = [
-  { code: '1010', name: 'Petty Cash', type: 'Cash', aug: '85000.00', jul: '82000.00' },
-  {
-    code: '1100',
-    name: 'Accounts Receivable',
-    type: 'Accounts Receivable',
-    aug: '142650000.00',
-    jul: '138900000.00',
-  },
+  { code: '1010', name: 'Operating Bank', type: 'Bank', aug: '360773370.00' },
+  { code: '1020', name: 'Petty Cash', type: 'Cash', aug: '85000.00', jul: '82000.00' },
+  { code: '1100', name: 'Accounts Receivable', type: 'Accounts Receivable', jul: '190000000.00' },
   {
     code: '1200',
     name: 'Security Deposit',
@@ -187,6 +201,13 @@ const IN_LINES: Line[] = [
     type: 'Other Current Asset',
     aug: '3420000.00',
     jul: '3180000.00',
+  },
+  {
+    code: '1270',
+    name: 'GST Input Credit',
+    type: 'Other Current Asset',
+    aug: '1900000.00',
+    jul: '1850000.00',
   },
   {
     code: '1300',
@@ -253,31 +274,17 @@ const IN_LINES: Line[] = [
   },
   {
     code: '1500',
-    name: 'Computers and Equipment',
+    name: 'Computers and Equipment (net)',
     type: 'Fixed Asset',
-    aug: '38400000.00',
-    jul: '38400000.00',
-  },
-  {
-    code: '1510',
-    name: 'Accumulated Depreciation - Computers and Equipment',
-    type: 'Fixed Asset',
-    aug: '-14250000.00',
-    jul: '-13700000.00',
+    aug: '24150000.00',
+    jul: '24600000.00',
   },
   {
     code: '1520',
-    name: 'Furniture and Fixtures',
+    name: 'Furniture and Fixtures (net)',
     type: 'Fixed Asset',
-    aug: '6500000.00',
-    jul: '6500000.00',
-  },
-  {
-    code: '1530',
-    name: 'Accumulated Depreciation - Furniture and Fixtures',
-    type: 'Fixed Asset',
-    aug: '-1850000.00',
-    jul: '-1780000.00',
+    aug: '4650000.00',
+    jul: '4720000.00',
   },
   {
     code: '1600',
@@ -286,13 +293,19 @@ const IN_LINES: Line[] = [
     aug: '2940000.00',
     jul: '2940000.00',
   },
-  { code: '2001', name: 'Accounts Payable', type: 'Accounts Payable' },
+  {
+    code: '2001',
+    name: 'Accounts Payable',
+    type: 'Accounts Payable',
+    aug: '-18000000.00',
+    jul: '-19250000.00',
+  },
   {
     code: '2100',
     name: 'Accrued Expenses',
     type: 'Other Current Liability',
-    aug: '-15320000.00',
-    jul: '-14900000.00',
+    aug: '-9800000.00',
+    jul: '-9500000.00',
   },
   {
     code: '2150',
@@ -305,22 +318,22 @@ const IN_LINES: Line[] = [
     code: '2200',
     name: 'Provision for Leave Encashment',
     type: 'Other Current Liability',
-    aug: '-5410000.00',
-    jul: '-5300000.00',
+    aug: '-3400000.00',
+    jul: '-3300000.00',
   },
   {
     code: '2210',
     name: 'Provision for Gratuity',
     type: 'Other Current Liability',
-    aug: '-8750000.00',
-    jul: '-8600000.00',
+    aug: '-5870000.00',
+    jul: '-5800000.00',
   },
   {
     code: '2300',
     name: 'TDS Payable',
     type: 'Other Current Liability',
-    aug: '-2140000.00',
-    jul: '-2050000.00',
+    aug: '-2150000.00',
+    jul: '-2150000.00',
   },
   {
     code: '3001',
@@ -333,11 +346,11 @@ const IN_LINES: Line[] = [
     code: '3100',
     name: 'Securities Premium',
     type: 'Equity',
-    aug: '-50000000.00',
-    jul: '-50000000.00',
+    aug: '-400000000.00',
+    jul: '-400000000.00',
   },
   { code: '3200', name: 'Retained Earnings', type: 'Equity', jul: '-165000000.00' },
-  { code: '4001', name: 'Consulting Revenue', type: 'Income' },
+  { code: '4000', name: 'Sales', type: 'Income', aug: '-30900000.00', jul: '-29466584.16' },
   {
     code: '4100',
     name: 'IC Revenue - US',
@@ -364,36 +377,37 @@ const IN_LINES: Line[] = [
     code: '4500',
     name: 'Interest Income',
     type: 'Other Income',
-    aug: '-610000.00',
-    jul: '-580000.00',
+    aug: '-350000.00',
+    jul: '-340000.00',
   },
   {
     code: '5001',
     name: 'Cost of Services',
     type: 'Cost Of Goods Sold',
-    aug: '58300000.00',
-    jul: '56900000.00',
+    aug: '12000000.00',
+    jul: '11700000.00',
   },
   {
     code: '6001',
     name: 'Salaries and Wages',
     type: 'Expense',
-    aug: '92450000.00',
-    jul: '91800000.00',
+    aug: '18200000.00',
+    jul: '18010000.00',
   },
   {
     code: '6010',
     name: 'Contribution to Provident Fund',
     type: 'Expense',
-    aug: '5540000.00',
-    jul: '5500000.00',
+    aug: '1100000.00',
+    jul: '1090000.00',
   },
+  { code: '6020', name: 'Gratuity Expense', type: 'Expense', aug: '300000.00', jul: '290000.00' },
   {
     code: '6100',
     name: 'Travel and Conveyance',
     type: 'Expense',
-    aug: '4870000.00',
-    jul: '4650000.00',
+    aug: '950000.00',
+    jul: '920000.00',
   },
   {
     code: '6120',
@@ -406,26 +420,26 @@ const IN_LINES: Line[] = [
     code: '6200',
     name: 'Professional Fees',
     type: 'Expense',
-    aug: '6930000.00',
-    jul: '6700000.00',
+    aug: '1400000.00',
+    jul: '1350000.00',
   },
-  { code: '6210', name: 'Audit Fees', type: 'Expense', aug: '850000.00', jul: '850000.00' },
+  { code: '6210', name: 'Audit Fees', type: 'Expense', aug: '180000.00', jul: '180000.00' },
   {
     code: '6300',
     name: 'Software Subscriptions',
     type: 'Expense',
-    aug: '5260000.00',
-    jul: '5180000.00',
+    aug: '1050000.00',
+    jul: '1040000.00',
   },
   { code: '6400', name: 'Office Expenses', type: 'Expense', aug: '350000.00', jul: '700000.00' },
-  { code: '6410', name: 'Rent', type: 'Expense', aug: '7850000.00', jul: '7850000.00' },
-  { code: '6500', name: 'Depreciation', type: 'Expense', aug: '2840000.00', jul: '2770000.00' },
+  { code: '6410', name: 'Rent', type: 'Expense', aug: '1600000.00', jul: '1600000.00' },
+  { code: '6500', name: 'Depreciation', type: 'Expense', aug: '580000.00', jul: '570000.00' },
   {
     code: '6900',
     name: 'Income Tax Expense',
     type: 'Expense',
-    aug: '6210000.00',
-    jul: '5900000.00',
+    aug: '4250000.00',
+    jul: '3910000.00',
   },
   {
     code: '6910',
@@ -439,18 +453,19 @@ const IN_LINES: Line[] = [
 const inAmount = (code: string) => IN_LINES.find((l) => l.code === code)!.aug!;
 const due = 'Due to Aistra GenAI India Pvt Ltd';
 const icIndia = 'IC Service Charges - India';
-const neg = (s: string) => new Decimal(s).negated().toFixed(2);
+const neg = (s: string) => d(s).negated().toFixed(2);
 
 /** Entity-specific lines (override template lines with the same code). */
 const EXTRA: Record<string, Line[]> = {
   US: [
+    // 58.49% of India's share capital + premium (500,000,000 INR at the historical 1/75).
     {
       code: '1400',
       name: 'Investment - Aistra GenAI India Pvt Ltd',
       type: 'Other Asset',
-      aug: '1169800.00',
+      aug: '3899333.33',
     },
-    { code: '3001', name: 'Equity Share Capital', type: 'Equity', aug: '-2000000.00' },
+    { code: '3001', name: 'Equity Share Capital', type: 'Equity', aug: '-5000000.00' },
     { code: '3100', name: 'Securities Premium', type: 'Equity', aug: '-1500000.00' },
     {
       code: '2300',
@@ -494,8 +509,8 @@ const EXTRA: Record<string, Line[]> = {
       type: 'Expense',
       aug: convert(neg(inAmount('4101')), 'INR', 'GBP', 'average'),
     },
-    { code: '3001', name: 'Equity Share Capital', type: 'Equity', aug: '-150000.00' },
-    { code: '3100', name: 'Securities Premium', type: 'Equity', aug: '-50000.00' },
+    { code: '3001', name: 'Equity Share Capital', type: 'Equity', aug: '-200000.00' },
+    { code: '3100', name: 'Securities Premium', type: 'Equity', omit: true },
     { code: '3200', name: 'Retained Earnings', type: 'Equity', jul: '-95000.00' },
     { code: '6390', name: 'Bank Charges', type: 'Expense', aug: '900.00', augOnly: true },
   ],
@@ -549,9 +564,23 @@ const EXTRA: Record<string, Line[]> = {
 interface MonthTarget {
   /** Profit for the month (4001 revenue is the plug). */
   profit?: string;
-  /** Total debits (1001 bank and 2001 accounts payable are the plugs). */
-  debits?: string;
+  /** Total liabilities (2001 accounts payable is the plug). */
+  liabilities?: string;
 }
+
+/** A translated total that must land exactly on `value` (every line rounded to 2 dp). */
+interface Tune {
+  month: Month;
+  /** Pairs of accounts in the group: small amounts move from one to the other. */
+  pairs: [string, string][];
+  /** Which accounts the total covers. */
+  covers: (code: string) => boolean;
+  targets: { to: string; kind: Kind; value: string }[];
+}
+
+const isAsset = (c: string) => c.startsWith('1');
+const isLiability = (c: string) => c.startsWith('2');
+const isPL = (code: string) => /^[4-6]/.test(code);
 
 const ENTITY_INFO: {
   code: string;
@@ -560,6 +589,7 @@ const ENTITY_INFO: {
   size: string;
   bankName: string;
   target?: { jul?: MonthTarget; aug?: MonthTarget };
+  tune?: Tune[];
 }[] = [
   {
     code: 'US',
@@ -574,11 +604,67 @@ const ENTITY_INFO: {
     legalName: 'Aistra GenAI India Pvt Ltd',
     currency: 'INR',
     size: '1',
-    bankName: 'HDFC Bank Current Account',
-    target: {
-      jul: { profit: '16356584.16', debits: '769056584.16' },
-      aug: { profit: '17760764.50', debits: '787777348.66' },
-    },
+    bankName: 'Operating Bank',
+    tune: [
+      {
+        month: 'jul',
+        pairs: [
+          ['1100', '1250'],
+          ['1260', '1270'],
+          ['1500', '1520'],
+        ],
+        covers: isAsset,
+        targets: [{ to: 'USD', kind: 'closing', value: '8420793.78' }],
+      },
+      {
+        month: 'jul',
+        pairs: [
+          ['2100', '2200'],
+          ['2150', '2210'],
+        ],
+        covers: isLiability,
+        targets: [{ to: 'USD', kind: 'closing', value: '-534722.21' }],
+      },
+      {
+        month: 'jul',
+        pairs: [
+          ['5001', '6001'],
+          ['6100', '6200'],
+          ['6300', '6410'],
+        ],
+        covers: isPL,
+        targets: [{ to: 'USD', kind: 'average', value: '-189971.96' }],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['1100', '1250'],
+          ['1260', '1270'],
+          ['1500', '1520'],
+        ],
+        covers: isAsset,
+        targets: [{ to: 'USD', kind: 'closing', value: '8576724.39' }],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['2100', '2200'],
+          ['2150', '2210'],
+        ],
+        covers: isLiability,
+        targets: [{ to: 'USD', kind: 'closing', value: '-531645.58' }],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['5001', '6001'],
+          ['6100', '6200'],
+          ['6300', '6410'],
+        ],
+        covers: isPL,
+        targets: [{ to: 'USD', kind: 'average', value: '-205089.66' }],
+      },
+    ],
   },
   {
     code: 'AE',
@@ -594,7 +680,76 @@ const ENTITY_INFO: {
     currency: 'GBP',
     size: '0.4',
     bankName: 'Barclays Business Account',
-    target: { jul: { profit: '27000.00' }, aug: { profit: '29500.00' } },
+    target: {
+      jul: { profit: '27000.00', liabilities: '-130000.00' },
+      aug: { profit: '29500.00', liabilities: '-136000.00' },
+    },
+    tune: [
+      {
+        month: 'jul',
+        pairs: [
+          ['1100', '1250'],
+          ['1200', '1300'],
+          ['1500', '1600'],
+        ],
+        covers: (c) => isAsset(c) || isLiability(c),
+        targets: [
+          { to: 'USD', kind: 'closing', value: '433962.27' },
+          { to: 'INR', kind: 'closing', value: '37494339.63' },
+        ],
+      },
+      {
+        month: 'jul',
+        pairs: [
+          ['5001', '6001'],
+          ['6100', '6200'],
+          ['6300', '6500'],
+        ],
+        covers: isPL,
+        targets: [
+          { to: 'USD', kind: 'average', value: '-36486.48' },
+          { to: 'INR', kind: 'average', value: '-3141486.48' },
+        ],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['1100', '1250'],
+          ['1200', '1300'],
+          ['1500', '1600'],
+        ],
+        covers: isAsset,
+        targets: [
+          { to: 'USD', kind: 'closing', value: '652610.43' },
+          { to: 'INR', kind: 'closing', value: '56711847.39' },
+        ],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['2100', '2200'],
+          ['2150', '2300'],
+        ],
+        covers: isLiability,
+        targets: [
+          { to: 'USD', kind: 'closing', value: '-182061.58' },
+          { to: 'INR', kind: 'closing', value: '-15821151.27' },
+        ],
+      },
+      {
+        month: 'aug',
+        pairs: [
+          ['5001', '6001'],
+          ['6100', '6200'],
+          ['6300', '6500'],
+        ],
+        covers: isPL,
+        targets: [
+          { to: 'USD', kind: 'average', value: '-39597.32' },
+          { to: 'INR', kind: 'average', value: '-3429127.52' },
+        ],
+      },
+    ],
   },
   {
     code: 'UC',
@@ -622,16 +777,13 @@ const ENTITY_INFO: {
   },
 ];
 
-const isPL = (code: string) => /^[4-6]/.test(code);
-const d = (s: string) => new Decimal(s);
-
 /** Template amount in the entity's currency; a small code-based factor avoids round numbers. */
 function templateAmount(line: Line, size: string, currency: string): string {
-  const wobble = d('1').plus(d(String(Number.parseInt(line.code, 10) % 7)).dividedBy(1000));
+  const wobble = d(1).plus(d(Number.parseInt(line.code, 10) % 7).dividedBy(1000));
   return d(line.usdK!)
     .times(1000)
     .times(size)
-    .times(aug(currency, 'closing'))
+    .times(usd(currency, 'aug', 'closing'))
     .times(wobble)
     .toDecimalPlaces(2)
     .toFixed(2);
@@ -649,14 +801,16 @@ function julFrom(code: string, name: string, augAmount: string): string {
 
 function build(): SampleEntity[] {
   return ENTITY_INFO.map((e) => {
-    const lines =
-      e.code === 'IN'
-        ? IN_LINES
-        : (() => {
-            const extra = EXTRA[e.code] ?? [];
-            const overridden = new Set(extra.map((l) => l.code));
-            return [...TEMPLATE.filter((l) => !overridden.has(l.code)), ...extra];
-          })();
+    const isIndia = e.code === 'IN';
+    const lines = isIndia
+      ? IN_LINES
+      : (() => {
+          const extra = EXTRA[e.code] ?? [];
+          const overridden = new Set(extra.map((l) => l.code));
+          return [...TEMPLATE.filter((l) => !overridden.has(l.code)), ...extra].filter(
+            (l) => !l.omit,
+          );
+        })();
     const template = new Map(lines.map((l) => [l.code, l]));
     const accounts: SampleAccount[] = lines.map((l) => ({
       code: l.code,
@@ -665,21 +819,23 @@ function build(): SampleEntity[] {
       jul: '',
       aug: '',
     }));
-    const bank: SampleAccount = { code: '1001', name: e.bankName, type: 'Bank', jul: '', aug: '' };
-    accounts.unshift(bank);
+    // India's bank is 1010 (in its list); the others get a bank account 1001 as the plug.
+    const bank: SampleAccount = isIndia
+      ? accounts.find((a) => a.code === '1010')!
+      : { code: '1001', name: e.bankName, type: 'Bank', jul: '', aug: '' };
+    if (!isIndia) accounts.unshift(bank);
     const find = (code: string) => accounts.find((a) => a.code === code)!;
-    const sum = (m: 'jul' | 'aug', f: (a: SampleAccount) => boolean) =>
-      accounts.filter((a) => a[m] !== '' && f(a)).reduce((s, a) => s.plus(a[m]), d('0'));
+    const sum = (m: Month, f: (a: SampleAccount) => boolean) =>
+      accounts.filter((a) => a[m] !== '' && f(a)).reduce((s, a) => s.plus(a[m]), d(0));
 
-    // Base amounts. Aug first (explicit or template); Jul explicit or derived from Aug.
     for (const a of accounts) {
-      if (a === bank) continue;
-      const l = template.get(a.code)!;
+      const l = template.get(a.code);
+      if (!l) continue;
       a.aug = l.aug ?? (l.usdK ? templateAmount(l, e.size, e.currency) : '0.00');
       a.jul = l.augOnly ? '' : (l.jul ?? julFrom(a.code, a.name, a.aug));
     }
 
-    const plug = (m: 'jul' | 'aug') => {
+    const plug = (m: Month) => {
       const t = e.target?.[m];
       if (t?.profit) {
         const revenue = find('4001');
@@ -689,35 +845,75 @@ function build(): SampleEntity[] {
           .minus(sum(m, (a) => isPL(a.code)))
           .toFixed(2);
       }
-      if (t?.debits) {
+      if (t?.liabilities) {
         const ap = find('2001');
-        bank[m] = '0.00';
         ap[m] = '0.00';
-        bank[m] = d(t.debits)
-          .minus(sum(m, (a) => d(a[m]).isPositive()))
-          .toFixed(2);
-        ap[m] = sum(m, () => true)
-          .negated()
-          .toFixed(2);
-      } else {
-        bank[m] = '0.00';
-        bank[m] = sum(m, () => true)
-          .negated()
+        ap[m] = d(t.liabilities)
+          .minus(sum(m, (a) => isLiability(a.code)))
           .toFixed(2);
       }
+      // India: Aug receivables and Jul bank balance the TB; the others: the bank.
+      const balancer = isIndia && m === 'aug' ? find('1100') : bank;
+      balancer[m] = '0.00';
+      balancer[m] = sum(m, () => true)
+        .negated()
+        .toFixed(2);
     };
+    const tune = (m: Month) => {
+      for (const t of (e.tune ?? []).filter((x) => x.month === m)) {
+        // Distance (in currency units) of each translated total from its expected value.
+        const distance = () =>
+          t.targets.reduce((sumDist, g) => {
+            const rate = cross(e.currency, g.to, m, g.kind);
+            const total = accounts
+              .filter((a) => a[m] !== '' && t.covers(a.code))
+              .reduce((s2, a) => s2.plus(d(a[m]).times(rate).toDecimalPlaces(2)), d(0));
+            return sumDist.plus(total.minus(g.value).abs());
+          }, d(0));
+        let current = distance();
+        // Greedy: move a few units between a pair while that brings the totals closer.
+        while (!current.isZero()) {
+          let improved = false;
+          for (const [xc, yc] of t.pairs) {
+            const x = find(xc);
+            const y = find(yc);
+            const x0 = x[m];
+            const y0 = y[m];
+            for (let k = 1; k <= 4000 && !improved; k++) {
+              const delta = d(k % 2 === 0 ? k / 2 : -(k + 1) / 2).dividedBy(100);
+              x[m] = d(x0).plus(delta).toFixed(2);
+              y[m] = d(y0).minus(delta).toFixed(2);
+              const next = distance();
+              if (next.lessThan(current)) {
+                current = next;
+                improved = true;
+              }
+            }
+            if (!improved) {
+              x[m] = x0;
+              y[m] = y0;
+            } else break;
+          }
+          if (!improved)
+            throw new Error(
+              `Sample ${e.code} ${m}: cannot tune to ${t.targets.map((g) => g.value).join(', ')}`,
+            );
+        }
+      }
+    };
+
     plug('jul');
+    tune('jul');
     // Opening retained earnings for Aug = Jul retained earnings + Jul profit (roll-forward).
     find('3200').aug = d(find('3200').jul)
       .plus(sum('jul', (a) => isPL(a.code)))
       .toFixed(2);
     plug('aug');
+    tune('aug');
 
     for (const m of ['jul', 'aug'] as const) {
       if (d(bank[m]).isNegative())
         throw new Error(`Sample ${e.code} ${m}: bank balance would be negative (${bank[m]})`);
-      if (e.target?.[m]?.debits && !d(find('2001')[m]).isNegative())
-        throw new Error(`Sample ${e.code} ${m}: accounts payable would be a debit`);
       if (!sum(m, () => true).isZero()) throw new Error(`Sample ${e.code} ${m} does not balance`);
     }
     accounts.sort((a, b) => a.code.localeCompare(b.code));
