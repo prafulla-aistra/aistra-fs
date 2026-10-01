@@ -1,4 +1,5 @@
 export * from './amounts';
+export * from './checks';
 export * from './coa-parser';
 export * from './comparatives';
 export * from './dates';

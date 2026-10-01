@@ -19,11 +19,13 @@ import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
 import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
 import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
+import { ApprovalsPage, ControlChecksPage } from '@/pages/configuration/ControlsPages';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
+import { EditAccessPage } from '@/pages/EditAccessPage';
 import { NewTaskPage } from '@/pages/tasks/NewTaskPage';
 import { TaskWorkspacePage } from '@/pages/tasks/TaskWorkspacePage';
 import { LoginPage } from '@/pages/LoginPage';
-import { ComingSoonPage, NotFoundPage } from '@/pages/SimplePages';
+import { NotFoundPage } from '@/pages/SimplePages';
 import { UsersPage } from '@/pages/users/UsersPage';
 
 export function App() {
@@ -48,7 +50,7 @@ export function App() {
             <Route path="/tasks/:id" element={<TaskWorkspacePage />} />
           </Route>
           <Route element={<RequirePermission anyOf={['EDIT_ACCESS_APPROVE']} />}>
-            <Route path="/edit-access" element={<ComingSoonPage title="Edit-access requests" />} />
+            <Route path="/edit-access" element={<EditAccessPage />} />
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/configuration').anyOf} />}>
             <Route path="/configuration" element={<ConfigurationLayout />}>
@@ -65,6 +67,8 @@ export function App() {
               <Route path="account-type-defaults" element={<AccountTypeDefaultsPage />} />
               <Route path="chart-of-accounts" element={<ChartOfAccountsTab />} />
               <Route path="exchange-rates" element={<ExchangeRatesPage />} />
+              <Route path="approvals" element={<ApprovalsPage />} />
+              <Route path="control-checks" element={<ControlChecksPage />} />
             </Route>
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/users').anyOf} />}>

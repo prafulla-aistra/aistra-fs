@@ -63,6 +63,7 @@ export class DashboardService {
 
     const visibleRows = await this.tasks.visible(user);
     const overdue = visibleRows.filter((t) => t.overdue).length;
+    const review = await this.reviewCounts(user);
     /**
      * Lines that apply to the user. Entity counts are for the selected period, in scope, and
      * agree with the Standalone card (an entity without a task counts as Not started).
@@ -74,7 +75,12 @@ export class DashboardService {
       }
       if (user.permissions.has(Permission.SfsReview))
         a.awaitingReview = counts ? counts.IN_REVIEW : 0;
-      if (user.permissions.has(Permission.EditAccessApprove)) a.editAccessRequests = 0; // page not built yet
+      if (user.permissions.has(Permission.EditAccessApprove))
+        a.editAccessRequests = review.editAccessRequests;
+      if (user.permissions.has(Permission.SfsReview))
+        a.awaitingYourReview = review.awaitingYourReview;
+      if (user.permissions.has(Permission.SfsReview) || user.permissions.has(Permission.SfsPrepare))
+        a.openQueries = review.openQueries;
       return a;
     };
 
@@ -172,6 +178,60 @@ export class DashboardService {
       startDate: fromDbDate(p.startDate),
       endDate: fromDbDate(p.endDate),
     }));
+  }
+
+  /** Page 8: submissions waiting for this user's decision, queries needing them, edit requests. */
+  private async reviewCounts(user: AuthUser) {
+    const scoped = <T extends { entityCode: string }>(rows: T[]) =>
+      rows.filter((r) => inScope(user.entityScope, r.entityCode));
+    const rules = await this.prisma.approvalRule.findMany({ where: { statementType: 'SFS' } });
+    const rule = (code: string) =>
+      rules.find((r) => r.entityCode === code) ?? rules.find((r) => r.entityCode === null);
+    const active = user.permissions.has(Permission.SfsReview)
+      ? scoped(
+          await this.prisma.reviewSubmission.findMany({
+            where: { status: 'ACTIVE' },
+            include: { signOffs: true },
+          }),
+        )
+      : [];
+    const awaitingYourReview = active.filter((s) => {
+      if (s.submittedById === user.id) return false;
+      const listed =
+        (s.stage === 2 ? rule(s.entityCode)?.approverIds : rule(s.entityCode)?.reviewerIds) ?? [];
+      if (listed.length > 0 && !listed.includes(user.id) && !user.isMaster) return false;
+      return !(
+        s.stage === 2 &&
+        s.signOffs.some(
+          (o) => o.role === 'REVIEWER' && o.decision === 'APPROVED' && o.userId === user.id,
+        )
+      );
+    }).length;
+    const toAnswer = user.permissions.has(Permission.SfsPrepare)
+      ? scoped(
+          await this.prisma.reviewQuery.findMany({
+            where: { status: 'OPEN' },
+            select: { entityCode: true },
+          }),
+        ).length
+      : 0;
+    const toClose = user.permissions.has(Permission.SfsReview)
+      ? scoped(
+          await this.prisma.reviewQuery.findMany({
+            where: { status: 'ANSWERED', raisedById: user.id },
+            select: { entityCode: true },
+          }),
+        ).length
+      : 0;
+    const editAccessRequests = user.permissions.has(Permission.EditAccessApprove)
+      ? scoped(
+          await this.prisma.editAccessRequest.findMany({
+            where: { status: 'PENDING', requestedById: { not: user.id } },
+            select: { entityCode: true },
+          }),
+        ).length
+      : 0;
+    return { awaitingYourReview, openQueries: toAnswer + toClose, editAccessRequests };
   }
 }
 

@@ -23,6 +23,7 @@ import { seedDemoNotes } from './seed-demo-notes';
 import { seedDemoStatements } from './seed-demo-statements';
 import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
+import { seedControls } from './seed-controls';
 import { seedFormats } from './seed-formats';
 import { seedNoteTemplates } from './seed-note-templates';
 import { withConnectionDefaults } from '../src/prisma/database-url';
@@ -129,6 +130,7 @@ async function seedReferenceData(): Promise<void> {
   await seedAccounts(prisma);
   await seedFormats(prisma);
   await seedNoteTemplates(prisma);
+  await seedControls(prisma);
   for (const [key, value] of [
     ['IC_DIFF_THRESHOLD', '1.00'],
     ['RATE_SOURCE', ''],

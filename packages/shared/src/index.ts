@@ -11,3 +11,5 @@ export * from './translation-step';
 export * from './configuration-c2';
 export * from './statements-step';
 export * from './notes-step';
+export * from './configuration-c3';
+export * from './review-step';

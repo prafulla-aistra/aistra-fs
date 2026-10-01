@@ -362,3 +362,36 @@ export function statementTitle(
   const span = periodType === 'MONTHLY' ? 'month' : periodType === 'QUARTERLY' ? 'quarter' : 'year';
   return `Statement of profit and loss for the ${span} ended ${longDate(endDate)}`;
 }
+
+export interface KeyFigures {
+  totalAssets: string;
+  totalEquity: string;
+  revenue: string;
+  profit: string;
+}
+
+/**
+ * Key figures of one period (displayed signs): total assets, total equity (including profit
+ * and FCTR), revenue (operations and intercompany) and profit for the period.
+ */
+export function keyFigures(amounts: Readonly<Record<string, string>>, fslis: readonly FormatFsli[]): KeyFigures {
+  const sum = (f: (x: FormatFsli) => boolean) =>
+    fslis.filter(f).reduce((s, x) => s.plus(amounts[x.code] ?? '0'), new Decimal(0));
+  return {
+    totalAssets: sum((x) => x.class === 'A').toFixed(2),
+    totalEquity: sum((x) => x.class === 'E').negated().toFixed(2),
+    revenue: sum((x) => x.code === 'REV_OPS' || x.code === 'IC_REV').negated().toFixed(2),
+    profit: new Decimal(amounts.PROFIT ?? '0').negated().toFixed(2),
+  };
+}
+
+/** Variance and variance % (1 dp) of a current and comparative figure. */
+export function variance(current: string | null, comparative: string | null): { variance: string | null; variancePct: string | null } {
+  if (current === null || comparative === null) return { variance: null, variancePct: null };
+  const v = new Decimal(current).minus(comparative);
+  const c = new Decimal(comparative);
+  return {
+    variance: v.toFixed(2),
+    variancePct: c.isZero() ? null : v.dividedBy(c.abs()).times(100).toDecimalPlaces(1, Decimal.ROUND_HALF_UP).toFixed(1),
+  };
+}

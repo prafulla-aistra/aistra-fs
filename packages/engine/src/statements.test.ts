@@ -4,6 +4,8 @@ import {
   buildStatement,
   fsliAmounts,
   intercompanyNote,
+  keyFigures,
+  variance,
   lineNote,
   noteNumbers,
   scaleAmount,
@@ -201,5 +203,14 @@ describe('presentation', () => {
       'Statement of profit and loss for the quarter ended 30 June 2026',
     );
     expect(statementTitle('PL', 'ANNUAL', '2027-03-31')).toContain('year ended 31 March 2027');
+  });
+});
+
+describe('keyFigures', () => {
+  it('total assets, equity (with profit and FCTR), revenue and profit, displayed', () => {
+    const { amounts } = fsliAmounts(ACCOUNTS, FSLIS, '-5.00');
+    expect(keyFigures(amounts, FSLIS)).toEqual({ totalAssets: '800.00', totalEquity: '705.00', revenue: '1000.00', profit: '400.00' });
+    expect(variance('110.00', '100.00')).toEqual({ variance: '10.00', variancePct: '10.0' });
+    expect(variance('5.00', null)).toEqual({ variance: null, variancePct: null });
   });
 });

@@ -8,7 +8,13 @@ import { MappingController } from './mapping.controller';
 import { MappingStepService } from './mapping-step.service';
 import { RateConfigService } from './rate-config.service';
 import { RatesService } from './rates.service';
+import { EditAccessController } from './edit-access.controller';
+import { EditAccessService } from './edit-access.service';
 import { NotesController } from './notes.controller';
+import { NotificationsController, NotificationsService } from './notifications.service';
+import { ReviewController } from './review.controller';
+import { ReviewService } from './review.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { NotesService } from './notes.service';
 import { StatementFiguresService } from './statement-figures';
 import { StatementsController } from './statements.controller';
@@ -29,6 +35,9 @@ import { UploadsController } from './uploads.controller';
     ConfigDataController,
     StatementsController,
     NotesController,
+    EditAccessController,
+    NotificationsController,
+    ReviewController,
   ],
   providers: [
     UploadStepService,
@@ -42,6 +51,10 @@ import { UploadsController } from './uploads.controller';
     StatementFiguresService,
     StatementsService,
     NotesService,
+    EditAccessService,
+    NotificationsService,
+    SubmissionGuard,
+    ReviewService,
   ],
 })
 export class UploadsModule {}

@@ -35,6 +35,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { rateSourceLabel } from '../common/settings';
 import { inScope } from '../tasks/tasks.service';
 import { ComparativeSourceService } from './comparative-source.service';
@@ -82,6 +83,7 @@ export class MappingStepService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly comparatives: ComparativeSourceService,
+    private readonly guard: SubmissionGuard,
   ) {}
 
   async fslis(): Promise<MappingFsli[]> {
@@ -582,6 +584,9 @@ export class MappingStepService {
       if (changes.length > 0)
         await tx.task.update({ where: { id: taskId }, data: { updatedAt: new Date() } });
     });
+    if (changes.length > 0)
+      await this.guard.accountsChanged(user, entityCode, `Mapping changed (${changes.map((c) => c.input.accountCode).join(', ')})`, ip);
+    await this.guard.changed(user, taskId, entityCode, 'Mapping changed', ip);
     return this.build(user, task, te);
   }
 

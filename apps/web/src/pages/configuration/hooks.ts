@@ -35,6 +35,13 @@ export const CONFIG_SECTIONS = [
       { to: '/configuration/chart-of-accounts', label: 'Chart of accounts' },
     ],
   },
+  {
+    title: 'Controls',
+    items: [
+      { to: '/configuration/approvals', label: 'Approvals' },
+      { to: '/configuration/control-checks', label: 'Control checks' },
+    ],
+  },
   { title: 'Access', items: [{ to: '/users', label: 'Users (User management)', adminOnly: true }] },
 ] as const;
 

@@ -31,6 +31,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { inScope } from '../tasks/tasks.service';
 import { ComparativeSourceService } from './comparative-source.service';
 import { MappingStepService } from './mapping-step.service';
@@ -79,6 +80,7 @@ export class ComparativesService {
     private readonly audit: AuditService,
     private readonly sources: ComparativeSourceService,
     private readonly mapping: MappingStepService,
+    private readonly guard: SubmissionGuard,
   ) {}
 
   private async pctThreshold(): Promise<string> {
@@ -339,6 +341,7 @@ export class ComparativesService {
           tx,
         );
       });
+      for (const te of task.entities) await this.guard.changed(user, taskId, te.entityCode, 'Comparative basis changed', ip);
     }
     return this.step(user, taskId);
   }
@@ -391,6 +394,7 @@ export class ComparativesService {
         tx,
       );
     });
+    await this.guard.changed(user, taskId, entityCode, `Variance explanation edited (${accountCode})`, ip);
     return this.build(user, task, te);
   }
 

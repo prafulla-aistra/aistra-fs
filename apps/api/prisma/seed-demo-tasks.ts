@@ -51,6 +51,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
     statuses: Record<string, TaskItemStatus>,
     dates: { created: string; updated: string; finalised?: string; completed?: string },
     currentStep: string,
+    steps: Record<string, string> = {},
   ) => {
     if (await prisma.task.findUnique({ where: { number } })) return;
     const stepFor = (s: TaskItemStatus) =>
@@ -81,7 +82,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
             return {
               entityCode: e.code,
               status,
-              currentStep: stepFor(status),
+              currentStep: steps[e.code] ?? stepFor(status),
               ...(status === 'FINALISED'
                 ? { finalisedById: rahul.id, finalisedAt: at(dates.finalised ?? dates.updated) }
                 : {}),
@@ -148,7 +149,7 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
       US: 'FINALISED',
       UK: 'FINALISED',
       UC: 'FINALISED',
-      IN: 'IN_REVIEW',
+      IN: 'IN_PROGRESS',
       AE: 'IN_PROGRESS',
       VS: 'NOT_STARTED',
       VM: 'NOT_STARTED',
@@ -159,5 +160,23 @@ export async function seedDemoTasks(prisma: PrismaClient): Promise<void> {
       finalised: '2026-09-18T12:00:00+05:30',
     },
     'MAPPING',
+    // India is ready to submit (page 8 click-through): every earlier step done.
+    { IN: 'NOTES' },
   );
+
+  // Demo revision (page 8): India Aug was seeded In review without a submission record. A
+  // review now needs a submission, so it goes back to In progress, ready to submit.
+  const aug1 = await prisma.task.findUnique({ where: { number: 'SFS-2026-08-001' } });
+  if (aug1?.isDemo) {
+    const submitted = await prisma.reviewSubmission.count({
+      where: { taskId: aug1.id, entityCode: 'IN' },
+    });
+    const r = submitted
+      ? { count: 0 }
+      : await prisma.taskEntity.updateMany({
+          where: { taskId: aug1.id, entityCode: 'IN', status: 'IN_REVIEW' },
+          data: { status: 'IN_PROGRESS', currentStep: 'NOTES' },
+        });
+    if (r.count > 0) console.log('Demo revision: India Aug set to In progress (ready to submit)');
+  }
 }

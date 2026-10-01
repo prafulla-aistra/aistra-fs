@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import type { EntityNote, Prisma } from '@prisma/client';
 import {
   buildStatement,
@@ -51,6 +51,7 @@ import { ApiError } from '../common/api-error';
 import { canonicalJson } from '../common/canonical-json';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { inScope } from '../tasks/tasks.service';
 import { loadFormatLines, loadFslis } from './format-lines';
 import {
@@ -189,6 +190,7 @@ export class NotesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly figuresService: StatementFiguresService,
+    @Optional() private readonly guard?: SubmissionGuard,
   ) {}
 
   // ---------------------------------------------------------------------------------------
@@ -968,6 +970,7 @@ export class NotesService {
         tx,
       );
     });
+    await this.guard?.changed(user, taskId, entityCode, `Note edited (${input.title.trim()})`, ip);
     return { version, status: 'EDITED' as const };
   }
 
@@ -1079,6 +1082,7 @@ export class NotesService {
         tx,
       );
     });
+    await this.guard?.changed(user, taskId, entityCode, `Note added (${input.title.trim()})`, ip);
     return { id };
   }
 
@@ -1112,6 +1116,7 @@ export class NotesService {
         tx,
       );
     });
+    await this.guard?.changed(user, taskId, entityCode, `Note deleted (${note.title})`, ip);
   }
 
   async reorder(

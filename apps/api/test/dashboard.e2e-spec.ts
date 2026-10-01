@@ -18,7 +18,8 @@ import {
 /**
  * Dashboard counts against the demo data, with today fixed at 29-Sep-2026 (FIXED_TODAY):
  *   Jul-2026 SFS: all 7 Finalised (Done)   Jul-2026 CFS: all 4 levels Finalised (Done)
- *   Aug-2026 SFS: US, UK, UC Finalised; IN In review; AE In progress; VS, VM Not started
+ *   Aug-2026 SFS: US, UK, UC Finalised; IN, AE In progress; VS, VM Not started
+ * (India was seeded In review until page 8; a review now needs a real submission.)
  */
 let ctx: TestContext;
 let priya: string;
@@ -77,7 +78,7 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     expect(d.standalone).toEqual({
       finalised: 3,
       total: 7,
-      counts: { NOT_STARTED: 2, IN_PROGRESS: 1, IN_REVIEW: 1, FINALISED: 3 },
+      counts: { NOT_STARTED: 2, IN_PROGRESS: 2, IN_REVIEW: 0, FINALISED: 3 },
     });
     expect(d.consolidation).toMatchObject({
       finalised: 0,
@@ -87,16 +88,16 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     expect(d.lastPeriod).toMatchObject({ label: 'Jul-2026', done: true, openItems: 0 });
   });
 
-  it('shows the lines that apply to a preparer: 3 entities to prepare (AE, VS, VM) and overdue', async () => {
+  it('shows the lines that apply to a preparer: 4 entities to prepare (IN, AE, VS, VM) and overdue', async () => {
     const d = await dashboard(priya);
-    expect(d.attention).toEqual({ entitiesToPrepare: 3, overdue: 1 });
+    expect(d.attention).toEqual({ entitiesToPrepare: 4, openQueries: 0, overdue: 1 });
   });
 
   it('lists the 3 demo tasks newest first, with derived statuses, overdue and lock', async () => {
     const page = await tasks(priya);
     expect(page.total).toBe(3);
     expect(page.items.map((t) => [t.number, t.status, t.overdue, t.locked, t.action])).toEqual([
-      // Work remains (AE in progress; VS, VM not started) → In progress, even though IN is in review.
+      // Work remains (IN, AE in progress; VS, VM not started) → In progress.
       ['SFS-2026-08-001', 'IN_PROGRESS', true, false, 'CONTINUE'],
       ['CFS-2026-07-001', 'DONE', false, true, 'VIEW'],
       ['SFS-2026-07-001', 'DONE', false, true, 'VIEW'],
@@ -104,7 +105,7 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     const aug = page.items[0]!;
     expect(aug.items.map((i) => `${i.code}:${i.status}`)).toEqual([
       'US:FINALISED',
-      'IN:IN_REVIEW',
+      'IN:IN_PROGRESS',
       'AE:IN_PROGRESS',
       'UK:FINALISED',
       'UC:FINALISED',
@@ -142,7 +143,7 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     expect(jul.consolidation).toMatchObject({ finalised: 4, total: 4, next: null });
     expect(jul.period!.deadline).toEqual({ kind: 'COMPLETE' });
     expect(jul.lastPeriod).toMatchObject({ label: 'Jun-2026', done: false, openItems: 11 });
-    expect(jul.attention).toEqual({ entitiesToPrepare: 0, overdue: 1 });
+    expect(jul.attention).toEqual({ entitiesToPrepare: 0, openQueries: 0, overdue: 1 });
   });
 
   it('opens a Done task read-only', async () => {
@@ -154,12 +155,12 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
 });
 
 describe('dashboard for a user scoped to India only', () => {
-  it('counts only India: standalone 0 of 1 (in review), levels containing India (L3, L4)', async () => {
+  it('counts only India: standalone 0 of 1 (in progress), levels containing India (L3, L4)', async () => {
     const d = await dashboard(india);
     expect(d.standalone).toEqual({
       finalised: 0,
       total: 1,
-      counts: { NOT_STARTED: 0, IN_PROGRESS: 0, IN_REVIEW: 1, FINALISED: 0 },
+      counts: { NOT_STARTED: 0, IN_PROGRESS: 1, IN_REVIEW: 0, FINALISED: 0 },
     });
     expect(d.consolidation).toMatchObject({
       finalised: 0,
@@ -167,40 +168,40 @@ describe('dashboard for a user scoped to India only', () => {
       next: { level: 3, name: 'India' },
     });
     expect(d.lastPeriod).toMatchObject({ label: 'Jul-2026', done: true });
-    // India is in review: nothing for this user to prepare.
-    expect(d.attention).toEqual({ entitiesToPrepare: 0, overdue: 1 });
+    // India is in progress: one entity for this user to prepare.
+    expect(d.attention).toEqual({ entitiesToPrepare: 1, openQueries: 0, overdue: 1 });
   });
 
   it('sees only India in the entity breakdown, but the task status covers the whole task', async () => {
     const page = await tasks(india);
     expect(page.total).toBe(3);
     const aug = page.items.find((t) => t.number === 'SFS-2026-08-001')!;
-    expect(aug.items).toEqual([{ code: 'IN', label: 'India', status: 'IN_REVIEW' }]);
+    expect(aug.items).toEqual([{ code: 'IN', label: 'India', status: 'IN_PROGRESS' }]);
     expect(aug.itemTotal).toBe(7);
     // Task status covers the whole task; the action looks only at the user's scope.
     expect(aug.status).toBe('IN_PROGRESS');
-    expect(aug.action).toBe('VIEW');
-    expect((await tasks(india, { status: 'TO_PREPARE' })).total).toBe(0);
+    expect(aug.action).toBe('CONTINUE');
+    expect((await tasks(india, { status: 'TO_PREPARE' })).total).toBe(1);
     const cfs = page.items.find((t) => t.number === 'CFS-2026-07-001')!;
     expect(cfs.items.map((i) => i.code)).toEqual(['L3', 'L4']);
   });
 });
 
 describe('attention lines by permission', () => {
-  it('a reviewer sees 1 entity awaiting review (India) and cannot continue preparing', async () => {
-    expect((await dashboard(rahul)).attention).toEqual({ awaitingReview: 1, overdue: 1 });
+  it('a reviewer sees nothing awaiting review (no submissions) and cannot continue preparing', async () => {
+    expect((await dashboard(rahul)).attention).toEqual({ awaitingReview: 0, awaitingYourReview: 0, openQueries: 0, overdue: 1 });
     const aug = (await tasks(rahul)).items.find((t) => t.number === 'SFS-2026-08-001')!;
     expect(aug.action).toBe('VIEW');
-    expect((await tasks(rahul, { status: 'AWAITING_REVIEW' })).items.map((t) => t.number)).toEqual([
-      'SFS-2026-08-001',
-    ]);
+    expect((await tasks(rahul, { status: 'AWAITING_REVIEW' })).total).toBe(0);
   });
 
-  it('the master sees every line, including edit-access requests (0 until that page exists)', async () => {
+  it('the master sees every line, including edit-access requests and review items', async () => {
     expect((await dashboard(master)).attention).toEqual({
-      entitiesToPrepare: 3,
-      awaitingReview: 1,
+      entitiesToPrepare: 4,
+      awaitingReview: 0,
       editAccessRequests: 0,
+      awaitingYourReview: 0,
+      openQueries: 0,
       overdue: 1,
     });
   });

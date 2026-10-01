@@ -150,6 +150,10 @@ export interface DashboardDto {
     /** SFS_REVIEW: entities In review in the selected period, in scope. */
     awaitingReview?: number;
     editAccessRequests?: number;
+    /** Entities waiting for this user's review or approval decision. */
+    awaitingYourReview?: number;
+    /** Review queries that need this user: open ones to answer, answered ones to close. */
+    openQueries?: number;
     overdue: number;
   };
 }

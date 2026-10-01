@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   checkRates,
@@ -25,6 +25,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { rateSourceLabel } from '../common/settings';
 import { StorageService } from '../storage/storage.service';
 import { fileRef } from './file-ref';
@@ -56,6 +57,7 @@ export class RatesService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    @Optional() private readonly guard?: SubmissionGuard,
   ) {}
 
   /** Month → why it is locked (the finalised reports that use it). */
@@ -234,7 +236,7 @@ export class RatesService {
         throw ApiError.validation(`Unknown currency ${r.currency}. Add it in Configuration first.`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const locked = await this.lockedMonths(tx);
       const existing = await tx.exchangeRate.findMany({
         where: { OR: rows.map((r) => ({ month: toDbDate(r.month), currencyCode: r.currency })) },
@@ -347,7 +349,12 @@ export class RatesService {
         unchanged: rows.length - changes.length - skippedLocked,
         ...(how.skipLocked ? { skippedLocked } : {}),
         warnings,
+        changedRows: changes.map((c) => ({ month: c.month, currency: c.currency })),
       };
     });
+    const { changedRows, ...out } = result;
+    if (changedRows.length > 0)
+      await this.guard?.ratesChanged(user, [...new Set(changedRows.map((c) => c.month))], [...new Set(changedRows.map((c) => c.currency))], how.ip);
+    return out;
   }
 }

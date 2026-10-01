@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CalendarController } from './calendar/calendar.controller';
 import { CalendarService } from './calendar/calendar.service';
+import { ControlsController } from './controls.controller';
 import { CurrenciesController } from './currencies.controller';
 import { CurrenciesService } from './currencies.service';
 import { EntitiesController } from './entities.controller';
@@ -18,6 +19,7 @@ import { ReferenceService } from './reference.service';
     EntitiesController,
     CalendarController,
     NoteTemplatesController,
+    ControlsController,
     ReferenceController,
     FormatsController,
   ],

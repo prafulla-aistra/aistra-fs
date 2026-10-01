@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   type CoaParseResult,
@@ -22,6 +22,7 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { StorageService } from '../storage/storage.service';
 import { toMappingFsli } from './mapping-step.service';
 import { readSheetRows } from './sheets';
@@ -66,6 +67,7 @@ export class ChartOfAccountsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    @Optional() private readonly guard?: SubmissionGuard,
   ) {}
 
   private async entity(code: string) {
@@ -257,6 +259,7 @@ export class ChartOfAccountsService {
         );
       });
     }
+    if (!unchanged) await this.guard?.accountsChanged(user, entityCode, `Mapping of ${accountCode} changed in configuration`, ip);
     return this.coa(user, entityCode);
   }
 
@@ -440,6 +443,7 @@ export class ChartOfAccountsService {
     const e = await this.entity(entityCode);
     const parsed = this.parse(file);
     await this.prisma.$transaction((tx) => this.merge(tx, user, e, file, parsed, ip, null));
+    await this.guard?.accountsChanged(user, entityCode, 'Chart of accounts uploaded', ip);
     return this.coa(user, entityCode);
   }
 

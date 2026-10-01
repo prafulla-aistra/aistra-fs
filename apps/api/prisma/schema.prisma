@@ -306,6 +306,8 @@ model User {
   varianceExplanations  VarianceExplanation[]   @relation("VarianceExplanationBy")
   ownershipChanges      EntityOwnership[]       @relation("OwnershipCreatedBy")
   formatVersions        FormatVersion[]         @relation("FormatVersionBy")
+  editAccessRequested   EditAccessRequest[]     @relation("EditAccessRequestedBy")
+  editAccessDecided     EditAccessRequest[]     @relation("EditAccessDecidedBy")
   levelCurrencies       LevelCurrencyOverride[] @relation("LevelCurrencyBy")
 
   @@map("app_user")
@@ -462,6 +464,10 @@ model Task {
   translationSnapshots TranslationSnapshot[]
   statementSnapshots   StatementSnapshot[]
   notes                EntityNote[]
+  editAccessRequests   EditAccessRequest[]
+  submissions          ReviewSubmission[]
+  queries              ReviewQuery[]
+  finalSnapshots       FinalSnapshot[]
   mappedAccounts       EntityAccount[]
   tbVersions           TbVersion[]
 
@@ -470,15 +476,17 @@ model Task {
 }
 
 model TaskEntity {
-  taskId        String         @map("task_id") @db.Uuid
-  entityCode    String         @map("entity_code") @db.VarChar(10)
-  status        TaskItemStatus @default(NOT_STARTED)
-  currentStep   String         @map("current_step") @db.VarChar(40)
-  finalisedById String?        @map("finalised_by_id") @db.Uuid
-  finalisedAt   DateTime?      @map("finalised_at") @db.Timestamptz(3)
+  taskId         String         @map("task_id") @db.Uuid
+  entityCode     String         @map("entity_code") @db.VarChar(10)
+  status         TaskItemStatus @default(NOT_STARTED)
+  currentStep    String         @map("current_step") @db.VarChar(40)
+  finalisedById  String?        @map("finalised_by_id") @db.Uuid
+  finalisedAt    DateTime?      @map("finalised_at") @db.Timestamptz(3)
   /// Retained-earnings roll-forward check, stored when the comparatives step is completed
   /// (read by the translation step).
-  rollForward   Json?          @map("roll_forward")
+  rollForward    Json?          @map("roll_forward")
+  /// The last user who changed the entity's data in this task (segregation of duties).
+  lastEditedById String?        @map("last_edited_by_id") @db.Uuid
 
   task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   entity      Entity @relation(fields: [entityCode], references: [code])
@@ -984,4 +992,201 @@ model EntityNoteVersion {
 
   @@unique([noteId, version])
   @@map("entity_note_version")
+}
+
+enum CheckSeverity {
+  BLOCKING
+  WARNING
+  INFO
+}
+
+/// Control-check register (Configuration → Control checks): which checks run on a report,
+/// their severity and threshold. Nothing about severity or tolerance is hard-coded.
+model ControlCheck {
+  code          String        @id @db.VarChar(40)
+  statementType StatementType @map("statement_type")
+  name          String        @db.VarChar(200)
+  description   String        @db.VarChar(1000)
+  severity      CheckSeverity
+  /// Tolerance (amount) or limit (count); null when the check has none.
+  threshold     Decimal?      @db.Decimal(20, 4)
+  /// AMOUNT (in the presentation currency) or COUNT.
+  thresholdUnit String?       @map("threshold_unit") @db.VarChar(10)
+  isActive      Boolean       @default(true) @map("is_active")
+  /// Seeded defaults await confirmation.
+  toBeConfirmed Boolean       @default(true) @map("to_be_confirmed")
+  sortOrder     Int           @default(0) @map("sort_order")
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("control_check")
+}
+
+/// Who reviews and approves reports (Configuration → Approvals). entityCode null = the
+/// default for all entities; a row per entity overrides it. Empty lists mean "anyone with the
+/// review permission and the entity in scope". Segregation of duties is always enforced.
+model ApprovalRule {
+  id            String        @id @default(uuid()) @db.Uuid
+  statementType StatementType @map("statement_type")
+  entityCode    String?       @map("entity_code") @db.VarChar(10)
+  /// 1 = reviewer approves; 2 = reviewer, then approver.
+  reviewLevels  Int           @default(1) @map("review_levels")
+  reviewerIds   String[]      @map("reviewer_ids")
+  approverIds   String[]      @map("approver_ids")
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([statementType, entityCode])
+  @@map("approval_rule")
+}
+
+enum EditAccessStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// A request to reopen a finalised report (SFS entity). EDIT_ACCESS_APPROVE decides it.
+model EditAccessRequest {
+  id              String           @id @default(uuid()) @db.Uuid
+  taskId          String           @map("task_id") @db.Uuid
+  entityCode      String           @map("entity_code") @db.VarChar(10)
+  reason          String           @db.VarChar(1000)
+  status          EditAccessStatus @default(PENDING)
+  requestedById   String           @map("requested_by_id") @db.Uuid
+  decidedById     String?          @map("decided_by_id") @db.Uuid
+  decidedAt       DateTime?        @map("decided_at") @db.Timestamptz(3)
+  decisionComment String?          @map("decision_comment") @db.VarChar(1000)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task        Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requestedBy User  @relation("EditAccessRequestedBy", fields: [requestedById], references: [id])
+  decidedBy   User? @relation("EditAccessDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([status, createdAt])
+  @@map("edit_access_request")
+}
+
+enum SubmissionStatus {
+  ACTIVE
+  WITHDRAWN
+  RETURNED
+  APPROVED
+}
+
+/// A preparer's submission of a task entity for review, with the check results and the
+/// acknowledgements at that moment. Withdrawn automatically when the entity's data changes.
+model ReviewSubmission {
+  id               String           @id @default(uuid()) @db.Uuid
+  taskId           String           @map("task_id") @db.Uuid
+  entityCode       String           @map("entity_code") @db.VarChar(10)
+  number           Int
+  status           SubmissionStatus @default(ACTIVE)
+  /// 1 while with the reviewer; 2 while with the approver (two review levels).
+  stage            Int              @default(1)
+  reviewLevels     Int              @default(1) @map("review_levels")
+  submittedById    String           @map("submitted_by_id") @db.Uuid
+  submittedAt      DateTime         @default(now()) @map("submitted_at") @db.Timestamptz(3)
+  declaration      String           @db.VarChar(500)
+  checks           Json
+  acknowledgements Json
+  closedAt         DateTime?        @map("closed_at") @db.Timestamptz(3)
+  closedReason     String?          @map("closed_reason") @db.VarChar(1000)
+
+  task     Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  signOffs SignOff[]
+
+  @@unique([taskId, entityCode, number])
+  @@map("review_submission")
+}
+
+/// A reviewer's or approver's decision on a submission.
+model SignOff {
+  id           String   @id @default(uuid()) @db.Uuid
+  submissionId String   @map("submission_id") @db.Uuid
+  role         String   @db.VarChar(20)
+  decision     String   @db.VarChar(20)
+  userId       String   @map("user_id") @db.Uuid
+  comment      String?  @db.VarChar(2000)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  submission ReviewSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("sign_off")
+}
+
+enum QueryStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+/// A review query on a statement line, account, note, check or the entity in general.
+model ReviewQuery {
+  id          String      @id @default(uuid()) @db.Uuid
+  taskId      String      @map("task_id") @db.Uuid
+  entityCode  String      @map("entity_code") @db.VarChar(10)
+  targetType  String      @map("target_type") @db.VarChar(20)
+  targetKey   String?     @map("target_key") @db.VarChar(100)
+  targetLabel String      @map("target_label") @db.VarChar(300)
+  text        String      @db.VarChar(4000)
+  status      QueryStatus @default(OPEN)
+  raisedById  String      @map("raised_by_id") @db.Uuid
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task     Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  messages QueryMessage[]
+
+  @@index([taskId, entityCode])
+  @@map("review_query")
+}
+
+model QueryMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  queryId   String   @map("query_id") @db.Uuid
+  kind      String   @db.VarChar(20)
+  text      String   @db.VarChar(4000)
+  fileId    String?  @map("file_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  query ReviewQuery @relation(fields: [queryId], references: [id], onDelete: Cascade)
+
+  @@map("query_message")
+}
+
+/// The immutable record of a finalised task entity (v1, v2, …). A reopened entity gets a
+/// WORKING copy of the next version; finalising again makes it FINAL. FINAL rows never change.
+model FinalSnapshot {
+  id          String    @id @default(uuid()) @db.Uuid
+  taskId      String    @map("task_id") @db.Uuid
+  entityCode  String    @map("entity_code") @db.VarChar(10)
+  version     Int
+  state       String    @db.VarChar(10)
+  data        Json
+  /// SHA-256 of the canonical JSON of data (FINAL only).
+  hash        String?   @db.Char(64)
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  finalisedAt DateTime? @map("finalised_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, entityCode, version])
+  @@map("final_snapshot")
+}
+
+/// In-app notifications (the bell).
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  kind      String    @db.VarChar(40)
+  title     String    @db.VarChar(300)
+  body      String?   @db.VarChar(1000)
+  link      String?   @db.VarChar(300)
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notification")
 }

@@ -32,6 +32,7 @@ import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionGuard } from './submission-guard.service';
 import { StorageNotFoundError, StorageService } from '../storage/storage.service';
 import { inScope } from '../tasks/tasks.service';
 import {
@@ -123,6 +124,7 @@ export class UploadStepService {
     private readonly audit: AuditService,
     private readonly rates: RatesService,
     private readonly coa: ChartOfAccountsService,
+    private readonly guard: SubmissionGuard,
   ) {}
 
   // ---------------------------------------------------------------------------------------
@@ -461,6 +463,7 @@ export class UploadStepService {
       }
       return v;
     });
+    await this.guard.changed(user, taskId, entityCode, `Trial balance replaced (version ${version.version})`, ip);
     return toVersionDto(
       await this.prisma.tbVersion.findUniqueOrThrow({
         where: { id: version.id },
