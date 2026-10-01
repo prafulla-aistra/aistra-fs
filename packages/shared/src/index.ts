@@ -10,3 +10,4 @@ export * from './comparatives-step';
 export * from './translation-step';
 export * from './configuration-c2';
 export * from './statements-step';
+export * from './notes-step';

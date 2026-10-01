@@ -13,6 +13,14 @@ Standalone Financial Statements (SFS) and multi-level Consolidated Financial Sta
 
 ---
 
+> **Demo data – not verified.** The sample trial balances, rates and charts of accounts in
+> `./samples` and the demo seed were generated for development (`apps/api/prisma/sample-data.ts`)
+> and are not the verified sample files. Nothing in them is tuned to hit an expected result
+> (each TB balances through its bank account only). The expected-figure tests of pages 3–7
+> are skipped ("waiting for verified sample files"); every logic test (TB balances, statements
+> tie, notes tie to the face, translations net to zero) still runs. The dashboard shows the
+> same banner while demo tasks exist.
+
 ## Quick start
 
 You only need **Node.js** (22 LTS; minimum 20.19). You don't need Docker, a PostgreSQL
@@ -457,6 +465,50 @@ Other expenses 5,750,000.00 · Total expenses 40,460,000.00 · VII Profit 17,760
 (a) Equity share capital 100,000,000.00 · (b) Other equity 599,117,348.66 · (ii) Trade
 receivables 85,618,978.63. Lakhs: total assets 7,453.17.
 
+### Notes to accounts (step "Notes")
+
+Its own workspace step after Statements (stepper: Upload · Map · Comparatives · Translation ·
+Statements · Notes · Review · Finalised).
+
+- **Templates per format** (Configuration → Report formats → Notes): title, type (line note,
+  narrative note, custom table note), linked line, default text (placeholders such as
+  {legalName}), mandatory, order. Statutory: corporate information, basis of preparation,
+  significant accounting policies (seven policy blocks), one line note per statement line,
+  related parties, contingent liabilities and commitments, events after the reporting period,
+  other information. Internal and Investor: a shorter set. CONFIG_MANAGE adds, edits, reorders
+  and removes them; removing is blocked while a finalised report uses the format.
+- **Notes per entity and period**: list (number, title, status, stale-figure count) and editor;
+  "18 of 22 notes reviewed". A note is ordered blocks: figures (the accounts on its line,
+  current and comparative, grouped into sub-captions with subtotals; every account sits in one
+  sub-caption or "Other", so the note still totals to the face, ticked), text (label and rich
+  text: bold, italic, bullets, numbered lists) and custom tables (columns, numeric validation,
+  memo or "must agree to line X" with a tick). Add, edit, reorder and delete blocks; add custom
+  notes anywhere; line notes cannot be deleted while their line has a value. Nil notes without
+  text are hidden (numbering skips them) unless mandatory. The statements' Note column uses
+  the same numbers and links to the note.
+- **Live figures**: "Insert figure" in a text block picks current / comparative / variance /
+  variance % of a statement line, FSLI, account or sub-caption; the chip always shows the
+  figure in the selected currency and units, and moves to the new period when rolled forward.
+- **Roll forward**: the first time an entity reaches Notes, everything is copied from its last
+  finalised SFS (titles, order, blocks, texts, sub-captions with their accounts, custom tables;
+  a table's current column moves to the comparative column and the current one is left blank).
+  Without a finalised prior period, the format's templates are used. Rolled notes start
+  "Carried forward – not reviewed"; the side panel shows the note as last finalised and the
+  words added / removed since.
+- **Stale-number check** (engine `staleNumbers`): a typed number that equals a figure of the
+  last finalised period (any line, FSLI, account or custom-table value) but no figure of this
+  period is flagged ("This looks like last period's figure (30,000). Update it or replace it
+  with a live figure."); live figures are never flagged.
+- **Status**: Carried forward – not reviewed / Edited / Reviewed; editing a reviewed note sets
+  it back to Edited. Edits auto-save, every version is kept (`entity_note_version`) and
+  audited; finalised entities are read-only.
+- **Exports**: Word (.docx) and PDF of the full set (cover, balance sheet, P&L, notes in order;
+  entity and period in the header, page numbers in the footer). The Excel export's Notes sheet
+  carries the note text, figures (SUM formulas for sub-captions and totals) and custom tables.
+- **Demo**: the finalised Jul-2026 India note set is seeded (text blocks, cash sub-captions, a
+  live figure, a custom table, and "Prepaid expenses of 1,200,000", which the Aug-2026 roll
+  forward flags because prepaid expenses are 800,000 in Aug).
+
 ### Configuration: entities and group structure (C1)
 
 - **Layout**: a grouped left menu (Organisation · Currencies · Calendar · Reporting · Access).
@@ -525,8 +577,9 @@ is refused (400).
 → map → comparatives → translation), the configuration journeys (add / view / deactivate an
 entity as master; view-only buttons as Priya) and C2 (format coverage blocks saving when
 "Other expenses" is unplaced; locked rate months and the cross-rate viewer; view-only pages).
-The SFS journey continues to statements and notes (internal format INR and USD, Statutory,
-notes, Lakhs, and the Excel export's SUM formulas). First time only: `npx playwright install chromium`.
+The SFS journey continues to statements (formats, currencies, units, the Excel export's SUM
+formulas) and notes (roll forward, a stale figure replaced by a live one, a sub-caption, a
+custom table note, review, Word export). First time only: `npx playwright install chromium`.
 
 ### File storage: local folder
 

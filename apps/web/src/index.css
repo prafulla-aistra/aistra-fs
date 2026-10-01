@@ -175,3 +175,16 @@
     padding-bottom: 0 !important;
   }
 }
+
+/* Note text (rich-text editor): lists and spacing that Tailwind's reset removes. */
+.prose-note p {
+  margin: 0.25rem 0;
+}
+.prose-note ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.prose-note ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}

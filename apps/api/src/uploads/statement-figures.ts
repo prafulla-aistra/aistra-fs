@@ -7,6 +7,7 @@ import type {
   TranslationLineInput,
 } from '@finance-close/engine';
 import type { ComparativeSourceKind } from '@finance-close/shared';
+import { canonicalJson } from '../common/canonical-json';
 import { PrismaService } from '../prisma/prisma.service';
 import { ComparativeSourceService } from './comparative-source.service';
 import type { StepTask } from './step-access';
@@ -296,7 +297,7 @@ export class StatementFiguresService {
     const figures = await this.build(task, te);
     if (!figures) return false;
     if (existing) {
-      if (JSON.stringify(existing.figures) === JSON.stringify(figures)) return false;
+      if (canonicalJson(existing.figures) === canonicalJson(figures)) return false;
       await this.prisma.statementSnapshot.update({
         where: { id: existing.id },
         data: { figures: JSON.parse(JSON.stringify(figures)) as Prisma.InputJsonValue },

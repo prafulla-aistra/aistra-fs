@@ -1,10 +1,12 @@
 import ExcelJS from 'exceljs';
-import type { FormatLine } from '@finance-close/engine';
+import { cellNumber, type FormatLine } from '@finance-close/engine';
 import {
+  type EntityNotesDto,
   type EntityStatementsDto,
   ITEM_STATUS_LABELS,
   type ItemStatus,
 } from '@finance-close/shared';
+import { paraText, toParas } from './rich-text';
 import type { EntityFigures } from './statement-figures';
 
 /**
@@ -22,6 +24,8 @@ const double: Partial<ExcelJS.Border> = { style: 'double' };
 
 export interface ExportInput {
   views: EntityStatementsDto[];
+  /** The notes in each exported currency (same order as views). */
+  notes: EntityNotesDto[];
   lines: FormatLine[];
   figures: EntityFigures;
   task: { number: string; periodLabel: string };
@@ -123,6 +127,7 @@ function notesSheet(
   wb: ExcelJS.Workbook,
   name: string,
   v: EntityStatementsDto,
+  n: EntityNotesDto,
   faces: { BS: Map<string, number>; PL: Map<string, number> },
   sheetOf: { BS: string; PL: string },
 ) {
@@ -131,123 +136,148 @@ function notesSheet(
     ws,
     [
       v.header.legalName,
-      `Notes to accounts – ${v.header.periodLabel}`,
+      `Notes to the financial statements – ${v.header.periodLabel}`,
       `${v.selection.currency} (actual amounts)`,
     ],
     [14, 56, 20, 20, 20, 16],
   );
   ws.views = [{ state: 'frozen', ySplit: 3 }];
   let r = 5;
-  const title = (t: string) => {
-    ws.getCell(r, 1).value = t;
-    ws.getCell(r, 1).font = { bold: true };
-    r++;
+  const bold = (col: number, t: string) => {
+    ws.getCell(r, col).value = t;
+    ws.getCell(r, col).font = { bold: true };
   };
-  const text = (t: string) => {
-    for (const para of t.split(/\n+/)) {
-      ws.getCell(r, 1).value = para;
-      ws.mergeCells(r, 1, r, 6);
-      ws.getCell(r, 1).alignment = { wrapText: true, vertical: 'top' };
-      ws.getRow(r).height = Math.max(15, Math.ceil(para.length / 110) * 15);
-      r++;
+  for (const note of n.notes.filter((x) => x.number !== null)) {
+    bold(1, `Note ${note.number} ${note.title}`);
+    r++;
+    for (const b of note.blocks) {
+      if (b.type === 'TEXT') {
+        if (b.label) {
+          ws.getCell(r, 1).value = b.label;
+          ws.getCell(r, 1).font = { italic: true };
+          r++;
+        }
+        for (const p of toParas(b.doc, n.catalog)) {
+          ws.getCell(r, 1).value = paraText(p);
+          ws.mergeCells(r, 1, r, 6);
+          ws.getCell(r, 1).alignment = { wrapText: true, vertical: 'top', indent: p.level * 2 };
+          ws.getRow(r).height = Math.max(15, Math.ceil(paraText(p).length / 110) * 15);
+          r++;
+        }
+        r++;
+      }
+      if (b.type === 'FIGURES') {
+        const fig = note.figures[b.id];
+        if (!fig) continue;
+        ws.getRow(r).values = [
+          'Account',
+          'Name',
+          v.header.periodLabel,
+          v.header.comparativeLabel || 'Comparative',
+          'Face',
+          'Difference',
+        ];
+        ws.getRow(r).font = { bold: true };
+        r++;
+        const subtotalRows: number[] = [];
+        for (const g of fig.groups) {
+          if (g.label) {
+            ws.getCell(r, 2).value = g.label;
+            ws.getCell(r, 2).font = { italic: true };
+            r++;
+          }
+          const first = r;
+          for (const a of g.accounts) {
+            ws.getRow(r).values = [
+              a.code,
+              a.counterpartyCode ? `${a.name} (${a.counterpartyCode})` : a.name,
+              num(a.current),
+              num(a.comparative),
+            ];
+            for (const col of [3, 4]) ws.getCell(r, col).numFmt = NUM;
+            r++;
+          }
+          if (g.label) {
+            ws.getCell(r, 2).value = `Total ${g.label.toLowerCase()}`;
+            for (const [col, letter, value] of [
+              [3, 'C', g.subtotal.current],
+              [4, 'D', g.subtotal.comparative],
+            ] as const) {
+              ws.getCell(r, col).value = {
+                formula: r > first ? `SUM(${letter}${first}:${letter}${r - 1})` : '0',
+                result: num(value) ?? 0,
+              };
+              ws.getCell(r, col).numFmt = NUM;
+              ws.getCell(r, col).border = { top: thin };
+            }
+            subtotalRows.push(r);
+            r++;
+          } else {
+            for (let i = first; i < r; i++) subtotalRows.push(-i);
+          }
+        }
+        for (const c of fig.computed) {
+          ws.getRow(r).values = ['', `${c.label} (computed)`, num(c.current), num(c.comparative)];
+          for (const col of [3, 4]) ws.getCell(r, col).numFmt = NUM;
+          ws.getCell(r, 2).font = { italic: true };
+          subtotalRows.push(-r);
+          r++;
+        }
+        const refs = (letter: string) =>
+          subtotalRows.map((x) => `${letter}${Math.abs(x)}`).join(',');
+        const t = ws.getRow(r);
+        t.getCell(2).value = 'Total';
+        t.getCell(3).value = {
+          formula: subtotalRows.length ? `SUM(${refs('C')})` : '0',
+          result: num(fig.total.current) ?? 0,
+        };
+        t.getCell(4).value = {
+          formula: subtotalRows.length ? `SUM(${refs('D')})` : '0',
+          result: num(fig.total.comparative) ?? 0,
+        };
+        const [st, key] = (note.lineKeys[0] ?? ':').split(':') as ['BS' | 'PL', string];
+        const faceRow = faces[st]?.get(key);
+        if (faceRow) {
+          t.getCell(5).value = {
+            formula: `'${sheetOf[st]}'!C${faceRow}`,
+            result: num(fig.face.current) ?? 0,
+          };
+          t.getCell(6).value = { formula: `C${r}-E${r}`, result: 0 };
+        }
+        t.font = { bold: true };
+        for (const col of [3, 4, 5, 6]) t.getCell(col).numFmt = NUM;
+        for (const col of [3, 4]) t.getCell(col).border = { top: thin, bottom: double };
+        r += 2;
+      }
+      if (b.type === 'TABLE') {
+        if (b.label) {
+          ws.getCell(r, 1).value = b.label;
+          ws.getCell(r, 1).font = { italic: true };
+          r++;
+        }
+        const heading = (c: (typeof b.columns)[number]) =>
+          c.period === 'CURRENT'
+            ? v.header.periodLabel
+            : c.period === 'COMPARATIVE'
+              ? v.header.comparativeLabel || 'Comparative'
+              : c.label;
+        ws.getRow(r).values = b.columns.map(heading);
+        ws.getRow(r).font = { bold: true };
+        r++;
+        for (const row of b.rows) {
+          ws.getRow(r).values = b.columns.map((c) => {
+            const raw = row.cells[c.id] ?? '';
+            if (!c.numeric) return raw;
+            const x = cellNumber(raw);
+            return x === null ? raw : Number(x.toFixed(2));
+          });
+          b.columns.forEach((c, i) => c.numeric && (ws.getCell(r, i + 1).numFmt = NUM));
+          r++;
+        }
+        r++;
+      }
     }
     r++;
-  };
-  title('Note 1 Corporate information and basis of preparation');
-  text(v.notes.note1.text + (v.notes.note1.translation ? `\n${v.notes.note1.translation}` : ''));
-  title('Note 2 Significant accounting policies (draft – to be reviewed)');
-  text(v.notes.note2.text);
-  for (const n of v.notes.lines) {
-    title(`Note ${n.number} ${n.label}`);
-    const h = ws.getRow(r);
-    h.values = [
-      'Account',
-      'Name',
-      v.header.periodLabel,
-      v.header.comparativeLabel || 'Comparative',
-      'Face',
-      'Difference',
-    ];
-    h.font = { bold: true };
-    r++;
-    const first = r;
-    for (const a of n.accounts) {
-      ws.getRow(r).values = [
-        a.code,
-        a.counterpartyCode
-          ? `${a.name} (${a.counterpartyCode} – ${a.counterpartyName ?? ''})`
-          : a.name,
-        num(a.current),
-        num(a.comparative),
-      ];
-      r++;
-    }
-    for (const c of n.computed) {
-      ws.getRow(r).values = ['', `${c.label} (computed)`, num(c.current), num(c.comparative)];
-      ws.getCell(r, 2).font = { italic: true };
-      r++;
-    }
-    const last = r - 1;
-    const t = ws.getRow(r);
-    t.getCell(2).value = 'Total';
-    t.getCell(3).value = {
-      formula: last >= first ? `SUM(C${first}:C${last})` : '0',
-      result: num(n.total.current) ?? 0,
-    };
-    t.getCell(4).value = {
-      formula: last >= first ? `SUM(D${first}:D${last})` : '0',
-      result: num(n.total.comparative) ?? 0,
-    };
-    const faceRow = faces[n.statement].get(n.key);
-    if (faceRow) {
-      t.getCell(5).value = {
-        formula: `'${sheetOf[n.statement]}'!C${faceRow}`,
-        result: num(n.face.current) ?? 0,
-      };
-      t.getCell(6).value = { formula: `C${r}-E${r}`, result: 0 };
-    }
-    t.font = { bold: true };
-    for (const col of [3, 4]) t.getCell(col).border = { top: thin, bottom: double };
-    r += 2;
-    for (let i = first; i <= r; i++)
-      for (const col of [3, 4, 5, 6]) ws.getCell(i, col).numFmt = NUM;
-  }
-  if (v.notes.intercompany) {
-    title(`Note ${v.notes.intercompany.number} ${v.notes.intercompany.label}`);
-    ws.getRow(r).values = ['Counterparty', 'Name', 'Receivable', 'Payable', 'Revenue', 'Charges'];
-    ws.getRow(r).font = { bold: true };
-    r++;
-    for (const row of v.notes.intercompany.rows) {
-      ws.getRow(r).values = [
-        row.counterpartyCode,
-        row.counterpartyName,
-        ...Object.values(row.current).map(num),
-      ];
-      for (const col of [3, 4, 5, 6]) ws.getCell(r, col).numFmt = NUM;
-      r++;
-    }
-    r++;
-  }
-  if (v.notes.rates) {
-    title(`Note ${v.notes.rates.number} Exchange rates used (${v.notes.rates.currencyPair})`);
-    ws.getRow(r).values = [
-      'Rate',
-      '',
-      v.header.periodLabel,
-      v.header.comparativeLabel || 'Comparative',
-    ];
-    ws.getRow(r).font = { bold: true };
-    r++;
-    for (const k of ['opening', 'closing', 'average', 'historical'] as const) {
-      ws.getRow(r).values = [
-        k[0]!.toUpperCase() + k.slice(1),
-        '',
-        num(v.notes.rates.current[k]),
-        num(v.notes.rates.comparative?.[k] ?? null),
-      ];
-      for (const col of [3, 4]) ws.getCell(r, col).numFmt = RATE;
-      r++;
-    }
   }
 }
 
@@ -300,7 +330,14 @@ export async function statementsWorkbook(input: ExportInput): Promise<Buffer> {
       BS: statementSheet(wb, names.BS, v, 'BS', input.lines),
       PL: statementSheet(wb, names.PL, v, 'PL', input.lines),
     };
-    notesSheet(wb, multi ? `Notes ${ccy}` : 'Notes', v, faces, names);
+    notesSheet(
+      wb,
+      multi ? `Notes ${ccy}` : 'Notes',
+      v,
+      input.notes[input.views.indexOf(v)]!,
+      faces,
+      names,
+    );
     const ta = v.balanceSheet.rows.find((r) => r.role === 'TOTAL_ASSETS');
     const tel = v.balanceSheet.rows.find((r) => r.role === 'TOTAL_EQUITY_LIABILITIES');
     if (ta && tel)
@@ -427,11 +464,11 @@ export async function statementsWorkbook(input: ExportInput): Promise<Buffer> {
       result: c.result === 0 ? '✓' : '✗',
     };
   });
-  const noteTies = input.views.flatMap((v) =>
-    v.notes.lines.map((n) => ({ ccy: v.selection.currency, n })),
+  const noteTies = input.notes.flatMap((n) =>
+    n.notes.filter((x) => x.number !== null).flatMap((x) => Object.values(x.figures)),
   );
   ck.getCell(6 + checks.length, 1).value =
-    `Note totals agreeing to the face: ${noteTies.filter((x) => x.n.ties.current).length} of ${noteTies.length}`;
+    `Note totals agreeing to the face: ${noteTies.filter((x) => x.ties.current).length} of ${noteTies.length}`;
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

@@ -236,7 +236,13 @@ export const AuditAction = {
   ComparativeBasisChange: 'COMPARATIVE_BASIS_CHANGE',
   VarianceExplain: 'VARIANCE_EXPLAIN',
   // Statements and notes (page 7)
-  StatementNoteUpdate: 'STATEMENT_NOTE_UPDATE',
+  NoteCreate: 'NOTE_CREATE',
+  NoteUpdate: 'NOTE_UPDATE',
+  NoteDelete: 'NOTE_DELETE',
+  NoteReview: 'NOTE_REVIEW',
+  NoteReorder: 'NOTE_REORDER',
+  NotesRollForward: 'NOTES_ROLL_FORWARD',
+  NoteTemplateChange: 'NOTE_TEMPLATE_CHANGE',
   // Configuration C2
   SettingsUpdate: 'SETTINGS_UPDATE',
   FormatUpdate: 'FORMAT_UPDATE',

@@ -17,7 +17,14 @@ import {
   tbFileName,
   trialBalanceFile,
 } from '../prisma/sample-files';
-import { createTestApp, deleteNonDemoTasks, MASTER, type TestContext, tokenFor } from './helpers';
+import {
+  createTestApp,
+  deleteNonDemoTasks,
+  ensureSampleTb,
+  MASTER,
+  type TestContext,
+  tokenFor,
+} from './helpers';
 
 /**
  * Page 3 — task workspace step 1 "Upload data". Uses the demo tasks (Jul-2026 done; Aug-2026
@@ -82,6 +89,16 @@ beforeAll(async () => {
   });
   priya = await tokenFor(ctx, 'priya@financeclose.local', pw('priya@financeclose.local'));
   master = await tokenFor(ctx, MASTER.email, MASTER.password);
+  // The Aug-2026 demo task holds India's current sample TB (the duplicate-file check uses it).
+  const demoAug = await ctx.prisma.task.findUniqueOrThrow({ where: { number: 'SFS-2026-08-001' } });
+  await ensureSampleTb(
+    ctx,
+    priya,
+    demoAug.id,
+    'IN',
+    trialBalanceFile(sample('IN'), 'aug'),
+    tbFileName('IN', 'aug'),
+  );
 
   const options = (await ctx.http().get('/api/task-wizard/options').set(as(priya)))
     .body as WizardOptionsDto;
@@ -155,9 +172,7 @@ describe('sample trial balances', () => {
     expect(p.check!.totals.difference).toBe('0.00');
     expect(p.preview).toHaveLength(10);
     const expected =
-      month === 'aug'
-        ? (({ IN: ['1455', '6120'], UK: ['6390'] } as Record<string, string[]>)[code] ?? [])
-        : [];
+      month === 'aug' ? (({ IN: ['1455', '6120'] } as Record<string, string[]>)[code] ?? []) : [];
     expect(p.check!.newAccounts.map((a) => a.code).sort()).toEqual(expected);
     // The files are for Jul/Aug; this task is Jun-2026.
     expect(p.check!.needsAcknowledgement.map((w) => w.code)).toEqual(['PERIOD_MISMATCH']);

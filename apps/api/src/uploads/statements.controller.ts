@@ -1,12 +1,9 @@
 import {
-  Body,
   Controller,
   Get,
-  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
-  Put,
   Query,
   Res,
   StreamableFile,
@@ -60,10 +57,6 @@ const exportQuery = z.object({
     .optional(),
   showNil: flag,
 });
-const textSchema = z.object({
-  kind: z.enum(['NOTE1', 'NOTE2']),
-  text: z.string().trim().min(1, 'The note cannot be empty').max(20000),
-});
 
 @Controller()
 export class StatementsController {
@@ -109,19 +102,6 @@ export class StatementsController {
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return new StreamableFile(body);
-  }
-
-  @Put('tasks/:id/entities/:code/statement-notes')
-  @RequirePermission(Permission.SfsPrepare)
-  @HttpCode(204)
-  saveText(
-    @CurrentUser() user: AuthUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('code', new ZodPipe(entityCode)) code: string,
-    @Body(new ZodPipe(textSchema)) body: z.output<typeof textSchema>,
-    @ClientIp() ip: string | null,
-  ): Promise<void> {
-    return this.statements.saveText(user, id, code, body, ip);
   }
 
   @Post('tasks/:id/entities/:code/statements/continue')

@@ -35,6 +35,7 @@ import { amountText, formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { ConfigPage, EditButton } from './ConfigPage';
+import { NoteTemplatesPanel } from './NoteTemplatesPanel';
 import { useCanEditConfig } from './hooks';
 
 const STATEMENT_LABEL: Record<FormatStatementCode, string> = {
@@ -62,6 +63,7 @@ export function FormatsPage() {
   const [code, setCode] = useState<string | null>(null);
   const active = code ?? formats.data?.[0]?.code ?? null;
   const [duplicating, setDuplicating] = useState(false);
+  const [part, setPart] = useState<'LAYOUT' | 'NOTES'>('LAYOUT');
   return (
     <ConfigPage
       title="Report formats"
@@ -98,7 +100,31 @@ export function FormatsPage() {
               </button>
             ))}
           </div>
-          {active && <FormatEditor key={active} code={active} />}
+          <div
+            role="tablist"
+            aria-label="Format parts"
+            className="inline-flex rounded-md border p-0.5"
+          >
+            {(['LAYOUT', 'NOTES'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="tab"
+                aria-selected={part === p}
+                onClick={() => setPart(p)}
+                className={cn(
+                  'rounded px-3 py-1 text-sm',
+                  part === p
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {p === 'LAYOUT' ? 'Layout' : 'Notes'}
+              </button>
+            ))}
+          </div>
+          {active && part === 'LAYOUT' && <FormatEditor key={active} code={active} />}
+          {active && part === 'NOTES' && <NoteTemplatesPanel key={active} code={active} />}
         </>
       )}
       {duplicating && active && (

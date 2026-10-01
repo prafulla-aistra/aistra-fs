@@ -8,6 +8,7 @@ export * from './fsli-inference';
 export * from './group';
 export * from './mapping';
 export * from './money';
+export * from './notes';
 export * from './periods';
 export * from './rates';
 export * from './statements';

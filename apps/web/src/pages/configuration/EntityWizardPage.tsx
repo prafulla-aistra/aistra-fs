@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, CircleX } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
+  type GroupStructureDto,
   ERP_LABELS,
   GAAP_LABELS,
   type CreateEntityRequest,
@@ -54,6 +55,17 @@ export function EntityWizardPage() {
   });
   const [rates, setRates] = useState<Record<string, RateDraft>>({});
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+
+  // The ownership month defaults to the server's current month (its clock, not the browser's).
+  const structure = useQuery({
+    queryKey: ['config', 'group-structure', ''],
+    queryFn: () => api.get<GroupStructureDto>('/config/group-structure'),
+  });
+  const monthTouched = useRef(false);
+  useEffect(() => {
+    const m = structure.data?.asAt?.slice(0, 7);
+    if (m && !monthTouched.current) setF((x) => ({ ...x, month: m }));
+  }, [structure.data?.asAt]);
 
   useEffect(() => {
     if (!f.parentCode && entities.data) {
@@ -388,7 +400,10 @@ export function EntityWizardPage() {
                     id="w-month"
                     type="month"
                     value={f.month}
-                    onChange={(e) => set('month', e.target.value)}
+                    onChange={(e) => {
+                      monthTouched.current = true;
+                      set('month', e.target.value);
+                    }}
                   />
                 </Field>
               </div>

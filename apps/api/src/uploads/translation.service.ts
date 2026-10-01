@@ -203,7 +203,23 @@ export class TranslationService {
     const currencies: CurrencyTranslationDto[] = [];
     if (lines) {
       const comparative = await this.sources.period(task);
-      for (const { target, result: r } of await this.translate(task, te, lines, rates)) {
+      // A finalised entity shows its stored translation; it is never recalculated.
+      const stored =
+        te.status === 'FINALISED'
+          ? await this.prisma.translationSnapshot.findMany({
+              where: { taskId: task.id, entityCode: te.entityCode },
+            })
+          : [];
+      const results =
+        stored.length > 0
+          ? stored
+              .map((x) => ({
+                target: x.targetCurrency,
+                result: x.result as unknown as TranslateTbResult,
+              }))
+              .sort((x, y) => x.target.localeCompare(y.target))
+          : await this.translate(task, te, lines, rates);
+      for (const { target, result: r } of results) {
         const comp =
           r.fctr !== null
             ? await finalisedSnapshot(this.prisma, te.entityCode, target, comparative.id)

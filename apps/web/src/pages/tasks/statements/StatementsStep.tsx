@@ -9,15 +9,17 @@ import { EntityTabs } from '../EntityTabs';
 import { useSelectedEntity } from '../useSelectedEntity';
 import { EntityStatements } from './EntityStatements';
 
-/** Step 5 "Statements and notes": one entity at a time (same switcher as the earlier steps). */
+/** Step "Statements": one entity at a time (same switcher as the earlier steps). */
 export function StatementsStep({
   taskId,
   onUpload,
   onContinue,
+  onNote,
 }: {
   taskId: string;
   onUpload: () => void;
   onContinue: () => void;
+  onNote: (n: number) => void;
 }) {
   const step = useQuery({
     queryKey: ['statements-step', taskId],
@@ -52,6 +54,7 @@ export function StatementsStep({
         entityCode={selected}
         onUpload={onUpload}
         onContinue={onContinue}
+        onNote={onNote}
       />
     </div>
   );

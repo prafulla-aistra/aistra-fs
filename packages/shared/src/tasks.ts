@@ -122,6 +122,8 @@ export interface ItemCountsDto {
 
 export interface DashboardDto {
   today: string;
+  /** Demo tasks exist: the data is illustrative ("Demo data – not verified"). */
+  demoData: boolean;
   /** Months for the period switcher (all financial years), oldest first. */
   periods: PeriodOptionDto[];
   /** null only when no financial year exists yet. */
@@ -157,3 +159,6 @@ export interface TaskDetailDto extends TaskRowDto {
   readOnly: boolean;
   reviewerNote: string | null;
 }
+
+export const DEMO_DATA_BANNER =
+  'Demo data – not verified. Figures are illustrative until the verified sample files are loaded.';

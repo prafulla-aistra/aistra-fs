@@ -25,6 +25,8 @@ async function main() {
     await prisma.entityTranslatedCurrency.deleteMany({ where });
   }
   await prisma.entity.deleteMany({ where: { code: 'ZSG' } });
+  const aug = await prisma.task.findUnique({ where: { number: 'SFS-2026-08-001' } });
+  if (aug) await prisma.entityNote.deleteMany({ where: { taskId: aug.id, entityCode: 'IN' } });
   await prisma.task.updateMany({
     where: { number: 'SFS-2026-08-001' },
     data: { comparativeBasis: 'PREVIOUS_PERIOD' },

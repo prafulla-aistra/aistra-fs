@@ -5,10 +5,7 @@ import {
   Decimal,
   deriveTaskStatus,
   type FormatFsli,
-  type FormatLine,
   fsliAmounts,
-  intercompanyNote,
-  lineNote,
   noteNumbers,
   scaleAmount,
   type StatementUnit,
@@ -18,9 +15,7 @@ import {
   AuditAction,
   COMPARATIVE_SOURCE_LABELS,
   type EntityStatementsDto,
-  ERP_LABELS,
   GAAP_LABELS,
-  INTERCOMPANY_NOTE_LABEL,
   ROUNDING_NOTE,
   STATEMENT_UNITS,
   STATEMENTS_FOOTER,
@@ -35,9 +30,10 @@ import { ApiError } from '../common/api-error';
 import { fromDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { inScope } from '../tasks/tasks.service';
+import { loadFormatLines, loadFslis } from './format-lines';
+import { NotesService } from './notes.service';
 import { statementsWorkbook } from './statements-export';
 import {
-  type CurrencyFigures,
   type EntityFigures,
   type PeriodFigures,
   StatementFiguresService,
@@ -67,14 +63,6 @@ const UNIT_TEXT: Record<StatementUnitCode, string> = Object.fromEntries(
 
 const zero = (v: string | null) => v === null || new Decimal(v).isZero();
 
-export const NOTE2_DEFAULT = `Draft – to be reviewed.
-
-(a) Revenue recognition: revenue from services is recognised as the services are rendered, at the amount of consideration the Company expects to be entitled to.
-(b) Property, plant and equipment: stated at cost less accumulated depreciation; depreciation is charged on a straight-line basis over the useful lives of the assets.
-(c) Foreign currency: transactions in foreign currencies are recorded at the rate on the date of the transaction; monetary items are restated at the closing rate and differences are taken to profit or loss.
-(d) Employee benefits: short-term benefits are expensed as the related service is provided; post-employment benefits follow the applicable plans.
-(e) Income taxes: current tax is provided at the amount expected to be paid; deferred tax is recognised on temporary differences.`;
-
 /**
  * Task workspace step 5 "Statements and notes" (page 7): the balance sheet, P&L and notes
  * from a report format, in the functional or a translated currency. No journals or manual
@@ -87,38 +75,15 @@ export class StatementsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly figuresService: StatementFiguresService,
+    private readonly notes: NotesService,
   ) {}
 
-  async fslis(): Promise<FormatFsli[]> {
-    const rows = await this.prisma.fsli.findMany({ orderBy: { sortOrder: 'asc' } });
-    return rows.map((f) => ({
-      code: f.code,
-      name: f.name,
-      statement: f.statement,
-      class: f.class,
-    }));
+  fslis(): Promise<FormatFsli[]> {
+    return loadFslis(this.prisma);
   }
 
-  /** The format's lines: a given version, else the current one. */
-  async formatLines(code: string, version?: number | null) {
-    const f = await this.prisma.format.findUnique({ where: { code } });
-    if (!f) throw ApiError.notFound(`Format ${code} not found.`);
-    const v = await this.prisma.formatVersion.findUnique({
-      where: { formatCode_version: { formatCode: code, version: version ?? f.currentVersion } },
-      include: { lines: { orderBy: [{ statement: 'desc' }, { sortOrder: 'asc' }] } },
-    });
-    if (!v) throw ApiError.notFound(`Format ${code} has no version ${version}.`);
-    const lines: FormatLine[] = v.lines.map((l) => ({
-      key: l.key,
-      statement: l.statement,
-      type: l.type,
-      label: l.label,
-      indent: l.indent,
-      fslis: l.fslis,
-      formula: l.formula as FormatLine['formula'],
-      role: (l.role ?? null) as FormatLine['role'],
-    }));
-    return { format: f, version: v.version, lines };
+  formatLines(code: string, version?: number | null) {
+    return loadFormatLines(this.prisma, code, version);
   }
 
   async step(user: AuthUser, taskId: string): Promise<StatementsStepDto> {
@@ -196,58 +161,6 @@ export class StatementsService {
     return { task, te, reason, figures, fromSnapshot };
   }
 
-  private async texts(task: StepTask, te: TaskEntityRow) {
-    const rows = await this.prisma.statementText.findMany({
-      where: { taskId: task.id, entityCode: te.entityCode },
-      include: { updatedBy: { select: { name: true } } },
-    });
-    const note1 = rows.find((r) => r.kind === 'NOTE1') ?? null;
-    const note2 = rows.find((r) => r.kind === 'NOTE2') ?? null;
-    // Policies are written once: an earlier task's Note 2 is the starting point.
-    let carried: { text: string; from: string } | null = null;
-    if (!note2) {
-      const prev = await this.prisma.statementText.findFirst({
-        where: {
-          entityCode: te.entityCode,
-          kind: 'NOTE2',
-          taskId: { not: task.id },
-          task: { period: { endDate: { lt: task.period.startDate } } },
-        },
-        include: { task: { include: { period: true } } },
-        orderBy: { task: { period: { endDate: 'desc' } } },
-      });
-      if (prev)
-        carried = { text: prev.text, from: `${prev.task.number} (${prev.task.period.label})` };
-    }
-    return { note1, note2, carried };
-  }
-
-  note1Draft(task: StepTask, te: TaskEntityRow): string {
-    const e = te.entity;
-    const span =
-      task.period.type === 'MONTHLY'
-        ? 'month'
-        : task.period.type === 'QUARTERLY'
-          ? 'quarter'
-          : 'year';
-    const end = statementTitle('BS', task.period.type, fromDbDate(task.period.endDate)).replace(
-      'Balance sheet as at ',
-      '',
-    );
-    return [
-      `${e.legalName} ("the Company") is incorporated in ${e.country}. Its functional currency is ${e.functionalCurrency}.`,
-      `Basis of preparation: these standalone financial statements for the ${span} ended ${end} (${task.period.label}) have been prepared in accordance with ${GAAP_LABELS[e.gaap]} on the historical cost basis, from the trial balance extracted from ${ERP_LABELS[e.erp]}. They are presented in ${e.functionalCurrency}.`,
-    ].join('\n\n');
-  }
-
-  private translationText(c: CurrencyFigures): string | null {
-    if (!c.translatedFrom || !c.current.rates) return null;
-    const r = c.current.rates;
-    const one = (v: string | null) =>
-      v ? `1 ${c.translatedFrom} = ${v} ${c.currency}` : 'not available';
-    return `Presented in ${c.currency}, translated from the functional currency ${c.translatedFrom} (Ind AS 21 / IAS 21): assets and liabilities at the closing rate (${one(r.closing)}), income and expenses at the average rate (${one(r.average)}), share capital and securities premium at the historical rate (${one(r.historical)}), other reserves at the opening rate (${one(r.opening)}) and retained earnings rolled forward where a finalised prior period exists. The resulting difference is the foreign currency translation reserve (FCTR) in equity.`;
-  }
-
   async render(
     user: AuthUser,
     task: StepTask,
@@ -278,9 +191,6 @@ export class StatementsService {
       (figures?.currencies.find((c) => c.currency === opts.currency) ?? figures?.currencies[0]) ||
       null;
     const currency = selected?.currency ?? e.functionalCurrency;
-    const entities = await this.prisma.entity.findMany({ select: { code: true, legalName: true } });
-    const entityName = new Map(entities.map((x) => [x.code, x.legalName]));
-    const texts = await this.texts(task, te);
     const scale = (v: string | null) => (v === null ? null : scaleAmount(v, unit as StatementUnit));
     const endDate = fromDbDate(task.period.endDate);
 
@@ -296,17 +206,22 @@ export class StatementsService {
       BS: { cur: built('BS', curAmounts), comp: built('BS', compAmounts) },
       PL: { cur: built('PL', curAmounts), comp: built('PL', compAmounts) },
     };
-    const numbers = noteNumbers(
-      (['BS', 'PL'] as const).flatMap((st) =>
-        (face[st].cur?.rows ?? []).map((r, i) => ({
-          key: r.key,
-          statement: st,
-          type: r.type,
-          current: r.value,
-          comparative: face[st].comp?.rows[i]?.value ?? null,
-        })),
-      ),
-    );
+    // Note numbers come from the Notes step (the task format); a preview format numbers its lines.
+    const noteNumbersFromNotes =
+      isTaskFormat && figures ? await this.notes.lineNumbers(user, task, te, figures) : null;
+    const numbers =
+      noteNumbersFromNotes ??
+      noteNumbers(
+        (['BS', 'PL'] as const).flatMap((st) =>
+          (face[st].cur?.rows ?? []).map((r, i) => ({
+            key: r.key,
+            statement: st,
+            type: r.type,
+            current: r.value,
+            comparative: face[st].comp?.rows[i]?.value ?? null,
+          })),
+        ),
+      );
 
     const tie = (b: BuiltStatement | null, st: 'BS' | 'PL') => {
       if (!b) return null;
@@ -363,98 +278,6 @@ export class StatementsService {
         rows: visible,
       };
     };
-
-    // Notes: one per numbered line (BS first, then P&L), then intercompany and rates.
-    const translationBy = new Map((cur?.translation ?? []).map((t) => [t.code, t]));
-    const noteLines = cur
-      ? (['BS', 'PL'] as const).flatMap((st) =>
-          (face[st].cur?.rows ?? [])
-            .map((r, i) => ({ r, i }))
-            .filter(({ r }) => numbers[`${st}:${r.key}`] !== undefined)
-            .map(({ r, i }) => {
-              const compValue = face[st].comp?.rows[i]?.value ?? null;
-              const n = lineNote({
-                fslis: r.fslis,
-                classes: fslis,
-                current: { accounts: cur.accounts, amounts: curAmounts! },
-                comparative: comp ? { accounts: comp.accounts, amounts: compAmounts! } : null,
-                face: { current: r.value!, comparative: comp ? compValue : null },
-              });
-              const functionalAmount = new Map(
-                (figures!.currencies[0]!.current.accounts ?? []).map((a) => [a.code, a.amount]),
-              );
-              return {
-                number: numbers[`${st}:${r.key}`]!,
-                key: r.key,
-                statement: st,
-                label: r.label,
-                accounts: n.accounts.map((a) => {
-                  const t = translationBy.get(a.code);
-                  return {
-                    ...a,
-                    counterpartyName: a.counterpartyCode
-                      ? (entityName.get(a.counterpartyCode) ?? null)
-                      : null,
-                    current: scale(a.current),
-                    comparative: scale(a.comparative),
-                    tb:
-                      a.current === null
-                        ? null
-                        : {
-                            functional: t?.functional ?? functionalAmount.get(a.code) ?? '0.00',
-                            functionalCurrency: e.functionalCurrency,
-                            basisLabel: t?.basisLabel ?? null,
-                            rate: t?.rate ?? null,
-                            translated: t?.translated ?? null,
-                          },
-                  };
-                }),
-                computed: n.computed.map((x) => ({
-                  ...x,
-                  current: scale(x.current),
-                  comparative: scale(x.comparative),
-                })),
-                total: {
-                  current: scale(n.total.current)!,
-                  comparative: scale(n.total.comparative),
-                },
-                face: { current: scale(r.value)!, comparative: comp ? scale(compValue) : null },
-                ties: n.ties,
-              };
-            }),
-        )
-      : [];
-    let next = 3 + Object.keys(numbers).length;
-    const ic = cur ? intercompanyNote(cur.accounts, comp?.accounts ?? null) : [];
-    const scaleIc = (r: Record<string, string>) =>
-      Object.fromEntries(Object.entries(r).map(([k, v]) => [k, scale(v)!])) as {
-        receivable: string;
-        payable: string;
-        revenue: string;
-        charges: string;
-      };
-    const intercompany =
-      ic.length > 0
-        ? {
-            number: next++,
-            label: INTERCOMPANY_NOTE_LABEL,
-            rows: ic.map((r) => ({
-              counterpartyCode: r.counterpartyCode,
-              counterpartyName: entityName.get(r.counterpartyCode) ?? r.counterpartyCode,
-              current: scaleIc(r.current),
-              comparative: r.comparative && comp ? scaleIc(r.comparative) : null,
-            })),
-          }
-        : null;
-    const rates =
-      selected?.translatedFrom && selected.current.rates
-        ? {
-            number: next++,
-            currencyPair: `${selected.translatedFrom} → ${selected.currency}`,
-            current: selected.current.rates,
-            comparative: selected.comparative?.rates ?? null,
-          }
-        : null;
 
     const compRef = figures?.comparative;
     const unmappedAccounts = (cur?.accounts ?? []).filter((x) => !x.fsliCode);
@@ -527,23 +350,6 @@ export class StatementsService {
       failures,
       balanceSheet: view('BS'),
       profitAndLoss: view('PL'),
-      notes: {
-        note1: {
-          text: texts.note1?.text ?? this.note1Draft(task, te),
-          edited: texts.note1 !== null,
-          translation: selected ? this.translationText(selected) : null,
-          updatedBy: texts.note1?.updatedBy?.name ?? null,
-        },
-        note2: {
-          text: texts.note2?.text ?? texts.carried?.text ?? NOTE2_DEFAULT,
-          edited: texts.note2 !== null,
-          carriedFrom: texts.note2 ? null : (texts.carried?.from ?? null),
-          updatedBy: texts.note2?.updatedBy?.name ?? null,
-        },
-        lines: noteLines,
-        intercompany,
-        rates,
-      },
       roundingNote: unit === 'ACTUAL' ? null : ROUNDING_NOTE,
       warnings,
       footer: STATEMENTS_FOOTER,
@@ -580,8 +386,17 @@ export class StatementsService {
       views[0]!.selection.format,
       views[0]!.selection.isTaskFormat ? task.formatVersion : null,
     );
+    const notes = [];
+    for (const v of views)
+      notes.push(
+        await this.notes.entity(user, taskId, entityCode, {
+          currency: v.selection.currency,
+          unit: 'ACTUAL',
+        }),
+      );
     const body = await statementsWorkbook({
       views,
+      notes,
       lines,
       figures,
       task: { number: task.number, periodLabel: task.period.label },
@@ -594,40 +409,6 @@ export class StatementsService {
     return { name: `${task.number}-${entityCode}-statements-${suffix}.xlsx`, body };
   }
 
-  async saveText(
-    user: AuthUser,
-    taskId: string,
-    entityCode: string,
-    input: { kind: 'NOTE1' | 'NOTE2'; text: string },
-    ip: string | null,
-  ): Promise<void> {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    assertEditable(user, task, entityCode);
-    const key = { taskId_entityCode_kind: { taskId, entityCode, kind: input.kind } };
-    const before = await this.prisma.statementText.findUnique({ where: key });
-    const text = input.text.trim();
-    if (before?.text === text) return;
-    await this.prisma.$transaction(async (tx) => {
-      await tx.statementText.upsert({
-        where: key,
-        create: { taskId, entityCode, kind: input.kind, text, updatedById: user.id },
-        update: { text, updatedById: user.id },
-      });
-      await this.audit.record(
-        {
-          userId: user.id,
-          action: AuditAction.StatementNoteUpdate,
-          entityType: 'TASK_ENTITY',
-          entityId: `${taskId}:${entityCode}`,
-          oldValue: { kind: input.kind, text: before?.text ?? null },
-          newValue: { kind: input.kind, text, task: task.number, entity: entityCode },
-          ip,
-        },
-        tx,
-      );
-    });
-  }
-
   async continue(
     user: AuthUser,
     taskId: string,
@@ -638,7 +419,7 @@ export class StatementsService {
     const te = assertEditable(user, task, entityCode);
     const figures = await this.figuresService.build(task, te);
     if (!figures) throw ApiError.validation('Upload and validate a trial balance first.');
-    const next = stepIndex(te.currentStep) < stepIndex('REVIEW') ? 'REVIEW' : te.currentStep;
+    const next = stepIndex(te.currentStep) < stepIndex('NOTES') ? 'NOTES' : te.currentStep;
     await this.prisma.$transaction(async (tx) => {
       if (next !== te.currentStep)
         await tx.taskEntity.update({

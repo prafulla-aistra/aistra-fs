@@ -137,9 +137,10 @@ model Format {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  tasks        Task[]
-  lastChoiceOf User[]
-  versions     FormatVersion[]
+  tasks         Task[]
+  lastChoiceOf  User[]
+  versions      FormatVersion[]
+  noteTemplates NoteTemplate[]
 
   @@map("format")
 }
@@ -305,7 +306,6 @@ model User {
   varianceExplanations  VarianceExplanation[]   @relation("VarianceExplanationBy")
   ownershipChanges      EntityOwnership[]       @relation("OwnershipCreatedBy")
   formatVersions        FormatVersion[]         @relation("FormatVersionBy")
-  statementTexts        StatementText[]         @relation("StatementTextBy")
   levelCurrencies       LevelCurrencyOverride[] @relation("LevelCurrencyBy")
 
   @@map("app_user")
@@ -461,7 +461,7 @@ model Task {
   varianceExplanations VarianceExplanation[]
   translationSnapshots TranslationSnapshot[]
   statementSnapshots   StatementSnapshot[]
-  statementTexts       StatementText[]
+  notes                EntityNote[]
   mappedAccounts       EntityAccount[]
   tbVersions           TbVersion[]
 
@@ -905,20 +905,83 @@ model StatementSnapshot {
   @@map("statement_snapshot")
 }
 
-/// Editable note text of a task entity: NOTE1 (corporate information and basis of
-/// preparation) and NOTE2 (significant accounting policies, carried forward to later tasks).
-model StatementText {
-  id          String   @id @default(uuid()) @db.Uuid
-  taskId      String   @map("task_id") @db.Uuid
-  entityCode  String   @map("entity_code") @db.VarChar(10)
-  kind        String   @db.VarChar(10)
-  text        String
-  updatedById String?  @map("updated_by_id") @db.Uuid
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+enum NoteKind {
+  LINE
+  NARRATIVE
+  CUSTOM
+}
 
-  task      Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  updatedBy User? @relation("StatementTextBy", fields: [updatedById], references: [id])
+enum NoteStatus {
+  DRAFT
+  CARRIED_FORWARD
+  EDITED
+  REVIEWED
+}
 
-  @@unique([taskId, entityCode, kind])
-  @@map("statement_text")
+/// A format's notes to accounts: the list new note sets start from (Configuration → Report
+/// formats → Notes). LINE notes are built from the accounts on the linked statement line(s).
+model NoteTemplate {
+  id            String   @id @default(uuid()) @db.Uuid
+  formatCode    String   @map("format_code") @db.VarChar(40)
+  sortOrder     Int      @map("sort_order")
+  title         String   @db.VarChar(200)
+  kind          NoteKind
+  /// Linked statement line keys ("BS:trade_rec").
+  lineKeys      String[] @map("line_keys")
+  /// Blocks a new note starts with (text may use {legalName}, {country}, … placeholders).
+  defaultBlocks Json     @default("[]") @map("default_blocks")
+  mandatory     Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  format Format @relation(fields: [formatCode], references: [code], onDelete: Cascade)
+
+  @@index([formatCode, sortOrder])
+  @@map("note_template")
+}
+
+/// A note of a task entity: title, ordered blocks (figures with sub-captions, text, tables),
+/// review status. Rolled forward from the entity's last finalised SFS, else from the templates.
+model EntityNote {
+  id            String     @id @default(uuid()) @db.Uuid
+  taskId        String     @map("task_id") @db.Uuid
+  entityCode    String     @map("entity_code") @db.VarChar(10)
+  sortOrder     Int        @map("sort_order")
+  kind          NoteKind
+  title         String     @db.VarChar(300)
+  lineKeys      String[]   @map("line_keys")
+  mandatory     Boolean    @default(false)
+  status        NoteStatus
+  blocks        Json       @default("[]")
+  /// The note of the last finalised period this one was rolled forward from.
+  carriedFromId String?    @map("carried_from_id") @db.Uuid
+  version       Int        @default(1)
+  reviewedById  String?    @map("reviewed_by_id") @db.Uuid
+  reviewedAt    DateTime?  @map("reviewed_at") @db.Timestamptz(3)
+  updatedById   String?    @map("updated_by_id") @db.Uuid
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task     Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  versions EntityNoteVersion[]
+
+  @@index([taskId, entityCode, sortOrder])
+  @@map("entity_note")
+}
+
+/// Every saved version of a note (auto-save), for history.
+model EntityNoteVersion {
+  id         String     @id @default(uuid()) @db.Uuid
+  noteId     String     @map("note_id") @db.Uuid
+  version    Int
+  title      String     @db.VarChar(300)
+  blocks     Json
+  status     NoteStatus
+  editedById String?    @map("edited_by_id") @db.Uuid
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  note EntityNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, version])
+  @@map("entity_note_version")
 }

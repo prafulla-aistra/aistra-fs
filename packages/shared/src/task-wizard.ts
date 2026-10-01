@@ -7,13 +7,14 @@ import type { TaskStatus } from './tasks';
 
 /** Workflow steps of a task. The task workspace (next pages) implements them. */
 export const TASK_STEPS = [
-  { code: 'UPLOAD_DATA', label: 'Upload data' },
-  { code: 'MAPPING', label: 'Review and map' },
-  { code: 'COMPARATIVES', label: 'Comparatives' },
-  { code: 'TRANSLATION', label: 'Currency translation' },
-  { code: 'STATEMENTS', label: 'Statements and notes' },
-  { code: 'REVIEW', label: 'Review' },
-  { code: 'FINALISED', label: 'Finalised' },
+  { code: 'UPLOAD_DATA', label: 'Upload data', short: 'Upload' },
+  { code: 'MAPPING', label: 'Review and map', short: 'Map' },
+  { code: 'COMPARATIVES', label: 'Comparatives', short: 'Comparatives' },
+  { code: 'TRANSLATION', label: 'Currency translation', short: 'Translation' },
+  { code: 'STATEMENTS', label: 'Statements', short: 'Statements' },
+  { code: 'NOTES', label: 'Notes to accounts', short: 'Notes' },
+  { code: 'REVIEW', label: 'Review', short: 'Review' },
+  { code: 'FINALISED', label: 'Finalised', short: 'Finalised' },
 ] as const;
 export type TaskStepCode = (typeof TASK_STEPS)[number]['code'];
 

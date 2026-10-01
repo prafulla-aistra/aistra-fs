@@ -8,6 +8,8 @@ import { MappingController } from './mapping.controller';
 import { MappingStepService } from './mapping-step.service';
 import { RateConfigService } from './rate-config.service';
 import { RatesService } from './rates.service';
+import { NotesController } from './notes.controller';
+import { NotesService } from './notes.service';
 import { StatementFiguresService } from './statement-figures';
 import { StatementsController } from './statements.controller';
 import { StatementsService } from './statements.service';
@@ -26,6 +28,7 @@ import { UploadsController } from './uploads.controller';
     TranslationController,
     ConfigDataController,
     StatementsController,
+    NotesController,
   ],
   providers: [
     UploadStepService,
@@ -38,6 +41,7 @@ import { UploadsController } from './uploads.controller';
     TranslationService,
     StatementFiguresService,
     StatementsService,
+    NotesService,
   ],
 })
 export class UploadsModule {}

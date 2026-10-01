@@ -49,57 +49,6 @@ export interface StatementViewDto {
   rows: StatementRowDto[];
 }
 
-export interface NoteAccountDto {
-  code: string;
-  name: string;
-  counterpartyCode: string | null;
-  counterpartyName: string | null;
-  fsliCode: string;
-  current: string | null;
-  comparative: string | null;
-  /** The TB account behind the current figure (for "show TB accounts"). */
-  tb: {
-    functional: string;
-    functionalCurrency: string;
-    basisLabel: string | null;
-    rate: string | null;
-    translated: string | null;
-  } | null;
-}
-
-export interface LineNoteDto {
-  number: number;
-  key: string;
-  statement: 'BS' | 'PL';
-  label: string;
-  accounts: NoteAccountDto[];
-  computed: {
-    fsliCode: string;
-    label: string;
-    current: string | null;
-    comparative: string | null;
-  }[];
-  total: { current: string; comparative: string | null };
-  face: { current: string; comparative: string | null };
-  ties: { current: boolean; comparative: boolean | null };
-}
-
-export interface RatesNoteDto {
-  currencyPair: string;
-  current: {
-    opening: string | null;
-    closing: string | null;
-    average: string | null;
-    historical: string | null;
-  };
-  comparative: {
-    opening: string | null;
-    closing: string | null;
-    average: string | null;
-    historical: string | null;
-  } | null;
-}
-
 export interface EntityStatementsDto {
   entity: {
     code: string;
@@ -146,27 +95,6 @@ export interface EntityStatementsDto {
   failures: string[];
   balanceSheet: StatementViewDto;
   profitAndLoss: StatementViewDto;
-  notes: {
-    note1: { text: string; edited: boolean; translation: string | null; updatedBy: string | null };
-    note2: { text: string; edited: boolean; carriedFrom: string | null; updatedBy: string | null };
-    lines: LineNoteDto[];
-    intercompany: {
-      number: number;
-      label: string;
-      rows: {
-        counterpartyCode: string;
-        counterpartyName: string;
-        current: { receivable: string; payable: string; revenue: string; charges: string };
-        comparative: {
-          receivable: string;
-          payable: string;
-          revenue: string;
-          charges: string;
-        } | null;
-      }[];
-    } | null;
-    rates: (RatesNoteDto & { number: number }) | null;
-  };
   roundingNote: string | null;
   warnings: string[];
   footer: string;
@@ -176,9 +104,4 @@ export interface EntityStatementsDto {
 export interface StatementsStepDto {
   task: UploadStepDto['task'] & { formatName: string | null };
   entities: (MappingTabDto & { ties: boolean | null })[];
-}
-
-export interface StatementTextInput {
-  kind: 'NOTE1' | 'NOTE2';
-  text: string;
 }

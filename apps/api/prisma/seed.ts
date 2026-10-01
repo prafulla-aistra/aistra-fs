@@ -19,10 +19,12 @@ import { seedAccounts } from './seed-accounts';
 import { seedConfiguration } from './seed-configuration';
 import { seedDemoUsers } from './seed-demo';
 import { seedDemoTasks } from './seed-demo-tasks';
+import { seedDemoNotes } from './seed-demo-notes';
 import { seedDemoStatements } from './seed-demo-statements';
 import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
 import { seedFormats } from './seed-formats';
+import { seedNoteTemplates } from './seed-note-templates';
 import { withConnectionDefaults } from '../src/prisma/database-url';
 
 const prisma = new PrismaClient({
@@ -126,6 +128,7 @@ async function seedReferenceData(): Promise<void> {
   await seedConfiguration(prisma);
   await seedAccounts(prisma);
   await seedFormats(prisma);
+  await seedNoteTemplates(prisma);
   for (const [key, value] of [
     ['IC_DIFF_THRESHOLD', '1.00'],
     ['RATE_SOURCE', ''],
@@ -221,6 +224,7 @@ async function main(): Promise<void> {
     await seedDemoUploads(prisma);
     await seedDemoTranslations(prisma);
     await seedDemoStatements(prisma);
+    await seedDemoNotes(prisma);
   }
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }

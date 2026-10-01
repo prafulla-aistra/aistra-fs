@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { TaskPlaceholderPage } from './TaskPlaceholderPage';
 import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
+import { NotesStep } from './notes/NotesStep';
 import { StatementsStep } from './statements/StatementsStep';
 import { TranslationStep } from './translation/TranslationStep';
 import { UploadStep } from './upload/UploadStep';
@@ -77,6 +78,13 @@ export function TaskWorkspacePage() {
         <StatementsStep
           taskId={t.id}
           onUpload={() => goTo('UPLOAD_DATA')}
+          onContinue={() => goTo('NOTES')}
+          onNote={(n) => setSearch({ step: 'NOTES', note: String(n) })}
+        />
+      ) : active === 'NOTES' ? (
+        <NotesStep
+          taskId={t.id}
+          onUpload={() => goTo('UPLOAD_DATA')}
           onContinue={() => goTo('REVIEW')}
         />
       ) : (
@@ -101,20 +109,20 @@ function Stepper({
 }) {
   const activeIndex = TASK_STEPS.findIndex((s) => s.code === active);
   return (
-    <nav aria-label="Task steps" className="mb-6">
-      <ol className="flex flex-wrap items-center gap-2">
+    <nav aria-label="Task steps" className="no-print mb-6 overflow-x-auto">
+      <ol className="flex flex-nowrap items-center gap-1.5">
         {TASK_STEPS.map((s, i) => {
           const current = i === activeIndex;
           const done = i < activeIndex;
           return (
-            <li key={s.code} className="flex items-center gap-2">
-              {i > 0 && <span className="h-px w-6 bg-border sm:w-10" aria-hidden />}
+            <li key={s.code} className="flex shrink-0 items-center gap-1.5">
+              {i > 0 && <span className="h-px w-3 bg-border lg:w-5" aria-hidden />}
               <button
                 type="button"
                 onClick={() => onSelect(s.code)}
                 aria-current={current ? 'step' : undefined}
                 className={cn(
-                  'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors',
+                  'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm whitespace-nowrap transition-colors',
                   current
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'bg-card text-muted-foreground hover:text-foreground',
@@ -128,7 +136,7 @@ function Stepper({
                 >
                   {done ? <Check className="size-3" /> : i + 1}
                 </span>
-                {s.label}
+                <span title={s.label}>{s.short}</span>
               </button>
             </li>
           );

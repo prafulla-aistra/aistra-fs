@@ -79,9 +79,11 @@ export class DashboardService {
     };
 
     const empty = { finalised: 0, total: 0, counts: countItemStatuses([]) };
+    const demoData = (await this.prisma.task.count({ where: { isDemo: true } })) > 0;
     if (!selected) {
       return {
         today,
+        demoData,
         periods: months.map(toOption),
         period: null,
         standalone: empty,
@@ -131,6 +133,7 @@ export class DashboardService {
 
     return {
       today,
+      demoData,
       periods: months.map(toOption),
       period: {
         id: selected.id,

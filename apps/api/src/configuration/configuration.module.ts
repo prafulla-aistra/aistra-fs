@@ -6,6 +6,7 @@ import { CurrenciesService } from './currencies.service';
 import { EntitiesController } from './entities.controller';
 import { EntitiesService } from './entities.service';
 import { FormatsController } from './formats.controller';
+import { NoteTemplatesController } from './note-templates.controller';
 import { FormatsService } from './formats.service';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
@@ -16,6 +17,7 @@ import { ReferenceService } from './reference.service';
     CurrenciesController,
     EntitiesController,
     CalendarController,
+    NoteTemplatesController,
     ReferenceController,
     FormatsController,
   ],

@@ -10,14 +10,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api, downloadPath, errorMessage } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { NotesView } from './NotesView';
 import { StatementView } from './StatementView';
 
-type Tab = 'BS' | 'PL' | 'NOTES';
+type Tab = 'BS' | 'PL';
 const TABS: { code: Tab; label: string }[] = [
   { code: 'BS', label: 'Balance sheet' },
   { code: 'PL', label: 'Profit and loss' },
-  { code: 'NOTES', label: 'Notes to accounts' },
 ];
 
 export function EntityStatements({
@@ -25,11 +23,14 @@ export function EntityStatements({
   entityCode,
   onUpload,
   onContinue,
+  onNote,
 }: {
   taskId: string;
   entityCode: string;
   onUpload: () => void;
   onContinue: () => void;
+  /** A line's note: opens the Notes step at that note. */
+  onNote: (n: number) => void;
 }) {
   const qc = useQueryClient();
   const [opts, setOpts] = useState<{
@@ -43,7 +44,6 @@ export function EntityStatements({
   });
   const [tab, setTab] = useState<Tab>('BS');
   const [printing, setPrinting] = useState(false);
-  const [goToNote, setGoToNote] = useState<number | null>(null);
   const qs = new URLSearchParams({
     ...(opts.format ? { format: opts.format } : {}),
     ...(opts.currency ? { currency: opts.currency } : {}),
@@ -76,23 +76,12 @@ export function EntityStatements({
         `/tasks/${taskId}/entities/${entityCode}/statements/continue`,
       ),
     onSuccess: async () => {
-      toast(`${entityCode} moved to Review and finalise.`);
+      toast(`${entityCode} moved to Notes.`);
       await qc.invalidateQueries({ queryKey: ['statements-step', taskId] });
       await qc.invalidateQueries({ queryKey: ['task', taskId] });
       onContinue();
     },
   });
-
-  // Line → its note: switch to the notes tab, then scroll there.
-  useEffect(() => {
-    if (goToNote === null || tab !== 'NOTES') return;
-    const el = document.getElementById(`note-${goToNote}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el?.classList.add('ring-2', 'ring-primary');
-    const t = setTimeout(() => el?.classList.remove('ring-2', 'ring-primary'), 1800);
-    setGoToNote(null);
-    return () => clearTimeout(t);
-  }, [goToNote, tab]);
 
   // Print / PDF: all three sections, then back.
   useEffect(() => {
@@ -123,11 +112,6 @@ export function EntityStatements({
         </CardContent>
       </Card>
     );
-
-  const onNote = (n: number) => {
-    setTab('NOTES');
-    setGoToNote(n);
-  };
 
   return (
     <div className="space-y-5 pb-24">
@@ -255,7 +239,6 @@ export function EntityStatements({
 
       {(printing || tab === 'BS') && <StatementView d={d} view={d.balanceSheet} onNote={onNote} />}
       {(printing || tab === 'PL') && <StatementView d={d} view={d.profitAndLoss} onNote={onNote} />}
-      {(printing || tab === 'NOTES') && <NotesView d={d} taskId={taskId} />}
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" /> {d.footer}
@@ -271,7 +254,7 @@ export function EntityStatements({
             onClick={() => next.mutate()}
             title={d.readOnlyReason ?? undefined}
           >
-            Continue to review and finalise <ArrowRight />
+            Continue to notes <ArrowRight />
           </Button>
         </div>
       </div>

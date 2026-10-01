@@ -11,18 +11,10 @@
  * accounts that are NOT in the seeded chart of accounts: IN 1455 Advance to Suppliers,
  * IN 6120 Staff Welfare Expenses and UK 6390 Bank Charges.
  *
- * India and UK are specified so the page 4–6 expected results hold to the cent; a small
- * "tuning" step moves a few rupees / pence between two accounts so that each translated
- * total (every line rounded to 2 dp) lands exactly on its expected value.
- *
- * Expected results:
- *   IN Aug  debits = credits 787,777,348.66 INR; profit 17,760,764.50; RE 181,356,584.16 Cr
- *   IN Jul  debits = credits 769,056,584.16 INR; profit 16,356,584.16; RE 165,000,000.00 Cr
- *   IN → USD  Jul: assets 8,420,793.78, profit 189,971.96, FCTR 893,643.96 Dr
- *             Aug: assets 8,576,724.39, profit 205,089.66, FCTR 939,726.38 Dr
- *   UK Aug  profit 29,500.00 GBP; RE 122,000.00 Cr (Jul RE 95,000.00 + Jul profit 27,000.00)
- *   UK → USD Aug: assets 652,610.43, FCTR 11,738.76 Cr; → INR: assets 56,711,847.39,
- *             FCTR 3,275,366.67 Cr
+ * DEMO DATA – NOT VERIFIED. These figures were invented for development and will be replaced
+ * by the verified sample files. No figure is tuned to hit an expected result: the bank account
+ * balances each TB and nothing else is adjusted. The expected-figure tests of pages 4–7 are
+ * skipped until the verified files arrive.
  */
 import { Decimal } from '@finance-close/engine';
 
@@ -444,15 +436,15 @@ const IN_LINES: Line[] = [
     code: '6900',
     name: 'Income Tax Expense',
     type: 'Expense',
-    aug: '2000000.00',
-    jul: '2000000.00',
+    aug: '1750000.00',
+    jul: '1750000.00',
   },
   {
     code: '6910',
     name: 'Deferred Tax Expense',
     type: 'Expense',
-    aug: '-100000.00',
-    jul: '-100000.00',
+    aug: '150000.00',
+    jul: '150000.00',
   },
 ];
 
@@ -567,25 +559,6 @@ const EXTRA: Record<string, Line[]> = {
   ],
 };
 
-interface MonthTarget {
-  /** Profit for the month (4001 revenue is the plug). */
-  profit?: string;
-  /** Total liabilities (2001 accounts payable is the plug). */
-  liabilities?: string;
-}
-
-/** A translated total that must land exactly on `value` (every line rounded to 2 dp). */
-interface Tune {
-  month: Month;
-  /** Pairs of accounts in the group: small amounts move from one to the other. */
-  pairs: [string, string][];
-  /** Which accounts the total covers. */
-  covers: (code: string) => boolean;
-  targets: { to: string; kind: Kind; value: string }[];
-}
-
-const isAsset = (c: string) => c.startsWith('1');
-const isLiability = (c: string) => c.startsWith('2');
 const isPL = (code: string) => /^[4-6]/.test(code);
 
 const ENTITY_INFO: {
@@ -594,8 +567,6 @@ const ENTITY_INFO: {
   currency: string;
   size: string;
   bankName: string;
-  target?: { jul?: MonthTarget; aug?: MonthTarget };
-  tune?: Tune[];
 }[] = [
   {
     code: 'US',
@@ -603,7 +574,6 @@ const ENTITY_INFO: {
     currency: 'USD',
     size: '1.5',
     bankName: 'Chase Bank Operating Account',
-    target: { jul: { profit: '42000.00' }, aug: { profit: '45500.00' } },
   },
   {
     code: 'IN',
@@ -611,72 +581,6 @@ const ENTITY_INFO: {
     currency: 'INR',
     size: '1',
     bankName: 'Operating Bank',
-    tune: [
-      {
-        month: 'jul',
-        pairs: [
-          ['1010', '1250'],
-          ['1260', '1270'],
-          ['1500', '1520'],
-        ],
-        covers: isAsset,
-        targets: [{ to: 'USD', kind: 'closing', value: '8420793.78' }],
-      },
-      {
-        month: 'jul',
-        pairs: [
-          ['2100', '2200'],
-          ['2150', '2210'],
-        ],
-        covers: isLiability,
-        targets: [{ to: 'USD', kind: 'closing', value: '-534722.21' }],
-      },
-      // Revenue and operating costs separately (so EBITDA lands too), each within one
-      // statement line so the INR line totals of page 7 stay exact.
-      {
-        month: 'jul',
-        pairs: [['4000', '4103']],
-        covers: (c) => c >= '4000' && c < '4500',
-        targets: [{ to: 'USD', kind: 'average', value: '-667904.58' }],
-      },
-      {
-        month: 'jul',
-        pairs: [
-          ['6001', '6010'],
-          ['6200', '6210'],
-        ],
-        covers: (c) => c >= '5000' && c < '6500',
-        targets: [{ to: 'USD', kind: 'average', value: '442508.70' }],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['1010', '1250'],
-          ['1260', '1270'],
-          ['1500', '1520'],
-        ],
-        covers: isAsset,
-        targets: [{ to: 'USD', kind: 'closing', value: '8576724.39' }],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['2100', '2200'],
-          ['2150', '2210'],
-        ],
-        covers: isLiability,
-        targets: [{ to: 'USD', kind: 'closing', value: '-531645.58' }],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['6001', '6010'],
-          ['6200', '6210'],
-        ],
-        covers: (c) => c >= '5000' && c < '6500',
-        targets: [{ to: 'USD', kind: 'average', value: '451039.26' }],
-      },
-    ],
   },
   {
     code: 'AE',
@@ -684,7 +588,6 @@ const ENTITY_INFO: {
     currency: 'AED',
     size: '0.3',
     bankName: 'Emirates NBD Current Account',
-    target: { jul: { profit: '18000.00' }, aug: { profit: '19500.00' } },
   },
   {
     code: 'UK',
@@ -692,76 +595,6 @@ const ENTITY_INFO: {
     currency: 'GBP',
     size: '0.4',
     bankName: 'Barclays Business Account',
-    target: {
-      jul: { profit: '27000.00', liabilities: '-130000.00' },
-      aug: { profit: '29500.00', liabilities: '-136000.00' },
-    },
-    tune: [
-      {
-        month: 'jul',
-        pairs: [
-          ['1100', '1250'],
-          ['1200', '1300'],
-          ['1500', '1600'],
-        ],
-        covers: (c) => isAsset(c) || isLiability(c),
-        targets: [
-          { to: 'USD', kind: 'closing', value: '433962.27' },
-          { to: 'INR', kind: 'closing', value: '37494339.63' },
-        ],
-      },
-      {
-        month: 'jul',
-        pairs: [
-          ['5001', '6001'],
-          ['6100', '6200'],
-          ['6300', '6500'],
-        ],
-        covers: isPL,
-        targets: [
-          { to: 'USD', kind: 'average', value: '-36486.48' },
-          { to: 'INR', kind: 'average', value: '-3141486.48' },
-        ],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['1100', '1250'],
-          ['1200', '1300'],
-          ['1500', '1600'],
-        ],
-        covers: isAsset,
-        targets: [
-          { to: 'USD', kind: 'closing', value: '652610.43' },
-          { to: 'INR', kind: 'closing', value: '56711847.39' },
-        ],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['2100', '2200'],
-          ['2150', '2300'],
-        ],
-        covers: isLiability,
-        targets: [
-          { to: 'USD', kind: 'closing', value: '-182061.58' },
-          { to: 'INR', kind: 'closing', value: '-15821151.27' },
-        ],
-      },
-      {
-        month: 'aug',
-        pairs: [
-          ['5001', '6001'],
-          ['6100', '6200'],
-          ['6300', '6500'],
-        ],
-        covers: isPL,
-        targets: [
-          { to: 'USD', kind: 'average', value: '-39597.32' },
-          { to: 'INR', kind: 'average', value: '-3429127.52' },
-        ],
-      },
-    ],
   },
   {
     code: 'UC',
@@ -769,7 +602,6 @@ const ENTITY_INFO: {
     currency: 'USD',
     size: '0.6',
     bankName: 'Silicon Valley Bank Operating Account',
-    target: { jul: { profit: '9000.00' }, aug: { profit: '9800.00' } },
   },
   {
     code: 'VS',
@@ -777,7 +609,6 @@ const ENTITY_INFO: {
     currency: 'SGD',
     size: '0.35',
     bankName: 'DBS Bank Current Account',
-    target: { jul: { profit: '3200.00' }, aug: { profit: '3500.00' } },
   },
   {
     code: 'VM',
@@ -785,7 +616,6 @@ const ENTITY_INFO: {
     currency: 'LKR',
     size: '0.25',
     bankName: 'Commercial Bank Current Account',
-    target: { jul: { profit: '3000000.00' }, aug: { profit: '3200000.00' } },
   },
 ];
 
@@ -847,81 +677,20 @@ function build(): SampleEntity[] {
       a.jul = l.augOnly ? '' : (l.jul ?? julFrom(a.code, a.name, a.aug));
     }
 
+    // The bank balances each TB (no other account is adjusted).
     const plug = (m: Month) => {
-      const t = e.target?.[m];
-      if (t?.profit) {
-        const revenue = find('4001');
-        revenue[m] = '0.00';
-        revenue[m] = d(t.profit)
-          .negated()
-          .minus(sum(m, (a) => isPL(a.code)))
-          .toFixed(2);
-      }
-      if (t?.liabilities) {
-        const ap = find('2001');
-        ap[m] = '0.00';
-        ap[m] = d(t.liabilities)
-          .minus(sum(m, (a) => isLiability(a.code)))
-          .toFixed(2);
-      }
-      // India: Aug receivables and Jul bank balance the TB; the others: the bank.
       const balancer = bank;
       balancer[m] = '0.00';
       balancer[m] = sum(m, () => true)
         .negated()
         .toFixed(2);
     };
-    const tune = (m: Month) => {
-      for (const t of (e.tune ?? []).filter((x) => x.month === m)) {
-        // Distance (in currency units) of each translated total from its expected value.
-        const distance = () =>
-          t.targets.reduce((sumDist, g) => {
-            const rate = cross(e.currency, g.to, m, g.kind);
-            const total = accounts
-              .filter((a) => a[m] !== '' && t.covers(a.code))
-              .reduce((s2, a) => s2.plus(d(a[m]).times(rate).toDecimalPlaces(2)), d(0));
-            return sumDist.plus(total.minus(g.value).abs());
-          }, d(0));
-        let current = distance();
-        // Greedy: move a few units between a pair while that brings the totals closer.
-        while (!current.isZero()) {
-          let improved = false;
-          for (const [xc, yc] of t.pairs) {
-            const x = find(xc);
-            const y = find(yc);
-            const x0 = x[m];
-            const y0 = y[m];
-            for (let k = 1; k <= 4000 && !improved; k++) {
-              const delta = d(k % 2 === 0 ? k / 2 : -(k + 1) / 2).dividedBy(100);
-              x[m] = d(x0).plus(delta).toFixed(2);
-              y[m] = d(y0).minus(delta).toFixed(2);
-              const next = distance();
-              if (next.lessThan(current)) {
-                current = next;
-                improved = true;
-              }
-            }
-            if (!improved) {
-              x[m] = x0;
-              y[m] = y0;
-            } else break;
-          }
-          if (!improved)
-            throw new Error(
-              `Sample ${e.code} ${m}: cannot tune to ${t.targets.map((g) => g.value).join(', ')}`,
-            );
-        }
-      }
-    };
-
     plug('jul');
-    tune('jul');
     // Opening retained earnings for Aug = Jul retained earnings + Jul profit (roll-forward).
     find('3200').aug = d(find('3200').jul)
       .plus(sum('jul', (a) => isPL(a.code)))
       .toFixed(2);
     plug('aug');
-    tune('aug');
 
     for (const m of ['jul', 'aug'] as const) {
       if (d(bank[m]).isNegative())

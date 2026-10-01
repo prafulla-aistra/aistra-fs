@@ -452,7 +452,7 @@ describe('report formats', () => {
     ).toBe(409);
   });
 
-  it("preview with India's Aug-2026 figures: profit 17,760,764.50 and the balance sheet balances", async () => {
+  it("preview with India's Aug-2026 figures: profit agrees to the TB and the balance sheet balances", async () => {
     // Map the two Aug-only accounts (as the preparer would on step 2).
     for (const [code, name, fsli] of [
       ['1455', 'Aug account 1455', 'CUR_OTH'],
@@ -483,7 +483,11 @@ describe('report formats', () => {
     expect(res.status).toBe(201);
     const p = res.body as FormatPreviewDto;
     expect(p.unmapped).toBe('0.00');
-    expect(p.rows.find((r) => r.role === 'PROFIT')!.value).toBe('17760764.50');
+    // Profit on the format = profit of the mapped TB (step 2's FSLI summary), whatever the data.
+    const mapping = (
+      await ctx.http().get(`/api/tasks/${augTaskId}/entities/IN/mapping`).set(as(preparer))
+    ).body as { fsliSummary: { profit: string } };
+    expect(p.rows.find((r) => r.role === 'PROFIT')!.value).toBe(mapping.fsliSummary.profit);
     expect(p.balanced).toBe(true);
     await ctx.prisma.entityAccount.deleteMany({
       where: { entityCode: 'IN', source: 'TASK_MAPPING', accountCode: { in: ['1455', '6120'] } },

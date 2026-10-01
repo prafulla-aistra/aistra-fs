@@ -99,3 +99,52 @@ export async function deleteNonDemoTasks(ctx: TestContext): Promise<void> {
   if (!rows[0]?.db.endsWith('_test')) throw new Error('deleteNonDemoTasks: not a test database');
   await ctx.prisma.task.deleteMany({ where: { isDemo: false } });
 }
+
+/**
+ * Makes the latest current TB of an entity in a (demo) task the current sample file, uploading
+ * and confirming it as a preparer would when an older file is the latest version. Suites that
+ * depend on the demo TB call it, so they do not depend on which suite ran before.
+ */
+export async function ensureSampleTb(
+  ctx: TestContext,
+  token: string,
+  taskId: string,
+  entityCode: string,
+  body: Buffer,
+  fileName: string,
+): Promise<void> {
+  const { createHash } = await import('node:crypto');
+  const latest = await ctx.prisma.tbVersion.findFirst({
+    where: { taskId, entityCode, purpose: 'CURRENT' },
+    orderBy: { version: 'desc' },
+    include: { file: true },
+  });
+  if (latest?.file.sha256 === createHash('sha256').update(body).digest('hex')) return;
+  const auth = { Authorization: `Bearer ${token}` };
+  const up = await ctx
+    .http()
+    .post(`/api/tasks/${taskId}/entities/${entityCode}/tb`)
+    .set(auth)
+    .attach('file', body, {
+      filename: fileName,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+  if (up.status !== 201)
+    throw new Error(`ensureSampleTb upload: ${up.status} ${JSON.stringify(up.body)}`);
+  const p = up.body as {
+    fileId: string;
+    settings: unknown;
+    check: { needsAcknowledgement: { code: string }[] } | null;
+  };
+  const ok = await ctx
+    .http()
+    .post(`/api/tasks/${taskId}/entities/${entityCode}/tb/confirm`)
+    .set(auth)
+    .send({
+      fileId: p.fileId,
+      settings: p.settings,
+      acknowledged: (p.check?.needsAcknowledgement ?? []).map((i) => i.code),
+    });
+  if (ok.status !== 201)
+    throw new Error(`ensureSampleTb confirm: ${ok.status} ${JSON.stringify(ok.body)}`);
+}
