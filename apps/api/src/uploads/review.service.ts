@@ -30,6 +30,7 @@ import {
   type FinalisedViewDto,
   type KeyFiguresDto,
   type QueryDto,
+  type QueryMarkerDto,
   type QueryTargetType,
   type ReviewPackDto,
   type ReviewStepDto,
@@ -685,7 +686,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       ];
       actions.canSubmit = actions.submitBlockedBy.length === 0;
       actions.canRaiseQuery = user.permissions.has(Permission.SfsReview);
-      if (active) {
+      if (active && user.permissions.has(Permission.SfsReview)) {
         const why = await this.decideBlocked(user, task, te, active);
         actions.decidingAs = active.stage === 2 ? 'APPROVER' : 'REVIEWER';
         actions.canReturn = why === null;
@@ -729,6 +730,22 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       changes: await this.changes(task, te),
       queries,
     };
+  }
+
+  /** Not-closed queries of an entity, for the markers in the earlier steps. */
+  async markers(user: AuthUser, taskId: string, entityCode: string): Promise<QueryMarkerDto[]> {
+    const task = await loadStepTask(this.prisma, user, taskId);
+    assertViewable(user, task, entityCode);
+    const rows = await this.prisma.reviewQuery.findMany({
+      where: { taskId, entityCode, status: { not: 'CLOSED' } },
+      select: { targetType: true, targetKey: true, status: true, text: true },
+    });
+    return rows.map((r) => ({
+      targetType: r.targetType as QueryTargetType,
+      targetKey: r.targetKey,
+      status: r.status as 'OPEN' | 'ANSWERED',
+      text: r.text,
+    }));
   }
 
   async step(user: AuthUser, taskId: string): Promise<ReviewStepDto> {

@@ -153,7 +153,9 @@ afterAll(async () => {
     await resetReviewState();
     await ctx.prisma.entityNote.deleteMany({ where: { taskId, entityCode: 'IN' } });
     await ctx.prisma.entityAccount.deleteMany({
-      where: { entityCode: 'IN', source: 'TASK_MAPPING', accountCode: { in: EXTRA } },
+      // Not in the seeded chart of accounts (page 3 tests expect them new); any source, as the
+      // configuration edit above changes it.
+      where: { entityCode: 'IN', accountCode: { in: EXTRA } },
     });
     for (const r of lockedBefore)
       await ctx.prisma.exchangeRate.updateMany({

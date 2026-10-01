@@ -16,6 +16,7 @@ import {
   MAX_UPLOAD_BYTES,
   Permission,
   type FinalisedViewDto,
+  type QueryMarkerDto,
   type ReviewPackDto,
   type ReviewStepDto,
 } from '@finance-close/shared';
@@ -87,6 +88,16 @@ export class ReviewController {
     @Param('code', new ZodPipe(entityCode)) code: string,
   ): Promise<ReviewPackDto> {
     return this.review.pack(user, id, code);
+  }
+
+  @Get('tasks/:id/entities/:code/review/markers')
+  @ViewTasks()
+  markers(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+  ): Promise<QueryMarkerDto[]> {
+    return this.review.markers(user, id, code);
   }
 
   @Post('tasks/:id/entities/:code/review/submit')

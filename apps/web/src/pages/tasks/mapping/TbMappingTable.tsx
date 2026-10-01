@@ -15,6 +15,8 @@ import { api, ApiError, errorMessage } from '@/lib/api';
 import { amountText } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { useQueryMarkers } from '../review/markers';
+import { QueryMarker } from '../review/ReviewStep';
 import { SearchBox } from '@/pages/configuration/common';
 import { CounterpartySelect, FsliSelect } from './FsliSelect';
 
@@ -30,6 +32,7 @@ export function TbMappingTable({
   mapping: EntityMappingDto;
   onSaved: (m: EntityMappingDto) => Promise<void>;
 }) {
+  const queriesOn = useQueryMarkers(taskId, mapping.entity.code);
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<MappedLineDto | null>(null);
@@ -91,7 +94,12 @@ export function TbMappingTable({
           <tbody>
             {rows.map((l) => (
               <tr key={l.code} className={cn(!l.mapped && 'bg-amber-50')}>
-                <Td className="font-mono text-xs">{l.code}</Td>
+                <Td className="font-mono text-xs">
+                  {l.code}
+                  {queriesOn('ACCOUNT', l.code) > 0 && (
+                    <QueryMarker count={queriesOn('ACCOUNT', l.code)} />
+                  )}
+                </Td>
                 <Td>{l.name}</Td>
                 <Td className="text-xs">{l.accountType ?? '—'}</Td>
                 <Td className="text-xs">

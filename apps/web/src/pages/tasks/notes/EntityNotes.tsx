@@ -26,6 +26,8 @@ import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { statusVariant } from './figures';
 import { NoteEditor } from './NoteEditor';
+import { useQueryMarkers } from '../review/markers';
+import { QueryMarker } from '../review/ReviewStep';
 
 /** Notes for one entity: list on the left, the selected note on the right. */
 export function EntityNotes({
@@ -41,6 +43,7 @@ export function EntityNotes({
 }) {
   const qc = useQueryClient();
   const [search, setSearch] = useSearchParams();
+  const queriesOn = useQueryMarkers(taskId, entityCode);
   const [opts, setOpts] = useState<{ currency?: string; unit: StatementUnitCode }>({
     unit: 'ACTUAL',
   });
@@ -97,7 +100,9 @@ export function EntityNotes({
 
   // A statement's Note column links here with ?note=<number>.
   const wanted = Number(search.get('note'));
-  const fromLink = wanted ? d.notes.find((n) => n.number === wanted)?.id : undefined;
+  const fromLink = wanted
+    ? d.notes.find((n) => n.number === wanted)?.id
+    : (search.get('noteId') ?? undefined);
   const list = d.notes.filter((n) => showHidden || !n.hidden);
   const current = d.notes.find((n) => n.id === (selected ?? fromLink)) ?? list[0] ?? null;
   const ids = d.notes.map((n) => n.id);
@@ -219,6 +224,7 @@ export function EntityNotes({
               >
                 <span className="mr-1 font-semibold tabular-nums">{n.number ?? '–'}.</span>{' '}
                 {n.title}
+                {queriesOn('NOTE', n.id) > 0 && <QueryMarker count={queriesOn('NOTE', n.id)} />}
                 <span className="mt-0.5 flex flex-wrap gap-1">
                   <Badge variant={statusVariant(n.status)} className="text-[10px]">
                     {NOTE_STATUS_LABELS[n.status]}

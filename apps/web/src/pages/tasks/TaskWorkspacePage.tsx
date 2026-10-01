@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Check, Construction, Eye, Lock } from 'lucide-react';
+import { ArrowLeft, Check, Eye, Lock } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { TASK_STEPS, type TaskDetailDto, type TaskStepCode } from '@finance-close/shared';
 import { PageHeader } from '@/components/AppShell';
 import { TaskStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Alert } from '@/components/ui/form';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
@@ -15,13 +14,15 @@ import { TaskPlaceholderPage } from './TaskPlaceholderPage';
 import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
 import { NotesStep } from './notes/NotesStep';
+import { FinalisedStep } from './review/FinalisedStep';
+import { ReviewStep } from './review/ReviewStep';
 import { StatementsStep } from './statements/StatementsStep';
 import { TranslationStep } from './translation/TranslationStep';
 import { UploadStep } from './upload/UploadStep';
 
 /**
- * Task workspace. SFS tasks: a stepper over the workflow steps; step 1 "Upload data" is built
- * (page 3), later steps come on the next pages. CFS tasks keep the summary placeholder.
+ * Task workspace. SFS tasks: a stepper over the eight workflow steps, Upload to Finalised.
+ * CFS tasks keep the summary placeholder.
  */
 export function TaskWorkspacePage() {
   const { id = '' } = useParams();
@@ -87,14 +88,17 @@ export function TaskWorkspacePage() {
           onUpload={() => goTo('UPLOAD_DATA')}
           onContinue={() => goTo('REVIEW')}
         />
+      ) : active === 'REVIEW' ? (
+        <ReviewStep
+          taskId={t.id}
+          onGo={(step, key) =>
+            setSearch(
+              step === 'NOTES' && key ? { step, noteId: key } : { step, ...(key ? { key } : {}) },
+            )
+          }
+        />
       ) : (
-        <Card>
-          <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Construction className="size-4" />
-            {TASK_STEPS.find((s) => s.code === active)!.label} is built on the next page. Entities
-            that finished the earlier steps wait here.
-          </CardContent>
-        </Card>
+        <FinalisedStep taskId={t.id} />
       )}
     </>
   );

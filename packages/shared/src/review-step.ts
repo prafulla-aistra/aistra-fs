@@ -20,7 +20,8 @@ export interface NotificationsDto {
   }[];
 }
 
-export type CheckStep = 'UPLOAD_DATA' | 'MAPPING' | 'COMPARATIVES' | 'TRANSLATION' | 'STATEMENTS' | 'NOTES';
+export type CheckStep =
+  'UPLOAD_DATA' | 'MAPPING' | 'COMPARATIVES' | 'TRANSLATION' | 'STATEMENTS' | 'NOTES';
 
 export interface CheckResultDto {
   /** Unique per currency ("BS_TIES:USD"). */
@@ -34,7 +35,8 @@ export interface CheckResultDto {
   link: { step: CheckStep; key?: string };
 }
 
-export type SignOffStatus = 'NOT_STARTED' | 'SUBMITTED' | 'WAITING' | 'APPROVED' | 'RETURNED' | 'NOT_REQUIRED';
+export type SignOffStatus =
+  'NOT_STARTED' | 'SUBMITTED' | 'WAITING' | 'APPROVED' | 'RETURNED' | 'NOT_REQUIRED';
 export interface SignOffDto {
   role: 'PREPARER' | 'REVIEWER' | 'APPROVER';
   name: string | null;
@@ -75,6 +77,14 @@ export interface QueryDto {
   canReopen: boolean;
 }
 
+/** A not-closed query, for the markers on statement lines, accounts and notes. */
+export interface QueryMarkerDto {
+  targetType: QueryTargetType;
+  targetKey: string | null;
+  status: 'OPEN' | 'ANSWERED';
+  text: string;
+}
+
 export interface KeyFiguresDto {
   currency: string;
   rows: {
@@ -87,7 +97,14 @@ export interface KeyFiguresDto {
 }
 
 export interface ReviewPackDto {
-  entity: { code: string; legalName: string; shortName: string; functionalCurrency: string; erp: string; itemStatus: ItemStatus };
+  entity: {
+    code: string;
+    legalName: string;
+    shortName: string;
+    functionalCurrency: string;
+    erp: string;
+    itemStatus: ItemStatus;
+  };
   periodLabel: string;
   periodEnd: string;
   comparativeLabel: string;
@@ -130,7 +147,12 @@ export interface ReviewPackDto {
   notes: { visible: number; reviewed: number; staleFlags: number; notReviewed: string[] };
   translation: {
     currency: string;
-    rates: { opening: string | null; closing: string | null; average: string | null; historical: string | null };
+    rates: {
+      opening: string | null;
+      closing: string | null;
+      average: string | null;
+      historical: string | null;
+    };
     fctr: string | null;
     fctrMovement: string | null;
     reMethod: string;
@@ -143,7 +165,14 @@ export interface ReviewPackDto {
     revenue: string;
     charges: string;
   }[];
-  files: { kind: string; name: string; version: number | null; uploadedBy: string; uploadedAt: string; sha256: string }[];
+  files: {
+    kind: string;
+    name: string;
+    version: number | null;
+    uploadedBy: string;
+    uploadedAt: string;
+    sha256: string;
+  }[];
   changes: { at: string; user: string | null; action: string; summary: string }[];
   queries: QueryDto[];
   queryTargets: Record<Exclude<QueryTargetType, 'ENTITY'>, { key: string; label: string }[]>;

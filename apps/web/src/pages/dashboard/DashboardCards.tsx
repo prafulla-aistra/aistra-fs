@@ -168,15 +168,24 @@ function AttentionCard({ data, filters, onFilter }: Props) {
             () => onFilter({ periodId: period.id, status: 'TO_PREPARE' }),
             filters.status === 'TO_PREPARE',
           )}
-        {a.awaitingReview !== undefined &&
+        {a.awaitingYourReview !== undefined &&
           line(
-            a.awaitingReview === 1
-              ? 'entity awaiting your review'
-              : 'entities awaiting your review',
-            a.awaitingReview,
-            () => onFilter({ periodId: period.id, status: 'AWAITING_REVIEW' }),
+            a.awaitingYourReview === 1 ? 'item awaiting your review' : 'items awaiting your review',
+            a.awaitingYourReview,
+            () => onFilter({ status: 'AWAITING_REVIEW' }),
             filters.status === 'AWAITING_REVIEW',
           )}
+        {a.openQueries !== undefined && (
+          <div
+            className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-sm"
+            title="Open queries to answer, or answered queries you raised to close"
+          >
+            <span className={cn(a.openQueries > 0 && 'font-medium text-warning-foreground')}>
+              <span className="mr-1.5 font-semibold tabular-nums">{a.openQueries}</span>
+              open quer{a.openQueries === 1 ? 'y' : 'ies'}
+            </span>
+          </div>
+        )}
         {a.editAccessRequests !== undefined && (
           <Link
             to="/edit-access"

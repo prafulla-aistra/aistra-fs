@@ -326,13 +326,13 @@ TB shows "Upload a trial balance first".
 The sample data was revised on page 4 so the expected results below hold exactly (the seed
 updates seeded rates and demo TBs that nobody has changed):
 
-| Aug-2026 | Expected |
-|---|---|
-| IN debits = credits | 787,777,348.66 INR |
-| IN accounts to map | 1455 Advance to Suppliers Dr 400,000.00 → CUR_OTH; 6120 Staff Welfare Expenses Dr 350,000.00 → EMP |
-| IN profit after mapping | 17,760,764.50 INR |
-| IN INR→USD | opening 0.0115740741 · closing 0.0115074799 · average 0.0115473441 · historical 0.0133333333 |
-| UK | 6390 Bank Charges → OTH_EXP; profit 29,500.00 GBP after mapping |
+| Aug-2026                | Expected                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| IN debits = credits     | 787,777,348.66 INR                                                                                 |
+| IN accounts to map      | 1455 Advance to Suppliers Dr 400,000.00 → CUR_OTH; 6120 Staff Welfare Expenses Dr 350,000.00 → EMP |
+| IN profit after mapping | 17,760,764.50 INR                                                                                  |
+| IN INR→USD              | opening 0.0115740741 · closing 0.0115074799 · average 0.0115473441 · historical 0.0133333333       |
+| UK                      | 6390 Bank Charges → OTH_EXP; profit 29,500.00 GBP after mapping                                    |
 
 ### Comparatives (page 5)
 
@@ -363,12 +363,12 @@ and each month's opening retained earnings = the previous month's retained earni
 India's accounts follow the page 5 list (1300 Prepaid Expenses, 6400 Office Expenses, 48
 accounts in Aug, 46 in Jul). All page 4 results still hold.
 
-| Aug-2026 vs Jul-2026 | Expected |
-|---|---|
-| IN source | Finalised (SFS-2026-07-001), 46 accounts, 769,056,584.16 |
-| IN roll-forward | 165,000,000.00 Cr + 16,356,584.16 Cr = 181,356,584.16 Cr ✓ |
-| IN flags | 1300 Prepaid Expenses −33.3%; 6400 Office Expenses −50.0%; New 1455, 6120 |
-| UK | 95,000.00 Cr + 27,000.00 Cr = 122,000.00 Cr ✓; no flags; New 6390 (900.00) |
+| Aug-2026 vs Jul-2026 | Expected                                                                   |
+| -------------------- | -------------------------------------------------------------------------- |
+| IN source            | Finalised (SFS-2026-07-001), 46 accounts, 769,056,584.16                   |
+| IN roll-forward      | 165,000,000.00 Cr + 16,356,584.16 Cr = 181,356,584.16 Cr ✓                 |
+| IN flags             | 1300 Prepaid Expenses −33.3%; 6400 Office Expenses −50.0%; New 1455, 6120  |
+| UK                   | 95,000.00 Cr + 27,000.00 Cr = 122,000.00 Cr ✓; no flags; New 6390 (900.00) |
 
 ### Currency translation (page 6)
 
@@ -398,11 +398,11 @@ securities premium 400,000,000, no contra-asset accounts; UK share capital 200,0
 opening 85.80 / average 86.10; GBP Jul 0.7380 / 0.7420 / 0.7400 and Aug 0.7420 / 0.7470 /
 0.7450). All page 4 and 5 results still hold.
 
-| Aug-2026 | RE | Profit | FCTR | Total assets | FCTR movement |
-|---|---|---|---|---|---|
-| IN INR → USD | 2,113,048.88 Cr | 205,089.66 Cr | 939,726.38 Dr | 8,576,724.39 | 46,082.42 |
-| UK GBP → USD | 165,212.77 Cr | 39,597.32 Cr | 11,738.76 Cr | 652,610.43 | 3,010.74 |
-| UK GBP → INR | 14,186,201.93 Cr | 3,429,127.52 Cr | 3,275,366.67 Cr | 56,711,847.39 | 32,771.03 |
+| Aug-2026     | RE               | Profit          | FCTR            | Total assets  | FCTR movement |
+| ------------ | ---------------- | --------------- | --------------- | ------------- | ------------- |
+| IN INR → USD | 2,113,048.88 Cr  | 205,089.66 Cr   | 939,726.38 Dr   | 8,576,724.39  | 46,082.42     |
+| UK GBP → USD | 165,212.77 Cr    | 39,597.32 Cr    | 11,738.76 Cr    | 652,610.43    | 3,010.74      |
+| UK GBP → INR | 14,186,201.93 Cr | 3,429,127.52 Cr | 3,275,366.67 Cr | 56,711,847.39 | 32,771.03     |
 
 ### Statements and notes (page 7)
 
@@ -449,16 +449,16 @@ the former receivables is in the bank, now the balancing account). TB totals, pr
 earnings, the translation results and the page 4–6 expectations are unchanged (the page 6 bank
 line is now 6,039,394.36 USD).
 
-| India Aug-2026 (Jul-2026) | Monthly internal, INR | USD |
-|---|---|---|
-| Revenue | 59,870,764.50 (57,506,584.16) | 691,348.32 (667,904.58) |
-| EBITDA | 20,810,764.50 (19,406,584.16) | 240,309.06 (225,395.88) |
-| Profit before tax | 19,660,764.50 (18,256,584.16) | 227,029.62 (212,039.32) |
-| Tax | 1,900,000.00 (1,900,000.00) | 21,939.96 (22,067.36) |
-| Net profit | 17,760,764.50 (16,356,584.16) | 205,089.66 (189,971.96) |
-| Total assets | 745,317,348.66 (727,556,584.16) | 8,576,724.39 (8,420,793.78) |
-| Total equity | 699,117,348.66 (681,356,584.16) | 8,045,078.81 (7,886,071.57) |
-| Total liabilities | 46,200,000.00 (46,200,000.00) | 531,645.58 (534,722.21) |
+| India Aug-2026 (Jul-2026) | Monthly internal, INR           | USD                         |
+| ------------------------- | ------------------------------- | --------------------------- |
+| Revenue                   | 59,870,764.50 (57,506,584.16)   | 691,348.32 (667,904.58)     |
+| EBITDA                    | 20,810,764.50 (19,406,584.16)   | 240,309.06 (225,395.88)     |
+| Profit before tax         | 19,660,764.50 (18,256,584.16)   | 227,029.62 (212,039.32)     |
+| Tax                       | 1,900,000.00 (1,900,000.00)     | 21,939.96 (22,067.36)       |
+| Net profit                | 17,760,764.50 (16,356,584.16)   | 205,089.66 (189,971.96)     |
+| Total assets              | 745,317,348.66 (727,556,584.16) | 8,576,724.39 (8,420,793.78) |
+| Total equity              | 699,117,348.66 (681,356,584.16) | 8,045,078.81 (7,886,071.57) |
+| Total liabilities         | 46,200,000.00 (46,200,000.00)   | 531,645.58 (534,722.21)     |
 
 Statutory, INR: III Total income 60,120,764.50 · Employee benefits expense 33,310,000.00 ·
 Other expenses 5,750,000.00 · Total expenses 40,460,000.00 · VII Profit 17,760,764.50 ·
@@ -570,6 +570,47 @@ balance sheet of 727,556,584.16 = 727,556,584.16. Leaving "Other expenses" (OTH_
 Statutory format gives "Other expenses (OTH_EXP) is not placed on any P&L line." and the save
 is refused (400).
 
+### Configuration: approvals, control checks, edit access (C3)
+
+- **Control checks** (Configuration → Control checks): the register run before a standalone
+  submission. Each check has a severity (Blocking stops the submission; Warning needs an
+  acknowledgement of at least 10 characters; Information is shown only), a threshold where it
+  applies, and an active flag. The seeded defaults are proposals, flagged "To be confirmed".
+- **Approvals** (Configuration → Approvals): one default rule per statement type and optional
+  entity overrides: 1 review level (a reviewer approves and finalises) or 2 (a reviewer, then a
+  different approver), optionally limited to named people. Segregation of duties is always
+  enforced: whoever prepared (submitted) or last edited an entity cannot review or approve it,
+  and with two levels the reviewer and the approver are different people.
+- **Edit access** (/edit-access, EDIT_ACCESS_APPROVE): a preparer asks to reopen a finalised
+  entity with a reason; an approver (never the requester) approves or rejects (with a reason).
+  Reopening is refused while a finalised consolidation level of the same period includes the
+  entity ("Reopen the consolidation first: …").
+
+### Review and finalise (page 8)
+
+- **Review step** (per entity): the review pack in 10 collapsible sections — control checks
+  (engine `runSfsChecks`, each with a "Go to" link), key figures, significant variances, notes
+  review status, translation (rates, FCTR, retained-earnings method), intercompany balances,
+  source files with SHA-256, changes since the last submission, review queries, sign-offs and
+  acknowledgements.
+- **Submit**: blocked by any failing blocking check; each failing warning needs an
+  acknowledgement; the declaration "I confirm the trial balance agrees to <ERP> as at <period
+  end>, and all accounts are mapped and reviewed." must be ticked. Any later change (TB, mapping,
+  explanation, note, rates, chart of accounts) withdraws the submission automatically and tells
+  the reviewers.
+- **Queries**: a reviewer raises a query on a statement line, account, note, check or the
+  entity; the preparer answers (optionally attaching a file); the reviewer closes or reopens it.
+  Open or answered queries block approval. Markers show on statement lines, the notes list and
+  the TB mapping table.
+- **Return / approve**: returning needs a comment (10+ characters). Approving at the last level
+  finalises in one transaction: checks re-run, an immutable snapshot (TB, mapping, translations,
+  figures, notes, rates, checks, acknowledgements, queries, sign-offs) with a SHA-256 hash, the
+  period's exchange-rate months locked, the entity Finalised (the task Done when all are).
+- **Finalised step**: banner with the hash, downloads (Excel, Word, PDF, review record PDF),
+  request edit access, and the versions (v1 kept when v2 is opened; compare key figures).
+- **Bell** (top bar): notifications for submissions, withdrawals, queries, returns, finalising
+  and edit-access decisions. Dashboard: "items awaiting your review" and "open queries".
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
@@ -600,7 +641,7 @@ AWS and selected with `STORAGE_DRIVER=s3`; business code does not change.
 | `npm run db:status`             | Show whether it is running                                          |
 | `npm run build`                 | Production build of all packages and apps                           |
 | `npm test`                      | Run all tests: engine (Vitest), API unit and API integration (Jest) |
-| `npm run test:browser`          | Browser journeys (Playwright) on a separate test instance |
+| `npm run test:browser`          | Browser journeys (Playwright) on a separate test instance           |
 | `npm run typecheck`             | TypeScript check across all workspaces                              |
 | `npm run lint`                  | ESLint                                                              |
 | `npm run format`                | Prettier (write). `npm run format:check` only checks                |
@@ -739,7 +780,7 @@ These need confirmation from the process owners before the related features are 
     professional-fees keywords, and "rent" matches the whole word only (so "current account"
     is not rent). Confirm the keyword list and order.
 18. **Finalised comparatives.** A finalised comparative uses its TB lines mapped with the
-    entity's *current* chart of accounts. Storing each finalised report's own mapped lines
+    entity's _current_ chart of accounts. Storing each finalised report's own mapped lines
     comes with the finalise step; until then a later re-mapping also changes finalised
     comparatives. Confirm this is acceptable meanwhile.
 19. **Variance explanations** are per account (Account view). Should FSLI-level flags also
@@ -764,6 +805,17 @@ These need confirmation from the process owners before the related features are 
     task for that month would use the new structure. Should such changes be blocked?
 27. **Entity code length.** New codes are 2–4 capital letters (as requested); the seeded codes
     are 2 letters. Confirm that digits are never needed.
+28. **Control-check defaults (C3).** The register's severities and thresholds (e.g. retained
+    earnings roll-forward tolerance 1.00) are proposals flagged "To be confirmed".
+29. **Approval levels.** Default is one review level for SFS and CFS. Confirm per entity whether
+    two levels are needed, and who the named reviewers/approvers are.
+30. **Reviewers and EDIT_ACCESS_APPROVE.** Should the Reviewer template include edit-access
+    approval? Today only the master (and users given the permission) can approve.
+31. **Downloads of earlier versions.** The Excel/Word/PDF downloads show the current finalised
+    version; earlier versions offer the review record and key figures. Confirm whether full
+    statements of earlier versions are needed.
+32. **Mapping and comparatives screens for finalised entities** still show the live chart of
+    accounts (statements, translation and notes read the snapshot). Confirm.
 
 ## Known dependency warnings (clean-up later)
 
@@ -771,10 +823,10 @@ These need confirmation from the process owners before the related features are 
 would install breaking major versions (Vitest 5, an older Prisma, an older exceljs). All but
 `uuid` are in development tools only; `uuid` ships in the API via exceljs (see its row).
 
-| Package                       | Severity | Via                         | Notes                                      |
-| ----------------------------- | -------- | --------------------------- | ------------------------------------------ |
-| `deepmerge-ts` < 8            | high     | `prisma` → `@prisma/config` | Prisma CLI only; fixed by a Prisma upgrade |
-| `@vitest/mocker` 2.1.0–4.1.10 | moderate | `vitest`                    | Test runner only; fixed in Vitest 5        |
-| `uuid` < 11.1.1 | moderate | `exceljs` (statements export) | Affects v3/v5/v6 called with a buffer; exceljs only calls `v4()` without one. An npm override did not apply in this workspace; revisit in the upgrade step |
+| Package                       | Severity | Via                           | Notes                                                                                                                                                      |
+| ----------------------------- | -------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deepmerge-ts` < 8            | high     | `prisma` → `@prisma/config`   | Prisma CLI only; fixed by a Prisma upgrade                                                                                                                 |
+| `@vitest/mocker` 2.1.0–4.1.10 | moderate | `vitest`                      | Test runner only; fixed in Vitest 5                                                                                                                        |
+| `uuid` < 11.1.1               | moderate | `exceljs` (statements export) | Affects v3/v5/v6 called with a buffer; exceljs only calls `v4()` without one. An npm override did not apply in this workspace; revisit in the upgrade step |
 
 Plan: address them in a dedicated upgrade step (Prisma 7, Vitest 5), with tests.

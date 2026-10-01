@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth, useCurrentUser } from '@/auth/AuthContext';
 import { NAV_ITEMS } from '@/auth/navigation';
 import { BrandLockup } from '@/components/brand/BrandMark';
+import { NotificationsBell } from '@/components/NotificationsBell';
 import { Toaster } from '@/components/Toaster';
 import { Button } from '@/components/ui/button';
 import { confirmLeave } from '@/lib/leave-guard';
@@ -82,6 +83,7 @@ export function AppShell() {
           </div>
           <div className="hidden md:block" />
           <div className="flex items-center gap-3">
+            <NotificationsBell />
             <div className="hidden text-right leading-tight sm:block">
               <div className="text-sm font-semibold text-ink">{user.name}</div>
               <div className="text-xs text-muted-foreground">{user.email}</div>

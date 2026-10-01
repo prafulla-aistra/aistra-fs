@@ -140,8 +140,9 @@ test('SFS journey: upload → map → comparatives → translation → statement
     .first()
     .selectOption({ label: 'Unsecured, considered good' });
   await expect(page.getByText(/Saved · version/)).toBeVisible();
+  // The sub-caption heading row (a selected dropdown's cell has the same accessible name).
   await expect(
-    page.getByRole('cell', { name: 'Unsecured, considered good', exact: true }),
+    page.getByRole('row', { name: 'Unsecured, considered good', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Total unsecured, considered good' })).toBeVisible();
   await expect(page.getByLabel('Total agrees to the statement: agrees').first()).toBeVisible();

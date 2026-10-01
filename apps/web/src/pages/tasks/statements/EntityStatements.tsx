@@ -11,6 +11,7 @@ import { api, downloadPath, errorMessage } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { StatementView } from './StatementView';
+import { useQueryMarkers } from '../review/markers';
 
 type Tab = 'BS' | 'PL';
 const TABS: { code: Tab; label: string }[] = [
@@ -50,6 +51,7 @@ export function EntityStatements({
     unit: opts.unit,
     showNil: String(opts.showNil),
   }).toString();
+  const queriesOn = useQueryMarkers(taskId, entityCode);
   const q = useQuery({
     queryKey: ['statements', taskId, entityCode, qs],
     queryFn: () =>
@@ -237,8 +239,22 @@ export function EntityStatements({
         ))}
       </div>
 
-      {(printing || tab === 'BS') && <StatementView d={d} view={d.balanceSheet} onNote={onNote} />}
-      {(printing || tab === 'PL') && <StatementView d={d} view={d.profitAndLoss} onNote={onNote} />}
+      {(printing || tab === 'BS') && (
+        <StatementView
+          d={d}
+          view={d.balanceSheet}
+          onNote={onNote}
+          queries={(k) => queriesOn('LINE', k)}
+        />
+      )}
+      {(printing || tab === 'PL') && (
+        <StatementView
+          d={d}
+          view={d.profitAndLoss}
+          onNote={onNote}
+          queries={(k) => queriesOn('LINE', k)}
+        />
+      )}
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" /> {d.footer}

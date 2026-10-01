@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { statementAmount } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { indianUnits } from './units';
+import { QueryMarker } from '../review/ReviewStep';
 
 export function TitleBlock({ d, title }: { d: EntityStatementsDto; title: string }) {
   return (
@@ -41,11 +42,15 @@ export function StatementView({
   d,
   view,
   onNote,
+  queries,
 }: {
   d: EntityStatementsDto;
   view: StatementViewDto;
   onNote: (n: number) => void;
+  /** Open review queries per line key. */
+  queries?: (lineKey: string) => number;
 }) {
+  const prefix = view === d.balanceSheet ? 'BS' : 'PL';
   const indian = indianUnits(d);
   const hasComparative = d.header.noComparative === null;
   return (
@@ -105,6 +110,9 @@ export function StatementView({
                     </button>
                   ) : (
                     r.label
+                  )}
+                  {(queries?.(`${prefix}:${r.key}`) ?? 0) > 0 && (
+                    <QueryMarker count={queries!(`${prefix}:${r.key}`)} />
                   )}
                 </td>
                 <td className="py-1 text-center">
