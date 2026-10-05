@@ -36,6 +36,13 @@ export const CONFIG_SECTIONS = [
     ],
   },
   {
+    title: 'Consolidation',
+    items: [
+      { to: '/configuration/intercompany-pairs', label: 'Intercompany pairs' },
+      { to: '/configuration/acquisitions', label: 'Acquisitions' },
+    ],
+  },
+  {
     title: 'Controls',
     items: [
       { to: '/configuration/approvals', label: 'Approvals' },

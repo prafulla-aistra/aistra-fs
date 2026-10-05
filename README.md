@@ -611,6 +611,34 @@ is refused (400).
 - **Bell** (top bar): notifications for submissions, withdrawals, queries, returns, finalising
   and edit-access decisions. Dashboard: "items awaiting your review" and "open queries".
 
+### Consolidation: readiness, aggregation, eliminations (page 9)
+
+- **Level path** (CFS task): Level 1 Veracity Services → Level 2 Unconstrained → Level 3 India →
+  Level 4 US, from the levels snapshotted when the task was created (ownership in force for the
+  period). A level opens only when every member's SFS is finalised for the period and every
+  lower level is finalised; otherwise it shows what it waits for. Steps per level: Readiness ·
+  Aggregation · Eliminations · Statements · Notes · Review · Finalised (the last four on page 10).
+- **Readiness**: level currency (configured default; changeable until submission, clears the
+  generated eliminations; blocked while manual adjustments exist), members (role, % held, group
+  %, SFS status and snapshot version, translation source, comparative SFS), rates into the level
+  currency (10 dp) and configuration checks (intercompany pairs, acquisitions register rows and
+  acquisition-date rates, historical rates). Entity data comes only from finalised SFS
+  snapshots; when the snapshot has no translation into the level currency, the snapshot's mapped
+  TB is translated with the engine translateTB (same rules).
+- **Aggregation**: entity-wise balance sheet and P&L in the level currency (CFS task's format),
+  plus Aggregate; FSLI view; a tick per column; Excel export with SUM formulas.
+- **Eliminations** (engine generateEliminations): intercompany balances and revenue / charges per
+  marked pair (difference below the pair tolerance → FCTR "Rounding", otherwise IC_DIFF, flagged);
+  investment in subsidiary vs share capital, premium and pre-acquisition reserves (goodwill or
+  capital reserve, translation difference to FCTR, the calculation shown step by step); NCI for
+  partly owned members; entries of lower levels recomputed here and labelled "brought forward";
+  manual adjustments (must balance, audited, deletable by their creator before submission,
+  carried up at closing / average rates with the difference to FCTR). Summary bar and checks
+  (investments and intercompany fully eliminated, consolidated balance sheet balances).
+- **Configuration → Intercompany pairs** and **Acquisitions** (CONFIG_MANAGE edits, audited). The
+  seed marks the pairs found in the charts of accounts and adds ILLUSTRATIVE acquisitions from the
+  demo snapshots, all "to be confirmed".
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
@@ -816,6 +844,22 @@ These need confirmation from the process owners before the related features are 
     statements of earlier versions are needed.
 32. **Mapping and comparatives screens for finalised entities** still show the live chart of
     accounts (statements, translation and notes read the snapshot). Confirm.
+33. **Acquisitions register (page 9).** The seeded rows are illustrative (cost from the parent's
+    investment account, share capital and premium from the subsidiary's Jul-2026 accounts,
+    pre-acquisition reserves 0, rates from the entity master historical rates). Confirm each with
+    the acquisition documents.
+34. **NCI presentation.** The NCI entry debits each equity component (share capital, premium,
+    retained earnings, other reserves, FCTR) and posts the NCI share of profit to PL_NCI, crediting
+    NCI. Confirm, and whether goodwill should be attributed to NCI (full goodwill method) — today
+    it is not (proportionate share).
+35. **Intercompany differences in P&L.** Revenue / charges differences above the tolerance go to
+    IC_DIFF (a balance-sheet suspense line), as for balances. Confirm.
+36. **Level currency changes.** Allowed until the level is submitted; it clears the generated
+    eliminations and is refused while the level has manual adjustments. Confirm.
+37. **Computed translations.** A member whose finalised SFS has no translation into the level
+    currency is translated here from its snapshot; its retained earnings roll forward only from a
+    finalised SFS translation into that currency, otherwise at the opening rate (warning). Confirm,
+    or should the previous period's CFS level figures be used?
 
 ## Known dependency warnings (clean-up later)
 

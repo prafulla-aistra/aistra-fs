@@ -20,6 +20,7 @@ import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
 import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
 import { ApprovalsPage, ControlChecksPage } from '@/pages/configuration/ControlsPages';
+import { AcquisitionsPage, IntercompanyPairsPage } from '@/pages/configuration/ConsolidationPages';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { EditAccessPage } from '@/pages/EditAccessPage';
 import { NewTaskPage } from '@/pages/tasks/NewTaskPage';
@@ -69,6 +70,8 @@ export function App() {
               <Route path="exchange-rates" element={<ExchangeRatesPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="control-checks" element={<ControlChecksPage />} />
+              <Route path="intercompany-pairs" element={<IntercompanyPairsPage />} />
+              <Route path="acquisitions" element={<AcquisitionsPage />} />
             </Route>
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/users').anyOf} />}>

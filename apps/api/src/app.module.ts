@@ -13,6 +13,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { TasksModule } from './tasks/tasks.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { ConsolidationModule } from './consolidation/consolidation.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module';
     ConfigurationModule,
     TasksModule,
     UploadsModule,
+    ConsolidationModule,
     // Demo accounts + quick login exist only when DEMO_MODE=true (never in production).
     ConditionalModule.registerWhen(DemoModule, demoModeEnabled),
   ],

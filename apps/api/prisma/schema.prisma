@@ -470,6 +470,8 @@ model Task {
   finalSnapshots       FinalSnapshot[]
   mappedAccounts       EntityAccount[]
   tbVersions           TbVersion[]
+  consolidationRuns    ConsolidationRun[]
+  consolidationAdjustments ConsolidationAdjustment[]
 
   @@index([periodId])
   @@map("task")
@@ -1189,4 +1191,104 @@ model Notification {
 
   @@index([userId, readAt, createdAt])
   @@map("notification")
+}
+
+// ---------------------------------------------------------------------------
+// Consolidation (CFS page 9): intercompany pairs, acquisitions register, eliminations
+// ---------------------------------------------------------------------------
+
+/// Intercompany matrix: a pair of entities whose balances and transactions are eliminated
+/// against each other. entityA < entityB (codes sorted). Differences below the tolerance
+/// (level currency) are rounding to FCTR; larger ones go to IC_DIFF and are flagged.
+model IntercompanyPair {
+  id            String   @id @default(uuid()) @db.Uuid
+  entityA       String   @map("entity_a") @db.VarChar(10)
+  entityB       String   @map("entity_b") @db.VarChar(10)
+  tolerance     Decimal  @default(1) @db.Decimal(20, 4)
+  toBeConfirmed Boolean  @default(false) @map("to_be_confirmed")
+  note          String?  @db.VarChar(300)
+  updatedById   String?  @map("updated_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([entityA, entityB])
+  @@map("intercompany_pair")
+}
+
+/// Acquisitions register: one row per acquisition step of a subsidiary by its parent.
+/// Amounts at acquisition: cost in the parent's functional currency; share capital, premium
+/// and pre-acquisition reserves in the subsidiary's functional currency.
+model Acquisition {
+  id                     String   @id @default(uuid()) @db.Uuid
+  subsidiaryCode         String   @map("subsidiary_code") @db.VarChar(10)
+  parentCode             String   @map("parent_code") @db.VarChar(10)
+  acquiredOn             DateTime @map("acquired_on") @db.Date
+  pctAcquired            Decimal  @map("pct_acquired") @db.Decimal(7, 4)
+  cost                   Decimal  @db.Decimal(20, 4)
+  shareCapital           Decimal  @map("share_capital") @db.Decimal(20, 4)
+  premium                Decimal  @default(0) @db.Decimal(20, 4)
+  preAcquisitionReserves Decimal  @default(0) @map("pre_acquisition_reserves") @db.Decimal(20, 4)
+  toBeConfirmed          Boolean  @default(true) @map("to_be_confirmed")
+  note                   String?  @db.VarChar(500)
+  updatedById            String?  @map("updated_by_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rates AcquisitionRate[]
+
+  @@index([subsidiaryCode])
+  @@map("acquisition")
+}
+
+/// Acquisition-date rate: 1 unit of the subsidiary's currency = rate units of `currency`. One
+/// per consolidation-level currency the subsidiary belongs to (and the parent's currency).
+model AcquisitionRate {
+  acquisitionId String  @map("acquisition_id") @db.Uuid
+  currency      String  @db.Char(3)
+  rate          Decimal @db.Decimal(20, 10)
+  toBeConfirmed Boolean @default(true) @map("to_be_confirmed")
+
+  acquisition Acquisition @relation(fields: [acquisitionId], references: [id], onDelete: Cascade)
+
+  @@id([acquisitionId, currency])
+  @@map("acquisition_rate")
+}
+
+/// The eliminations generated for one level of a CFS task (engine generateEliminations),
+/// replaced on regenerate until the level is submitted.
+model ConsolidationRun {
+  taskId        String   @map("task_id") @db.Uuid
+  level         Int
+  currency      String   @db.Char(3)
+  entries       Json
+  issues        Json
+  /// NCI share of the profit for the period per NCI point (for page 10).
+  nciProfit     Json     @map("nci_profit")
+  generatedById String   @map("generated_by_id") @db.Uuid
+  generatedAt   DateTime @default(now()) @map("generated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, level])
+  @@map("consolidation_run")
+}
+
+/// A manual consolidation adjustment entered at a level, in that level's currency. Carried to
+/// higher levels at closing (BS) / average (P&L) rates with the difference to FCTR.
+model ConsolidationAdjustment {
+  id          String   @id @default(uuid()) @db.Uuid
+  taskId      String   @map("task_id") @db.Uuid
+  level       Int
+  currency    String   @db.Char(3)
+  narration   String   @db.VarChar(300)
+  reason      String   @db.VarChar(1000)
+  /// [{ entityCode | null, fsliCode, amount (signed, debit +) }]
+  lines       Json
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, level])
+  @@map("consolidation_adjustment")
 }

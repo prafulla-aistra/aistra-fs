@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { TaskPlaceholderPage } from './TaskPlaceholderPage';
+import { CfsWorkspace } from './cfs/CfsWorkspace';
 import { ComparativesStep } from './comparatives/ComparativesStep';
 import { MappingStep } from './mapping/MappingStep';
 import { NotesStep } from './notes/NotesStep';
@@ -22,7 +22,7 @@ import { UploadStep } from './upload/UploadStep';
 
 /**
  * Task workspace. SFS tasks: a stepper over the eight workflow steps, Upload to Finalised.
- * CFS tasks keep the summary placeholder.
+ * CFS tasks: the consolidation workspace (level path and level steps).
  */
 export function TaskWorkspacePage() {
   const { id = '' } = useParams();
@@ -34,7 +34,7 @@ export function TaskWorkspacePage() {
 
   if (task.error) return <Alert>{errorMessage(task.error)}</Alert>;
   if (!task.data) return <Skeleton className="h-40 w-full" />;
-  if (task.data.type !== 'SFS') return <TaskPlaceholderPage />;
+  if (task.data.type !== 'SFS') return <CfsWorkspace taskId={task.data.id} />;
 
   const t = task.data;
   const requested = search.get('step') as TaskStepCode | null;

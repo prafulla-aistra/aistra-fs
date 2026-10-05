@@ -24,6 +24,7 @@ import { seedDemoStatements } from './seed-demo-statements';
 import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
 import { seedControls } from './seed-controls';
+import { seedConsolidation } from './seed-consolidation';
 import { seedFormats } from './seed-formats';
 import { seedNoteTemplates } from './seed-note-templates';
 import { withConnectionDefaults } from '../src/prisma/database-url';
@@ -228,6 +229,8 @@ async function main(): Promise<void> {
     await seedDemoStatements(prisma);
     await seedDemoNotes(prisma);
   }
+  // After the demo data: the illustrative acquisitions register reads the demo snapshots.
+  await seedConsolidation(prisma);
   console.log(`Seed complete: ${PERMISSIONS.length} permissions, ${TEMPLATES.length} templates.`);
 }
 

@@ -257,6 +257,13 @@ export const AuditAction = {
   QueryRaise: 'QUERY_RAISE',
   QueryAnswer: 'QUERY_ANSWER',
   QueryStatus: 'QUERY_STATUS',
+  IntercompanyPairChange: 'INTERCOMPANY_PAIR_CHANGE',
+  AcquisitionChange: 'ACQUISITION_CHANGE',
+  CfsLevelCurrency: 'CFS_LEVEL_CURRENCY',
+  CfsLevelStep: 'CFS_LEVEL_STEP',
+  EliminationsGenerate: 'ELIMINATIONS_GENERATE',
+  ConsolidationAdjustmentCreate: 'CONSOLIDATION_ADJUSTMENT_CREATE',
+  ConsolidationAdjustmentDelete: 'CONSOLIDATION_ADJUSTMENT_DELETE',
   // Configuration C2
   SettingsUpdate: 'SETTINGS_UPDATE',
   FormatUpdate: 'FORMAT_UPDATE',

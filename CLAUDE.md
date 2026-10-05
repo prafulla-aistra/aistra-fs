@@ -157,6 +157,8 @@
 
 - Configuration C1: dated deactivation; ownership changes in finalised months; 2–4 letter codes.
 
+- Page 9: illustrative acquisitions register; NCI presentation (PL_NCI, proportionate goodwill);
+  P&L IC differences to IC_DIFF; level currency changes; computed translations' RE roll-forward.
 - Page 8 / C3: control-check defaults and thresholds (TBC); approval levels and named people per
   entity; Reviewer template and EDIT_ACCESS_APPROVE; full downloads of earlier versions; mapping
   and comparatives screens of finalised entities show the live chart of accounts.
@@ -181,6 +183,19 @@
   months locked, entity FINALISED. Reopen (approved edit access) adds a WORKING version; FINAL
   versions are never changed.
 - Notifications are written in the same transaction as the change they report.
+
+## Consolidation (page 9) conventions
+- Engine consolidation.ts: generateEliminations (IC balances / P&L, investment with goodwill or
+  capital reserve, NCI, brought-forward and manual entries), consolidatedAmounts,
+  eliminationChecks, eliminationSummary, validateManualAdjustment. Every line 2 dp, every entry
+  balances. The API (src/consolidation) only loads snapshots and configuration and saves.
+- Members' figures come only from finalised SFS statement snapshots; a missing level currency is
+  translated from the snapshot's functional accounts with translateTB.
+- consolidation_run holds the generated entries per level (replaced on regenerate; stale when a
+  fresh computation differs); consolidation_adjustment holds manual adjustments (level currency).
+- Configuration: intercompany_pair (matrix with tolerance) and acquisition + acquisition_rate (a
+  rate into the parent's currency and every level currency); seed runs once (marker
+  SEED_APPLIED page9-consolidation).
 
 ## Demo data
 - India Aug-2026 is seeded In progress (step Notes), ready to submit (page 8 click-through).
