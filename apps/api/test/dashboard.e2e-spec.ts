@@ -141,7 +141,7 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
     const jul = await dashboard(priya, julId);
     expect(jul.standalone.finalised).toBe(7);
     expect(jul.consolidation).toMatchObject({ finalised: 4, total: 4, next: null });
-    expect(jul.period!.deadline).toEqual({ kind: 'COMPLETE' });
+    expect(jul.period!.deadline).toEqual({ kind: 'COMPLETE', completedOn: '2026-08-18' });
     expect(jul.lastPeriod).toMatchObject({ label: 'Jun-2026', done: false, openItems: 11 });
     expect(jul.attention).toEqual({ entitiesToPrepare: 0, openQueries: 0, overdue: 1 });
   });
@@ -189,7 +189,12 @@ describe('dashboard for a user scoped to India only', () => {
 
 describe('attention lines by permission', () => {
   it('a reviewer sees nothing awaiting review (no submissions) and cannot continue preparing', async () => {
-    expect((await dashboard(rahul)).attention).toEqual({ awaitingReview: 0, awaitingYourReview: 0, openQueries: 0, overdue: 1 });
+    expect((await dashboard(rahul)).attention).toEqual({
+      awaitingReview: 0,
+      awaitingYourReview: 0,
+      openQueries: 0,
+      overdue: 1,
+    });
     const aug = (await tasks(rahul)).items.find((t) => t.number === 'SFS-2026-08-001')!;
     expect(aug.action).toBe('VIEW');
     expect((await tasks(rahul, { status: 'AWAITING_REVIEW' })).total).toBe(0);

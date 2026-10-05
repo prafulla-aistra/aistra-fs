@@ -4,6 +4,7 @@ import type {
   EntityNotesDto,
   FiguresBlockDto,
   FiguresViewDto,
+  GeneratedViewDto,
   TableBlockDto,
   TableViewDto,
 } from '@finance-close/shared';
@@ -45,6 +46,7 @@ export function FiguresBlockEditor({
   const indian = d.selection.unit === 'LAKHS' || d.selection.unit === 'CRORES';
   const amt = (v: string | null) => statementAmount(v, indian);
   if (!view) return <p className="text-sm text-muted-foreground">No figures for this line.</p>;
+  const breakdown = view.breakdown ? <LineBreakdown view={view} amt={amt} /> : null;
   const owner = (code: string) =>
     block.subCaptions.find((s) => s.accounts.includes(code))?.id ?? '';
   const move = (code: string, to: string) =>
@@ -60,6 +62,7 @@ export function FiguresBlockEditor({
     });
   return (
     <div className="space-y-2">
+      {breakdown}
       <Table aria-label="Note figures">
         <thead>
           <tr>
@@ -438,6 +441,86 @@ export function TableBlockEditor({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Consolidation line notes: the line by member entity, eliminations and consolidated. */
+function LineBreakdown({ view, amt }: { view: FiguresViewDto; amt: (v: string | null) => string }) {
+  const b = view.breakdown!;
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full text-xs tabular-nums">
+        <thead>
+          <tr className="border-b bg-muted/40 text-muted-foreground">
+            {b.columns.map((c) => (
+              <th key={c.code} className="px-2 py-1 text-right font-medium">
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {b.columns.map((c) => (
+              <td
+                key={c.code}
+                className={cn('px-2 py-1 text-right', c.code === 'CONSOLIDATED' && 'font-semibold')}
+              >
+                {amt(b.current[c.code] ?? null)}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** A table the system fills from the consolidation (read-only). */
+export function GeneratedBlockView({ view }: { view: GeneratedViewDto | undefined }) {
+  if (!view) return <p className="text-sm text-muted-foreground">Filled from the consolidation.</p>;
+  return (
+    <div className="space-y-1">
+      {view.columns.length > 0 && (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm tabular-nums">
+            <thead>
+              <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
+                {view.columns.map((c, i) => (
+                  <th
+                    key={i}
+                    className={cn('px-2 py-1 font-medium', c.numeric ? 'text-right' : 'text-left')}
+                  >
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {view.rows.map((r, i) => (
+                <tr key={i} className={cn('border-b last:border-0', r.total && 'font-semibold')}>
+                  {r.cells.map((c, j) => (
+                    <td
+                      key={j}
+                      className={cn(
+                        'px-2 py-1',
+                        view.columns[j]?.numeric ? 'text-right' : 'text-left',
+                      )}
+                    >
+                      {c ?? ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {view.footnote && <p className="text-xs text-muted-foreground">{view.footnote}</p>}
+      <p className="text-xs text-muted-foreground">
+        Read-only: filled from the consolidation each time.
+      </p>
     </div>
   );
 }

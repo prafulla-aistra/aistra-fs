@@ -21,6 +21,17 @@ export class ClockService {
       day: '2-digit',
     }).format(new Date());
   }
+
+  /** The calendar date of a moment in the group's time zone. */
+  dateOf(at: Date): IsoDate {
+    const timeZone = process.env.APP_TIMEZONE?.trim() || 'Asia/Kolkata';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(at);
+  }
 }
 
 @Global()

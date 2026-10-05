@@ -14,6 +14,7 @@ import {
   type FormatFsli,
   type FormatLine,
   fsliAmounts,
+  type GeneratedBlock,
   groupAccounts,
   lineNote,
   type NoteBlock,
@@ -35,7 +36,9 @@ import {
   type CatalogItemDto,
   ERP_LABELS,
   type EntityNotesDto,
+  type FiguresViewDto,
   GAAP_LABELS,
+  type GeneratedViewDto,
   type NoteDto,
   type NoteSaveInput,
   type NotesStepDto,
@@ -110,6 +113,39 @@ interface Ctx {
   comp: PeriodView | null;
 }
 
+/** What the notes need of a task (SFS task, or the CFS task of a level). */
+export interface NotesTask {
+  id: string;
+  number: string;
+  formatCode: string | null;
+  formatVersion: number | null;
+  period: { label: string; type: StepTask['period']['type']; startDate: Date; endDate: Date };
+}
+
+/**
+ * Whose notes: an SFS task entity, or a CFS level (page 10). The notes framework (blocks,
+ * sub-captions, live figures, roll forward, stale check, review status) is the same for both.
+ */
+export interface NotesScope {
+  task: NotesTask;
+  /** Entity code, or the level key ("L1"). */
+  key: string;
+  appliesTo: 'SFS' | 'CFS';
+  header: EntityNotesDto['entity'];
+  /** Why the user cannot change the notes now; null if they can. */
+  readOnlyReason: string | null;
+  figures: EntityFigures | null;
+  /** Text placeholders of new notes ("{legalName}" …). */
+  placeholders: Record<string, string>;
+  /** The last finalised period: its task, notes and figures. */
+  prior(): Promise<{ task: NotesTask; notes: EntityNote[]; figures: EntityFigures | null } | null>;
+  /** Called after a change (SFS: withdraws an active submission). */
+  changed?(user: AuthUser, what: string, ip: string | null): Promise<void>;
+  /** Consolidation: generated tables and the line breakdown by member / eliminations. */
+  generated?(block: GeneratedBlock, unit: StatementUnit): GeneratedViewDto;
+  breakdown?(lineKeys: string[], unit: StatementUnit): FiguresViewDto['breakdown'];
+}
+
 const lineKey = (l: { statement: string; key: string }) => `${l.statement}:${l.key}`;
 const zero = (v: string | null | undefined) =>
   v === null || v === undefined || new Decimal(v).isZero();
@@ -173,6 +209,7 @@ function remapTokens(node: RichNode, ids: Map<string, string>): RichNode {
 const hasContent = (blocks: NoteBlock[]) =>
   blocks.some(
     (b) =>
+      b.type === 'GENERATED' ||
       (b.type === 'TEXT' && plainText(b.doc).trim() !== '') ||
       (b.type === 'TABLE' &&
         b.rows.some((r) => Object.values(r.cells).some((c) => c.trim() !== ''))),
@@ -198,7 +235,7 @@ export class NotesService {
   // ---------------------------------------------------------------------------------------
 
   private async context(
-    task: StepTask,
+    task: NotesTask,
     figures: EntityFigures,
     currency?: string,
     unit?: StatementUnitCode,
@@ -220,6 +257,78 @@ export class NotesService {
       unit: unit ?? 'ACTUAL',
       cur: periodView(c.current, lines, fslis),
       comp: periodView(c.comparative, lines, fslis),
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // SFS scope
+  // ---------------------------------------------------------------------------------------
+
+  /** The notes scope of an SFS task entity (forEdit: the user must be able to change it). */
+  async sfsScope(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    forEdit: boolean,
+  ): Promise<NotesScope> {
+    const task = await loadStepTask(this.prisma, user, taskId);
+    const te = forEdit
+      ? assertEditable(user, task, entityCode)
+      : assertViewable(user, task, entityCode);
+    const reason = forEdit ? null : readOnlyReason(user, task, entityCode);
+    const { figures } = await this.figuresService.figures(task, te, reason !== null);
+    return this.sfsScopeFrom(task, te, figures, reason);
+  }
+
+  sfsScopeFrom(
+    task: StepTask,
+    te: TaskEntityRow,
+    figures: EntityFigures | null,
+    reason: string | null,
+  ): NotesScope {
+    const e = te.entity;
+    const end = fromDbDate(task.period.endDate);
+    return {
+      task,
+      key: te.entityCode,
+      appliesTo: 'SFS',
+      header: {
+        code: te.entityCode,
+        legalName: e.legalName,
+        shortName: e.shortName,
+        functionalCurrency: e.functionalCurrency,
+        itemStatus: te.status,
+      },
+      readOnlyReason: reason,
+      figures,
+      placeholders: {
+        legalName: e.legalName,
+        country: e.country,
+        functionalCurrency: e.functionalCurrency,
+        gaap: GAAP_LABELS[e.gaap],
+        erp: ERP_LABELS[e.erp],
+        periodLabel: task.period.label,
+        periodEnd: statementTitle('BS', task.period.type, end).replace('Balance sheet as at ', ''),
+        periodSpan:
+          task.period.type === 'MONTHLY'
+            ? 'month'
+            : task.period.type === 'QUARTERLY'
+              ? 'quarter'
+              : 'year',
+      },
+      prior: async () => {
+        const p = await this.priorFinalised(task, te.entityCode);
+        return p
+          ? {
+              task: p.task,
+              notes: p.notes,
+              figures: await this.figuresService.snapshot(p.task.id, te.entityCode),
+            }
+          : null;
+      },
+      changed: async (user, what, ip) => {
+        await this.guard?.changed(user, task.id, te.entityCode, what, ip);
+      },
     };
   }
 
@@ -295,11 +404,11 @@ export class NotesService {
 
   /** A new note set: rolled forward from the last finalised period, else from the templates. */
   private async initialNotes(
-    task: StepTask,
-    te: TaskEntityRow,
+    scope: NotesScope,
     ctx: Ctx,
   ): Promise<{ notes: NoteRow[]; rolledFrom: string | null }> {
-    const prior = await this.priorFinalised(task, te.entityCode);
+    const task = scope.task;
+    const prior = await scope.prior();
     const now = new Date();
     let notes: NoteRow[];
     if (prior && prior.notes.length > 0) {
@@ -323,26 +432,13 @@ export class NotesService {
       }));
     } else {
       const templates = await this.prisma.noteTemplate.findMany({
-        where: { formatCode: task.formatCode ?? 'STATUTORY' },
+        where: {
+          formatCode: task.formatCode ?? 'STATUTORY',
+          appliesTo: { in: [scope.appliesTo, 'ALL'] },
+        },
         orderBy: { sortOrder: 'asc' },
       });
-      const e = te.entity;
-      const end = fromDbDate(task.period.endDate);
-      const values: Record<string, string> = {
-        legalName: e.legalName,
-        country: e.country,
-        functionalCurrency: e.functionalCurrency,
-        gaap: GAAP_LABELS[e.gaap],
-        erp: ERP_LABELS[e.erp],
-        periodLabel: task.period.label,
-        periodEnd: statementTitle('BS', task.period.type, end).replace('Balance sheet as at ', ''),
-        periodSpan:
-          task.period.type === 'MONTHLY'
-            ? 'month'
-            : task.period.type === 'QUARTERLY'
-              ? 'quarter'
-              : 'year',
-      };
+      const values = scope.placeholders;
       notes = templates.map((t, i) => {
         const blocks = (t.defaultBlocks as unknown as NoteBlock[]).map((b) => ({
           ...structuredClone(b),
@@ -409,7 +505,7 @@ export class NotesService {
       (await this.figuresService.build(task, te));
     if (!figures) return null;
     const ctx = await this.context(task, figures);
-    const { notes } = await this.initialNotes(task, te, ctx);
+    const { notes } = await this.initialNotes(this.sfsScopeFrom(task, te, figures, null), ctx);
     await this.prisma.entityNote.createMany({
       data: notes.map((n) => ({
         id: n.id,
@@ -429,23 +525,18 @@ export class NotesService {
   }
 
   /** Stored notes; the first time (and when editable) the initial set is created and stored. */
-  private async notesFor(
-    user: AuthUser,
-    task: StepTask,
-    te: TaskEntityRow,
-    ctx: Ctx,
-    persist: boolean,
-  ) {
-    const stored = await this.storedNotes(task.id, te.entityCode);
+  private async notesFor(user: AuthUser, scope: NotesScope, ctx: Ctx, persist: boolean) {
+    const task = scope.task;
+    const stored = await this.storedNotes(task.id, scope.key);
     if (stored.length > 0) return stored;
-    const { notes, rolledFrom } = await this.initialNotes(task, te, ctx);
+    const { notes, rolledFrom } = await this.initialNotes(scope, ctx);
     if (!persist) return notes;
     await this.prisma.$transaction(async (tx) => {
       await tx.entityNote.createMany({
         data: notes.map((n) => ({
           id: n.id,
           taskId: task.id,
-          entityCode: te.entityCode,
+          entityCode: scope.key,
           sortOrder: n.sortOrder,
           kind: n.kind,
           title: n.title,
@@ -470,12 +561,12 @@ export class NotesService {
         {
           userId: user.id,
           action: AuditAction.NotesRollForward,
-          entityType: 'TASK_ENTITY',
-          entityId: `${task.id}:${te.entityCode}`,
+          entityType: scope.appliesTo === 'CFS' ? 'TASK_LEVEL' : 'TASK_ENTITY',
+          entityId: `${task.id}:${scope.key}`,
           oldValue: null,
           newValue: {
             task: task.number,
-            entity: te.entityCode,
+            entity: scope.key,
             from: rolledFrom ? 'last finalised period' : 'format templates',
             notes: notes.length,
           },
@@ -483,7 +574,7 @@ export class NotesService {
         tx,
       );
     });
-    return this.storedNotes(task.id, te.entityCode);
+    return this.storedNotes(task.id, scope.key);
   }
 
   // ---------------------------------------------------------------------------------------
@@ -515,9 +606,15 @@ export class NotesService {
     return v === null ? null : scaleAmount(v, ctx.unit as StatementUnit);
   }
 
-  private noteView(n: NoteRow, ctx: Ctx, stale: NoteDto['stale']): Omit<NoteDto, 'number'> {
+  private noteView(
+    n: NoteRow,
+    ctx: Ctx,
+    stale: NoteDto['stale'],
+    scope?: NotesScope,
+  ): Omit<NoteDto, 'number'> {
     const figures: NoteDto['figures'] = {};
     const tables: NoteDto['tables'] = {};
+    const generated: NonNullable<NoteDto['generated']> = {};
     const faceOf = (p: PeriodView | null) =>
       p ? n.lineKeys.reduce((s, k) => s.plus(p.rows[k] ?? '0'), new Decimal(0)).toFixed(2) : null;
     const lineFslis = n.lineKeys.flatMap((k) => {
@@ -592,8 +689,15 @@ export class NotesService {
           },
           ties: ln.ties,
           errors: grouped.errors,
+          breakdown: scope?.breakdown?.(n.lineKeys, ctx.unit as StatementUnit) ?? null,
         };
       }
+      if (b.type === 'GENERATED')
+        generated[b.id] = scope?.generated?.(b, ctx.unit as StatementUnit) ?? {
+          columns: [],
+          rows: [],
+          footnote: 'Filled in consolidation (CFS) only.',
+        };
       if (b.type === 'TABLE') {
         const lineValue = b.agreeLine ? (ctx.cur?.rows[b.agreeLine] ?? null) : null;
         const t = checkTable(b, lineValue);
@@ -627,6 +731,7 @@ export class NotesService {
       blocks: n.blocks,
       figures,
       tables,
+      generated,
       stale,
       version: n.version,
       carriedFrom: n.carriedFromId !== null,
@@ -693,17 +798,11 @@ export class NotesService {
   }
 
   /** Figures of the last finalised period and of this one (functional currency) for the stale check. */
-  private async staleSources(
-    task: StepTask,
-    te: TaskEntityRow,
-    figures: EntityFigures,
-    notes: NoteRow[],
-  ) {
-    const prior = await this.priorFinalised(task, te.entityCode);
+  private async staleSources(scope: NotesScope, figures: EntityFigures, notes: NoteRow[]) {
+    const prior = await scope.prior();
     if (!prior) return null;
-    const priorFigures = await this.figuresService.snapshot(prior.task.id, te.entityCode);
-    const ctxNow = await this.context(task, figures);
-    const lastCtx = priorFigures ? await this.context(prior.task, priorFigures) : null;
+    const ctxNow = await this.context(scope.task, figures);
+    const lastCtx = prior.figures ? await this.context(prior.task, prior.figures) : null;
     const values = (p: PeriodView | null) =>
       p
         ? [
@@ -736,21 +835,22 @@ export class NotesService {
     entityCode: string,
     opts: { currency?: string; unit?: StatementUnitCode },
   ): Promise<EntityNotesDto> {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    const te = assertViewable(user, task, entityCode);
-    const reason = readOnlyReason(user, task, entityCode);
-    const { figures } = await this.figuresService.figures(task, te, reason !== null);
+    return this.view(user, await this.sfsScope(user, taskId, entityCode, false), opts);
+  }
+
+  /** The notes of a scope (SFS entity or CFS level), created on first open when editable. */
+  async view(
+    user: AuthUser,
+    scope: NotesScope,
+    opts: { currency?: string; unit?: StatementUnitCode },
+  ): Promise<EntityNotesDto> {
+    const figures = scope.figures;
+    const reason = scope.readOnlyReason;
     const base = {
-      entity: {
-        code: te.entityCode,
-        legalName: te.entity.legalName,
-        shortName: te.entity.shortName,
-        functionalCurrency: te.entity.functionalCurrency,
-        itemStatus: te.status,
-      },
+      entity: scope.header,
       canEdit: reason === null && figures !== null,
       readOnlyReason: reason,
-      periodLabel: task.period.label,
+      periodLabel: scope.task.period.label,
       options: {
         currencies: figures?.currencies.map((c) => c.currency) ?? [],
         units: STATEMENT_UNITS,
@@ -763,7 +863,7 @@ export class NotesService {
         formatName: '',
         comparativeLabel: '',
         hasComparative: false,
-        selection: { currency: te.entity.functionalCurrency, unit: opts.unit ?? 'ACTUAL' },
+        selection: { currency: scope.header.functionalCurrency, unit: opts.unit ?? 'ACTUAL' },
         progress: { reviewed: 0, total: 0, text: '' },
         rolledFrom: null,
         notes: [],
@@ -771,20 +871,25 @@ export class NotesService {
         lines: [],
         roundingNote: null,
       };
-    const ctx = await this.context(task, figures, opts.currency, opts.unit);
-    const notes = await this.notesFor(user, task, te, ctx, reason === null);
+    const ctx = await this.context(scope.task, figures, opts.currency, opts.unit);
+    const notes = await this.notesFor(user, scope, ctx, reason === null);
     this.subCaptionSets(notes, ctx);
-    const sources = await this.staleSources(task, te, figures, notes);
+    const sources = await this.staleSources(scope, figures, notes);
     const views = notes.map((n) => {
       const texts = n.blocks
         .filter((b) => b.type === 'TEXT')
         .map((b) => ({ blockId: b.id, doc: (b as { doc: RichNode }).doc }));
-      return this.noteView(n, ctx, sources ? staleNumbers(texts, sources.last, sources.now) : []);
+      return this.noteView(
+        n,
+        ctx,
+        sources ? staleNumbers(texts, sources.last, sources.now) : [],
+        scope,
+      );
     });
     const numbers = numberNotes(views);
     const visible = views.filter((v) => !v.hidden);
     const reviewed = visible.filter((v) => v.status === 'REVIEWED').length;
-    const prior = await this.priorFinalised(task, te.entityCode);
+    const prior = await scope.prior();
     return {
       ...base,
       hasTb: true,
@@ -817,9 +922,14 @@ export class NotesService {
     te: TaskEntityRow,
     figures: EntityFigures,
   ): Promise<Record<string, number>> {
-    const ctx = await this.context(task, figures);
-    const notes = await this.notesFor(user, task, te, ctx, false);
-    const views = notes.map((n) => this.noteView(n, ctx, []));
+    return this.lineNumbersIn(user, this.sfsScopeFrom(task, te, figures, 'read'));
+  }
+
+  async lineNumbersIn(user: AuthUser, scope: NotesScope): Promise<Record<string, number>> {
+    if (!scope.figures) return {};
+    const ctx = await this.context(scope.task, scope.figures);
+    const notes = await this.notesFor(user, scope, ctx, false);
+    const views = notes.map((n) => this.noteView(n, ctx, [], scope));
     const numbers = numberNotes(views);
     const out: Record<string, number> = {};
     for (const v of views) {
@@ -837,18 +947,24 @@ export class NotesService {
     noteId: string,
     opts: { currency?: string; unit?: StatementUnitCode },
   ): Promise<PriorNoteDto> {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    const te = assertViewable(user, task, entityCode);
+    return this.priorIn(await this.sfsScope(user, taskId, entityCode, false), noteId, opts);
+  }
+
+  async priorIn(
+    scope: NotesScope,
+    noteId: string,
+    opts: { currency?: string; unit?: StatementUnitCode },
+  ): Promise<PriorNoteDto> {
     const note = await this.prisma.entityNote.findFirst({
-      where: { id: noteId, taskId, entityCode },
+      where: { id: noteId, taskId: scope.task.id, entityCode: scope.key },
     });
     if (!note) throw ApiError.notFound('Note not found.');
-    const prior = await this.priorFinalised(task, entityCode);
+    const prior = await scope.prior();
     if (!prior) throw ApiError.notFound('There is no finalised earlier period for this entity.');
     const was = note.carriedFromId
       ? prior.notes.find((n) => n.id === note.carriedFromId)
       : undefined;
-    const figures = await this.figuresService.snapshot(prior.task.id, entityCode);
+    const figures = prior.figures;
     const base = { periodLabel: prior.task.period.label, taskNumber: prior.task.number };
     if (!was || !figures) return { ...base, note: null, catalog: [], diff: {} };
     const ctx = await this.context(prior.task, figures, opts.currency, opts.unit);
@@ -863,7 +979,6 @@ export class NotesService {
     const diff: PriorNoteDto['diff'] = {};
     for (const b of note.blocks as unknown as NoteBlock[])
       if (b.type === 'TEXT') diff[b.id] = wordDiff(oldText.get(b.id) ?? '', plainText(b.doc));
-    void te;
     return {
       ...base,
       note: { title: view.title, blocks: view.blocks, figures: view.figures, tables: view.tables },
@@ -876,14 +991,15 @@ export class NotesService {
   // Changes (auto-saved, versioned, audited)
   // ---------------------------------------------------------------------------------------
 
-  private async editableNote(user: AuthUser, taskId: string, entityCode: string, noteId: string) {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    const te = assertEditable(user, task, entityCode);
+  /** The note of an editable scope (409 when read-only). */
+  private async editableIn(scope: NotesScope, noteId: string) {
+    if (scope.readOnlyReason)
+      throw new ApiError(HttpStatus.CONFLICT, ApiErrorCode.Conflict, scope.readOnlyReason);
     const note = await this.prisma.entityNote.findFirst({
-      where: { id: noteId, taskId, entityCode },
+      where: { id: noteId, taskId: scope.task.id, entityCode: scope.key },
     });
     if (!note) throw ApiError.notFound('Note not found.');
-    return { task, te, note };
+    return note;
   }
 
   private validate(blocks: NoteBlock[]) {
@@ -906,7 +1022,23 @@ export class NotesService {
     input: NoteSaveInput,
     ip: string | null,
   ) {
-    const { task, note } = await this.editableNote(user, taskId, entityCode, noteId);
+    return this.saveIn(
+      user,
+      await this.sfsScope(user, taskId, entityCode, true),
+      noteId,
+      input,
+      ip,
+    );
+  }
+
+  async saveIn(
+    user: AuthUser,
+    scope: NotesScope,
+    noteId: string,
+    input: NoteSaveInput,
+    ip: string | null,
+  ) {
+    const note = await this.editableIn(scope, noteId);
     if (input.baseVersion !== note.version)
       throw new ApiError(
         HttpStatus.CONFLICT,
@@ -958,8 +1090,8 @@ export class NotesService {
             blocks: note.blocks,
           },
           newValue: {
-            task: task.number,
-            entity: entityCode,
+            task: scope.task.number,
+            entity: scope.key,
             title: input.title.trim(),
             status: 'EDITED',
             version,
@@ -970,7 +1102,7 @@ export class NotesService {
         tx,
       );
     });
-    await this.guard?.changed(user, taskId, entityCode, `Note edited (${input.title.trim()})`, ip);
+    await scope.changed?.(user, `Note edited (${input.title.trim()})`, ip);
     return { version, status: 'EDITED' as const };
   }
 
@@ -982,7 +1114,23 @@ export class NotesService {
     reviewed: boolean,
     ip: string | null,
   ) {
-    const { task, note } = await this.editableNote(user, taskId, entityCode, noteId);
+    return this.reviewIn(
+      user,
+      await this.sfsScope(user, taskId, entityCode, true),
+      noteId,
+      reviewed,
+      ip,
+    );
+  }
+
+  async reviewIn(
+    user: AuthUser,
+    scope: NotesScope,
+    noteId: string,
+    reviewed: boolean,
+    ip: string | null,
+  ) {
+    const note = await this.editableIn(scope, noteId);
     const status = reviewed ? 'REVIEWED' : 'EDITED';
     if (note.status === status) return { status };
     await this.prisma.$transaction(async (tx) => {
@@ -1001,7 +1149,7 @@ export class NotesService {
           entityType: 'ENTITY_NOTE',
           entityId: note.id,
           oldValue: { status: note.status },
-          newValue: { task: task.number, entity: entityCode, title: note.title, status },
+          newValue: { task: scope.task.number, entity: scope.key, title: note.title, status },
           ip,
         },
         tx,
@@ -1017,8 +1165,19 @@ export class NotesService {
     input: { title: string; afterNoteId: string | null },
     ip: string | null,
   ) {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    assertEditable(user, task, entityCode);
+    return this.createIn(user, await this.sfsScope(user, taskId, entityCode, true), input, ip);
+  }
+
+  async createIn(
+    user: AuthUser,
+    scope: NotesScope,
+    input: { title: string; afterNoteId: string | null },
+    ip: string | null,
+  ) {
+    if (scope.readOnlyReason)
+      throw new ApiError(HttpStatus.CONFLICT, ApiErrorCode.Conflict, scope.readOnlyReason);
+    const taskId = scope.task.id;
+    const entityCode = scope.key;
     const notes = await this.prisma.entityNote.findMany({
       where: { taskId, entityCode },
       orderBy: { sortOrder: 'asc' },
@@ -1072,7 +1231,7 @@ export class NotesService {
           entityId: id,
           oldValue: null,
           newValue: {
-            task: task.number,
+            task: scope.task.number,
             entity: entityCode,
             title: input.title.trim(),
             position: at + 1,
@@ -1082,7 +1241,7 @@ export class NotesService {
         tx,
       );
     });
-    await this.guard?.changed(user, taskId, entityCode, `Note added (${input.title.trim()})`, ip);
+    await scope.changed?.(user, `Note added (${input.title.trim()})`, ip);
     return { id };
   }
 
@@ -1093,11 +1252,14 @@ export class NotesService {
     noteId: string,
     ip: string | null,
   ) {
-    const { task, te, note } = await this.editableNote(user, taskId, entityCode, noteId);
-    const { figures } = await this.figuresService.figures(task, te, false);
-    if (figures) {
-      const ctx = await this.context(task, figures);
-      const v = this.noteView(this.toRow({ ...note }), ctx, []);
+    return this.removeIn(user, await this.sfsScope(user, taskId, entityCode, true), noteId, ip);
+  }
+
+  async removeIn(user: AuthUser, scope: NotesScope, noteId: string, ip: string | null) {
+    const note = await this.editableIn(scope, noteId);
+    if (scope.figures) {
+      const ctx = await this.context(scope.task, scope.figures);
+      const v = this.noteView(this.toRow({ ...note }), ctx, [], scope);
       if (!v.deletable)
         throw new ApiError(HttpStatus.CONFLICT, ApiErrorCode.Conflict, v.deleteBlocked!);
     }
@@ -1110,13 +1272,13 @@ export class NotesService {
           entityType: 'ENTITY_NOTE',
           entityId: note.id,
           oldValue: { title: note.title, kind: note.kind, blocks: note.blocks },
-          newValue: { task: task.number, entity: entityCode },
+          newValue: { task: scope.task.number, entity: scope.key },
           ip,
         },
         tx,
       );
     });
-    await this.guard?.changed(user, taskId, entityCode, `Note deleted (${note.title})`, ip);
+    await scope.changed?.(user, `Note deleted (${note.title})`, ip);
   }
 
   async reorder(
@@ -1126,10 +1288,14 @@ export class NotesService {
     ids: string[],
     ip: string | null,
   ) {
-    const task = await loadStepTask(this.prisma, user, taskId);
-    assertEditable(user, task, entityCode);
+    return this.reorderIn(user, await this.sfsScope(user, taskId, entityCode, true), ids, ip);
+  }
+
+  async reorderIn(user: AuthUser, scope: NotesScope, ids: string[], ip: string | null) {
+    if (scope.readOnlyReason)
+      throw new ApiError(HttpStatus.CONFLICT, ApiErrorCode.Conflict, scope.readOnlyReason);
     const notes = await this.prisma.entityNote.findMany({
-      where: { taskId, entityCode },
+      where: { taskId: scope.task.id, entityCode: scope.key },
       orderBy: { sortOrder: 'asc' },
     });
     if (ids.length !== notes.length || !notes.every((n) => ids.includes(n.id)))
@@ -1141,8 +1307,8 @@ export class NotesService {
         {
           userId: user.id,
           action: AuditAction.NoteReorder,
-          entityType: 'TASK_ENTITY',
-          entityId: `${taskId}:${entityCode}`,
+          entityType: scope.appliesTo === 'CFS' ? 'TASK_LEVEL' : 'TASK_ENTITY',
+          entityId: `${scope.task.id}:${scope.key}`,
           oldValue: notes.map((n) => n.title),
           newValue: ids.map((id) => notes.find((n) => n.id === id)!.title),
           ip,

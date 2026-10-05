@@ -56,5 +56,6 @@ import { UploadsController } from './uploads.controller';
     SubmissionGuard,
     ReviewService,
   ],
+  exports: [NotesService, NotificationsService, EditAccessService, StatementFiguresService],
 })
 export class UploadsModule {}

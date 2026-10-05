@@ -68,7 +68,21 @@ export interface TableBlockDto {
   mode: 'MEMO' | 'AGREE';
   agreeLine: string | null;
 }
-export type NoteBlockDto = FiguresBlockDto | TextBlockDto | TableBlockDto;
+/** Consolidation: a table the system fills from consolidation data (read-only). */
+export interface GeneratedBlockDto {
+  id: string;
+  type: 'GENERATED';
+  source: 'SUBSIDIARIES' | 'GOODWILL' | 'NCI' | 'IC_SUMMARY' | 'FCTR';
+  label: string;
+}
+export type NoteBlockDto = FiguresBlockDto | TextBlockDto | TableBlockDto | GeneratedBlockDto;
+
+/** A generated table as shown (values are display text, already in the selected units). */
+export interface GeneratedViewDto {
+  columns: { label: string; numeric: boolean }[];
+  rows: { cells: (string | null)[]; total?: boolean }[];
+  footnote: string | null;
+}
 
 /** A FIGURES block with its figures: sub-caption groups, subtotals, total and the tie. */
 export interface FiguresViewDto {
@@ -95,6 +109,11 @@ export interface FiguresViewDto {
   face: { current: string | null; comparative: string | null };
   ties: { current: boolean; comparative: boolean | null };
   errors: string[];
+  /** Consolidation line notes: the line split by member entity, eliminations and consolidated. */
+  breakdown?: {
+    columns: { code: string; label: string }[];
+    current: Record<string, string | null>;
+  } | null;
 }
 
 export interface TableViewDto {
@@ -126,6 +145,7 @@ export interface NoteDto {
   blocks: NoteBlockDto[];
   figures: Record<string, FiguresViewDto>;
   tables: Record<string, TableViewDto>;
+  generated?: Record<string, GeneratedViewDto>;
   stale: StaleFlagDto[];
   version: number;
   carriedFrom: boolean;
@@ -199,6 +219,8 @@ export interface NoteTemplateDto {
   lineKeys: string[];
   defaultBlocks: NoteBlockDto[];
   mandatory: boolean;
+  /** SFS, CFS or ALL (both). */
+  appliesTo: 'SFS' | 'CFS' | 'ALL';
 }
 
 export interface NoteTemplatesDto {

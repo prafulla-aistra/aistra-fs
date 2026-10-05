@@ -140,6 +140,10 @@ export interface EliminationEntry {
   difference?: string;
   /** Investment entries: goodwill (positive) or capital reserve (negative), level currency. */
   goodwill?: string;
+  /** Investment entries: goodwill in the parent's currency, and the closing rate into the level. */
+  goodwillParent?: string;
+  parentCurrency?: string;
+  goodwillRate?: string;
   /** NCI entries: the NCI share of the profit for the period (positive = profit). */
   nciProfit?: string;
   /** Manual adjustments. */
@@ -380,6 +384,9 @@ function investmentEntry(
       flags: [],
       calculation: calc,
       goodwill: goodwillLevel.toFixed(2),
+      goodwillParent: goodwillParent.toFixed(2),
+      parentCurrency: parent.functionalCurrency,
+      goodwillRate: fmtRate(closing!),
     }),
     issue: null,
   };
@@ -747,4 +754,61 @@ export function eliminationSummary(entries: readonly EliminationEntry[]): Elimin
     goodwill: sumFsli('GOODWILL').toFixed(2),
     capitalReserve: capital.toFixed(2),
   };
+}
+
+// ---------------------------------------------------------------------------------------
+// Attribution (page 10): owners of the parent vs non-controlling interests
+// ---------------------------------------------------------------------------------------
+
+/** Profit for the period (positive = profit), split owners / NCI (NCI entries' profit share). */
+export function profitAttribution(
+  consolidated: Readonly<Record<string, string>>,
+  entries: readonly EliminationEntry[],
+): { total: string; owners: string; nci: string } {
+  const total = D(consolidated.PROFIT ?? '0').negated();
+  const nci = entries
+    .filter((e) => e.type === 'NCI')
+    .reduce((s, e) => s.plus(e.nciProfit ?? '0'), D('0'));
+  return { total: total.toFixed(2), owners: total.minus(nci).toFixed(2), nci: nci.toFixed(2) };
+}
+
+/**
+ * FCTR (signed, debit +): the consolidated FCTR is the owners' share (the NCI entries moved the
+ * NCI share into NCI); the NCI share is what those entries moved.
+ */
+export function fctrSplit(
+  consolidated: Readonly<Record<string, string>>,
+  entries: readonly EliminationEntry[],
+): { total: string; owners: string; nci: string } {
+  const owners = D(consolidated.FCTR ?? '0');
+  const nci = entries
+    .filter((e) => e.type === 'NCI')
+    .flatMap((e) => e.lines)
+    .filter((l) => l.fsliCode === 'FCTR')
+    .reduce((s, l) => s.minus(l.amount), D('0'));
+  return { total: owners.plus(nci).toFixed(2), owners: owners.toFixed(2), nci: nci.toFixed(2) };
+}
+
+/**
+ * "Exchange differences on translation of foreign operations": the FCTR movement against the
+ * immediately preceding period, presented as a gain (positive) or loss (negative).
+ */
+export function fctrMovement(
+  current: { total: string; owners: string; nci: string },
+  comparative: { total: string; owners: string; nci: string },
+): { total: string; owners: string; nci: string } {
+  const m = (k: 'total' | 'owners' | 'nci') => D(comparative[k]).minus(current[k]).toFixed(2);
+  return { total: m('total'), owners: m('owners'), nci: m('nci') };
+}
+
+/** Equity attributable to owners, NCI and total equity (presentation signs: credit positive). */
+export function equityAttribution(
+  amounts: Readonly<Record<string, string>>,
+  fslis: readonly FormatFsli[],
+): { owners: string; nci: string; total: string } {
+  let owners = D('0');
+  for (const f of fslis)
+    if (f.class === 'E' && f.code !== 'NCI') owners = owners.minus(amounts[f.code] ?? '0');
+  const nci = D(amounts.NCI ?? '0').negated();
+  return { owners: owners.toFixed(2), nci: nci.toFixed(2), total: owners.plus(nci).toFixed(2) };
 }

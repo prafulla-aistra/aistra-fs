@@ -264,6 +264,9 @@ export const AuditAction = {
   EliminationsGenerate: 'ELIMINATIONS_GENERATE',
   ConsolidationAdjustmentCreate: 'CONSOLIDATION_ADJUSTMENT_CREATE',
   ConsolidationAdjustmentDelete: 'CONSOLIDATION_ADJUSTMENT_DELETE',
+  EliminationExplain: 'ELIMINATION_EXPLAIN',
+  CfsLevelFinalise: 'CFS_LEVEL_FINALISE',
+  CfsLevelReopen: 'CFS_LEVEL_REOPEN',
   // Configuration C2
   SettingsUpdate: 'SETTINGS_UPDATE',
   FormatUpdate: 'FORMAT_UPDATE',

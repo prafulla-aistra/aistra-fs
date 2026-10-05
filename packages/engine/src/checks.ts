@@ -20,7 +20,16 @@ export interface RegisterEntry {
 
 /** Where to fix a failure: a workspace step, and optionally a line, account or note. */
 export interface CheckLink {
-  step: 'UPLOAD_DATA' | 'MAPPING' | 'COMPARATIVES' | 'TRANSLATION' | 'STATEMENTS' | 'NOTES';
+  step:
+    | 'UPLOAD_DATA'
+    | 'MAPPING'
+    | 'COMPARATIVES'
+    | 'TRANSLATION'
+    | 'STATEMENTS'
+    | 'NOTES'
+    | 'READINESS'
+    | 'AGGREGATION'
+    | 'ELIMINATIONS';
   key?: string;
 }
 
@@ -74,21 +83,34 @@ export function amountText(v: string | Decimal): string {
 
 const within = (difference: Decimal, e: RegisterEntry) => difference.abs().lte(e.threshold ?? '0');
 const countOk = (n: number, e: RegisterEntry) => new Decimal(n).lte(e.threshold ?? '0');
-const list = (xs: string[], max = 8) => (xs.length > max ? `${xs.slice(0, max).join(', ')} and ${xs.length - max} more` : xs.join(', '));
+const list = (xs: string[], max = 8) =>
+  xs.length > max ? `${xs.slice(0, max).join(', ')} and ${xs.length - max} more` : xs.join(', ');
 
 /** Every active check of the register with its result. */
-export function runSfsChecks(data: EntityCheckData, register: readonly RegisterEntry[]): CheckResult[] {
+export function runSfsChecks(
+  data: EntityCheckData,
+  register: readonly RegisterEntry[],
+): CheckResult[] {
   const out: CheckResult[] = [];
   const add = (e: RegisterEntry, r: Omit<CheckResult, 'code' | 'name' | 'severity'>) =>
     out.push({ code: e.code, name: e.name, severity: e.severity, ...r });
-  const tolerance = (e: RegisterEntry) => (e.thresholdUnit === 'AMOUNT' ? ` · tolerance ${amountText(e.threshold ?? '0')}` : '');
-  const limit = (e: RegisterEntry) => (e.thresholdUnit === 'COUNT' && new Decimal(e.threshold ?? '0').gt(0) ? ` · allowed ${e.threshold}` : '');
+  const tolerance = (e: RegisterEntry) =>
+    e.thresholdUnit === 'AMOUNT' ? ` · tolerance ${amountText(e.threshold ?? '0')}` : '';
+  const limit = (e: RegisterEntry) =>
+    e.thresholdUnit === 'COUNT' && new Decimal(e.threshold ?? '0').gt(0)
+      ? ` · allowed ${e.threshold}`
+      : '';
 
   for (const e of register.filter((x) => x.isActive)) {
     switch (e.code) {
       case 'TB_BALANCED': {
         if (!data.tb) {
-          add(e, { currency: null, result: 'FAIL', details: 'No validated trial balance.', link: { step: 'UPLOAD_DATA' } });
+          add(e, {
+            currency: null,
+            result: 'FAIL',
+            details: 'No validated trial balance.',
+            link: { step: 'UPLOAD_DATA' },
+          });
           break;
         }
         const diff = new Decimal(data.tb.debits).minus(data.tb.credits);
@@ -104,7 +126,9 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
         add(e, {
           currency: null,
           result: countOk(data.unmappedAccounts.length, e) ? 'PASS' : 'FAIL',
-          details: data.unmappedAccounts.length ? `${data.unmappedAccounts.length} not mapped: ${list(data.unmappedAccounts)}${limit(e)}` : 'Every account is mapped.',
+          details: data.unmappedAccounts.length
+            ? `${data.unmappedAccounts.length} not mapped: ${list(data.unmappedAccounts)}${limit(e)}`
+            : 'Every account is mapped.',
           link: { step: 'MAPPING', key: data.unmappedAccounts[0] },
         });
         break;
@@ -112,21 +136,31 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
         add(e, {
           currency: null,
           result: countOk(data.icWithoutCounterparty.length, e) ? 'PASS' : 'FAIL',
-          details: data.icWithoutCounterparty.length ? `Without a counterparty: ${list(data.icWithoutCounterparty)}${limit(e)}` : 'Every intercompany account names its counterparty.',
+          details: data.icWithoutCounterparty.length
+            ? `Without a counterparty: ${list(data.icWithoutCounterparty)}${limit(e)}`
+            : 'Every intercompany account names its counterparty.',
           link: { step: 'MAPPING', key: data.icWithoutCounterparty[0] },
         });
         break;
       case 'TRANSLATION_COMPLETE': {
         const translated = data.currencies.filter((c) => c.translated);
         if (translated.length === 0) {
-          add(e, { currency: null, result: 'NA', details: 'No translation: the entity presents in its functional currency only.', link: { step: 'TRANSLATION' } });
+          add(e, {
+            currency: null,
+            result: 'NA',
+            details: 'No translation: the entity presents in its functional currency only.',
+            link: { step: 'TRANSLATION' },
+          });
           break;
         }
         for (const c of translated)
           add(e, {
             currency: c.currency,
             result: c.translationStatus === 'OK' ? 'PASS' : 'FAIL',
-            details: c.translationStatus === 'OK' ? `${c.currency}: translated.` : `${c.currency}: ${c.translationFailures.join(' ')}`,
+            details:
+              c.translationStatus === 'OK'
+                ? `${c.currency}: translated.`
+                : `${c.currency}: ${c.translationFailures.join(' ')}`,
             link: { step: 'TRANSLATION' },
           });
         break;
@@ -134,14 +168,27 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
       case 'TRANSLATED_TB_NETS': {
         const translated = data.currencies.filter((c) => c.translated);
         if (translated.length === 0) {
-          add(e, { currency: null, result: 'NA', details: 'No translation.', link: { step: 'TRANSLATION' } });
+          add(e, {
+            currency: null,
+            result: 'NA',
+            details: 'No translation.',
+            link: { step: 'TRANSLATION' },
+          });
           break;
         }
         for (const c of translated)
           add(e, {
             currency: c.currency,
-            result: c.translatedTotal !== null && within(new Decimal(c.translatedTotal), e) ? 'PASS' : c.translatedTotal === null ? 'NA' : 'FAIL',
-            details: c.translatedTotal === null ? `${c.currency}: not translated.` : `${c.currency}: translated TB total ${amountText(c.translatedTotal)}${tolerance(e)}`,
+            result:
+              c.translatedTotal !== null && within(new Decimal(c.translatedTotal), e)
+                ? 'PASS'
+                : c.translatedTotal === null
+                  ? 'NA'
+                  : 'FAIL',
+            details:
+              c.translatedTotal === null
+                ? `${c.currency}: not translated.`
+                : `${c.currency}: translated TB total ${amountText(c.translatedTotal)}${tolerance(e)}`,
             link: { step: 'TRANSLATION' },
           });
         break;
@@ -149,7 +196,12 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
       case 'BS_TIES':
         for (const c of data.currencies) {
           if (c.totalAssets === null || c.totalEquityLiabilities === null) {
-            add(e, { currency: c.currency, result: 'NA', details: `${c.currency}: no statements.`, link: { step: 'STATEMENTS' } });
+            add(e, {
+              currency: c.currency,
+              result: 'NA',
+              details: `${c.currency}: no statements.`,
+              link: { step: 'STATEMENTS' },
+            });
             continue;
           }
           const diff = new Decimal(c.totalEquityLiabilities).minus(c.totalAssets);
@@ -164,7 +216,12 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
       case 'PROFIT_TIES':
         for (const c of data.currencies) {
           if (c.profit === null || c.profitCarried === null) {
-            add(e, { currency: c.currency, result: 'NA', details: `${c.currency}: no statements.`, link: { step: 'STATEMENTS' } });
+            add(e, {
+              currency: c.currency,
+              result: 'NA',
+              details: `${c.currency}: no statements.`,
+              link: { step: 'STATEMENTS' },
+            });
             continue;
           }
           const diff = new Decimal(c.profit).minus(c.profitCarried);
@@ -179,8 +236,16 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
       case 'RE_ROLL_FORWARD':
         add(e, {
           currency: null,
-          result: data.rollForwardDifference === null ? 'NA' : within(new Decimal(data.rollForwardDifference), e) ? 'PASS' : 'FAIL',
-          details: data.rollForwardDifference === null ? 'Not applicable (no previous period comparative).' : `Opening retained earnings less (prior RE + prior profit): ${amountText(data.rollForwardDifference)}${tolerance(e)}`,
+          result:
+            data.rollForwardDifference === null
+              ? 'NA'
+              : within(new Decimal(data.rollForwardDifference), e)
+                ? 'PASS'
+                : 'FAIL',
+          details:
+            data.rollForwardDifference === null
+              ? 'Not applicable (no previous period comparative).'
+              : `Opening retained earnings less (prior RE + prior profit): ${amountText(data.rollForwardDifference)}${tolerance(e)}`,
           link: { step: 'COMPARATIVES' },
         });
         break;
@@ -190,7 +255,10 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
           add(e, {
             currency: c.currency,
             result: bad.length === 0 ? 'PASS' : 'FAIL',
-            details: bad.length === 0 ? `${c.currency}: every note agrees to the face.` : `${c.currency}: ${bad.map((n) => `${n.note} (difference ${amountText(n.difference)})`).join('; ')}${tolerance(e)}`,
+            details:
+              bad.length === 0
+                ? `${c.currency}: every note agrees to the face.`
+                : `${c.currency}: ${bad.map((n) => `${n.note} (difference ${amountText(n.difference)})`).join('; ')}${tolerance(e)}`,
             link: { step: 'NOTES', key: bad[0]?.note },
           });
         }
@@ -199,7 +267,9 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
         add(e, {
           currency: null,
           result: countOk(data.unexplainedVariances.length, e) ? 'PASS' : 'FAIL',
-          details: data.unexplainedVariances.length ? `${data.unexplainedVariances.length} flagged variance(s) not explained: ${list(data.unexplainedVariances)}${limit(e)}` : 'Every flagged variance is explained.',
+          details: data.unexplainedVariances.length
+            ? `${data.unexplainedVariances.length} flagged variance(s) not explained: ${list(data.unexplainedVariances)}${limit(e)}`
+            : 'Every flagged variance is explained.',
           link: { step: 'COMPARATIVES', key: data.unexplainedVariances[0] },
         });
         break;
@@ -223,7 +293,9 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
         add(e, {
           currency: null,
           result: data.comparativePresent ? 'PASS' : 'FAIL',
-          details: data.comparativePresent ? 'A comparative trial balance is available.' : 'No comparative: statements show "No comparative".',
+          details: data.comparativePresent
+            ? 'A comparative trial balance is available.'
+            : 'No comparative: statements show "No comparative".',
           link: { step: 'COMPARATIVES' },
         });
         break;
@@ -231,12 +303,19 @@ export function runSfsChecks(data: EntityCheckData, register: readonly RegisterE
         add(e, {
           currency: null,
           result: countOk(data.historicalRatesToBeConfirmed.length, e) ? 'PASS' : 'FAIL',
-          details: data.historicalRatesToBeConfirmed.length ? `To be confirmed: ${data.historicalRatesToBeConfirmed.join(', ')}` : 'Historical rates confirmed.',
+          details: data.historicalRatesToBeConfirmed.length
+            ? `To be confirmed: ${data.historicalRatesToBeConfirmed.join(', ')}`
+            : 'Historical rates confirmed.',
           link: { step: 'TRANSLATION' },
         });
         break;
       default:
-        add(e, { currency: null, result: 'NA', details: 'This check is not evaluated for standalone statements.', link: { step: 'STATEMENTS' } });
+        add(e, {
+          currency: null,
+          result: 'NA',
+          details: 'This check is not evaluated for standalone statements.',
+          link: { step: 'STATEMENTS' },
+        });
     }
   }
   return out;
@@ -253,7 +332,8 @@ export function checkSummary(results: readonly CheckResult[]) {
 }
 
 /** Key of a check result (one per currency for per-currency checks). */
-export const checkKey = (r: Pick<CheckResult, 'code' | 'currency'>) => (r.currency ? `${r.code}:${r.currency}` : r.code);
+export const checkKey = (r: Pick<CheckResult, 'code' | 'currency'>) =>
+  r.currency ? `${r.code}:${r.currency}` : r.code;
 
 /**
  * Segregation of duties for a review decision. Whoever prepared (submitted) or last edited the

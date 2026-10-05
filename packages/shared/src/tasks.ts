@@ -111,7 +111,8 @@ export interface PeriodOptionDto {
 export type DeadlineDto =
   | { kind: StatementType; dueDate: string; status: 'ON_TRACK'; workingDaysLeft: number }
   | { kind: StatementType; dueDate: string; status: 'OVERDUE'; overdueDays: number }
-  | { kind: 'COMPLETE' };
+  /** Every statement finalised; completedOn = when the last one was (period close complete). */
+  | { kind: 'COMPLETE'; completedOn: string | null };
 
 export interface ItemCountsDto {
   NOT_STARTED: number;

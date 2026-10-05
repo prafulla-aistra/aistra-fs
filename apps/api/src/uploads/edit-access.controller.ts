@@ -10,7 +10,11 @@ import { EditAccessService } from './edit-access.service';
 const requestSchema = z.object({
   taskId: z.string().uuid(),
   entityCode: z.string().regex(/^[A-Z0-9]{1,10}$/),
-  reason: z.string().trim().min(10, 'Explain why edit access is needed (at least 10 characters)').max(1000),
+  reason: z
+    .string()
+    .trim()
+    .min(10, 'Explain why edit access is needed (at least 10 characters)')
+    .max(1000),
 });
 const decideSchema = z.object({
   approve: z.boolean(),
@@ -28,7 +32,7 @@ export class EditAccessController {
   }
 
   @Post()
-  @RequirePermission(Permission.SfsPrepare)
+  @RequirePermission(Permission.SfsPrepare, Permission.CfsPrepare)
   request(
     @CurrentUser() user: AuthUser,
     @Body(new ZodPipe(requestSchema)) body: z.output<typeof requestSchema>,
@@ -49,9 +53,13 @@ export class EditAccessController {
   }
 
   @Post(':id/cancel')
-  @RequirePermission(Permission.SfsPrepare)
+  @RequirePermission(Permission.SfsPrepare, Permission.CfsPrepare)
   @HttpCode(204)
-  cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @ClientIp() ip: string | null): Promise<void> {
+  cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @ClientIp() ip: string | null,
+  ): Promise<void> {
     return this.editAccess.cancel(user, id, ip);
   }
 }

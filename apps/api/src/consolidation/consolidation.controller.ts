@@ -25,6 +25,7 @@ import { CurrentUser, RequirePermission } from '../auth/access-control';
 import type { AuthUser } from '../auth/session-user';
 import { ClientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod.pipe';
+import { CfsLevelService } from './cfs-level.service';
 import { ConsolidationService } from './consolidation.service';
 
 const ViewTasks = () =>
@@ -68,7 +69,10 @@ const continueSchema = z.object({
 /** CFS workspace (page 9): level path, readiness, aggregation and eliminations. */
 @Controller('tasks/:id/cfs')
 export class ConsolidationController {
-  constructor(private readonly cfs: ConsolidationService) {}
+  constructor(
+    private readonly cfs: ConsolidationService,
+    private readonly levels: CfsLevelService,
+  ) {}
 
   @Get()
   @ViewTasks()
@@ -110,6 +114,8 @@ export class ConsolidationController {
     @Body(new ZodPipe(continueSchema)) body: z.output<typeof continueSchema>,
     @ClientIp() ip: string | null,
   ): Promise<{ currentStep: string }> {
+    if (body.from === 'STATEMENTS' || body.from === 'NOTES')
+      return this.levels.continue(user, id, level, body.from, ip);
     return this.cfs.continue(
       user,
       id,

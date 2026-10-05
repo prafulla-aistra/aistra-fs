@@ -472,6 +472,7 @@ model Task {
   tbVersions           TbVersion[]
   consolidationRuns    ConsolidationRun[]
   consolidationAdjustments ConsolidationAdjustment[]
+  eliminationExplanations  EliminationExplanation[]
 
   @@index([periodId])
   @@map("task")
@@ -511,6 +512,8 @@ model TaskLevel {
   currentStep      String         @map("current_step") @db.VarChar(40)
   finalisedById    String?        @map("finalised_by_id") @db.Uuid
   finalisedAt      DateTime?      @map("finalised_at") @db.Timestamptz(3)
+  /// The last user who changed the level's data (segregation of duties).
+  lastEditedById   String?        @map("last_edited_by_id") @db.Uuid
 
   task        Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   finalisedBy User? @relation("TaskLevelFinalisedBy", fields: [finalisedById], references: [id])
@@ -941,6 +944,8 @@ model NoteTemplate {
   /// Blocks a new note starts with (text may use {legalName}, {country}, … placeholders).
   defaultBlocks Json     @default("[]") @map("default_blocks")
   mandatory     Boolean  @default(false)
+  /// SFS, CFS or ALL (both).
+  appliesTo     String   @default("ALL") @map("applies_to") @db.VarChar(3)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1264,6 +1269,8 @@ model ConsolidationRun {
   issues        Json
   /// NCI share of the profit for the period per NCI point (for page 10).
   nciProfit     Json     @map("nci_profit")
+  /// The members' SFS snapshots used: [{ code, taskId, snapshotId, version, hash }].
+  members       Json     @default("[]")
   generatedById String   @map("generated_by_id") @db.Uuid
   generatedAt   DateTime @default(now()) @map("generated_at") @db.Timestamptz(3)
 
@@ -1291,4 +1298,20 @@ model ConsolidationAdjustment {
 
   @@index([taskId, level])
   @@map("consolidation_adjustment")
+}
+
+/// Explanation of a flagged intercompany difference (parked in IC_DIFF) at a level; kept across
+/// regenerations (keyed by the entry id, e.g. IC_BALANCE:VM:VS).
+model EliminationExplanation {
+  taskId      String   @map("task_id") @db.Uuid
+  level       Int
+  entryId     String   @map("entry_id") @db.VarChar(80)
+  text        String   @db.VarChar(1000)
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, level, entryId])
+  @@map("elimination_explanation")
 }

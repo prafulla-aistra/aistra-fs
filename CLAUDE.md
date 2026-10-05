@@ -157,6 +157,8 @@
 
 - Configuration C1: dated deactivation; ownership changes in finalised months; 2–4 letter codes.
 
+- Page 10: signature block (no statutory details); recomputed comparatives of demo levels; CFS
+  check severities (TBC); basis of consolidation wording; FCTR memo sign.
 - Page 9: illustrative acquisitions register; NCI presentation (PL_NCI, proportionate goodwill);
   P&L IC differences to IC_DIFF; level currency changes; computed translations' RE roll-forward.
 - Page 8 / C3: control-check defaults and thresholds (TBC); approval levels and named people per
@@ -196,6 +198,18 @@
 - Configuration: intercompany_pair (matrix with tolerance) and acquisition + acquisition_rate (a
   rate into the parent's currency and every level currency); seed runs once (marker
   SEED_APPLIED page9-consolidation).
+
+## Consolidation levels (page 10) conventions
+- A CFS level reuses the SFS tables with the key "L<n>" in entity_code: entity_note (notes),
+  review_submission / sign_off / review_query (review), final_snapshot (level snapshot),
+  edit_access_request (reopen). NotesService works on a NotesScope (SFS entity or level); the web
+  notes and review components take their API base from ApiBaseContext.
+- Statements, notes figures, review and finalise read ConsolidationService.levelData(): the level
+  snapshot once finalised (immutable), else members' SFS snapshots + the generated run.
+- Engine: profitAttribution, fctrSplit, fctrMovement, equityAttribution (consolidation.ts) and
+  runCfsChecks (cfs-checks.ts) over the CFS register (control_check, statementType CFS).
+- note_template.applies_to: SFS, CFS or ALL; GENERATED note blocks are filled from the level
+  (SUBSIDIARIES, GOODWILL, NCI, IC_SUMMARY, FCTR).
 
 ## Demo data
 - India Aug-2026 is seeded In progress (step Notes), ready to submit (page 8 click-through).

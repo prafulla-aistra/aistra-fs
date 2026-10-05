@@ -91,7 +91,14 @@ export function NoteTemplatesPanel({ code }: { code: string }) {
           {d.templates.map((t, i) => (
             <tr key={t.id}>
               <Td className="tabular-nums text-xs">{i + 1}</Td>
-              <Td>{t.title}</Td>
+              <Td>
+                {t.title}
+                {t.appliesTo !== 'ALL' && (
+                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {t.appliesTo === 'CFS' ? 'Consolidation only' : 'Standalone only'}
+                  </span>
+                )}
+              </Td>
               <Td>
                 <Badge variant="outline">{NOTE_KIND_LABELS[t.kind]}</Badge>
               </Td>

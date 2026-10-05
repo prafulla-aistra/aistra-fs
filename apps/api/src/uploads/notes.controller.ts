@@ -39,14 +39,14 @@ const ViewTasks = () =>
   );
 const Prepare = () => RequirePermission(Permission.SfsPrepare);
 const entityCode = z.string().regex(/^[A-Z0-9]{1,10}$/, 'Invalid entity code');
-const viewQuery = z.object({
+export const viewQuery = z.object({
   currency: z
     .string()
     .regex(/^[A-Z]{3}$/)
     .optional(),
   unit: z.enum(['ACTUAL', 'THOUSANDS', 'LAKHS', 'CRORES', 'MILLIONS']).optional(),
 });
-const exportQuery = viewQuery.extend({ type: z.enum(['docx', 'pdf']) });
+export const exportQuery = viewQuery.extend({ type: z.enum(['docx', 'pdf']) });
 
 const id = z.string().min(1).max(60);
 const richNode: z.ZodType<unknown> = z.lazy(() =>
@@ -78,6 +78,12 @@ const block = z.discriminatedUnion('type', [
   z.object({ id, type: z.literal('TEXT'), label: z.string().max(200), doc: richNode }),
   z.object({
     id,
+    type: z.literal('GENERATED'),
+    source: z.enum(['SUBSIDIARIES', 'GOODWILL', 'NCI', 'IC_SUMMARY', 'FCTR']),
+    label: z.string().max(200),
+  }),
+  z.object({
+    id,
     type: z.literal('TABLE'),
     label: z.string().max(200),
     columns: z
@@ -96,12 +102,12 @@ const block = z.discriminatedUnion('type', [
     agreeLine: z.string().max(60).nullable(),
   }),
 ]);
-const saveSchema = z.object({
+export const saveSchema = z.object({
   title: z.string().trim().min(1, 'Give the note a title').max(300),
   blocks: z.array(block).max(50),
   baseVersion: z.number().int().min(1),
 });
-const createSchema = z.object({
+export const createSchema = z.object({
   title: z.string().trim().min(1, 'Give the note a title').max(300),
   afterNoteId: z.string().uuid().nullable(),
 });

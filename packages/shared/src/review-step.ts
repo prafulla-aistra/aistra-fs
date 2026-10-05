@@ -3,6 +3,7 @@
  * sign-offs, finalisation snapshots and notifications.
  */
 import type { CheckSeverityCode, EditAccessRequestDto } from './configuration-c3';
+import type { CfsReviewExtrasDto } from './consolidation';
 import type { MappingTabDto } from './mapping-step';
 import type { ItemStatus } from './tasks';
 import type { UploadStepDto } from './upload-step';
@@ -21,7 +22,15 @@ export interface NotificationsDto {
 }
 
 export type CheckStep =
-  'UPLOAD_DATA' | 'MAPPING' | 'COMPARATIVES' | 'TRANSLATION' | 'STATEMENTS' | 'NOTES';
+  | 'UPLOAD_DATA'
+  | 'MAPPING'
+  | 'COMPARATIVES'
+  | 'TRANSLATION'
+  | 'STATEMENTS'
+  | 'NOTES'
+  | 'READINESS'
+  | 'AGGREGATION'
+  | 'ELIMINATIONS';
 
 export interface CheckResultDto {
   /** Unique per currency ("BS_TIES:USD"). */
@@ -176,6 +185,8 @@ export interface ReviewPackDto {
   changes: { at: string; user: string | null; action: string; summary: string }[];
   queries: QueryDto[];
   queryTargets: Record<Exclude<QueryTargetType, 'ENTITY'>, { key: string; label: string }[]>;
+  /** Consolidation levels only. */
+  consolidation?: CfsReviewExtrasDto;
 }
 
 export interface ReviewStepDto {

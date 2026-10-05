@@ -128,14 +128,122 @@ export const SFS_CHECKS: CheckDef[] = [
   },
 ];
 
+/** CFS checks (page 10): evaluated per consolidation level by the engine runCfsChecks. */
+export const CFS_CHECKS: CheckDef[] = [
+  {
+    code: 'CFS_MEMBERS_FINALISED',
+    name: 'Every member’s SFS finalised',
+    description: 'Each member entity has a finalised standalone snapshot for the period.',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_ELIMINATIONS_CURRENT',
+    name: 'Eliminations up to date',
+    description:
+      'Generated from the members’ current snapshots and the current configuration (regenerate after a member changes).',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_GENERATION_COMPLETE',
+    name: 'Every elimination generated',
+    description:
+      'No investment or adjustment could not be generated (missing register rows or rates).',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_ENTRIES_BALANCE',
+    name: 'Every entry balances',
+    description: 'Each elimination and adjustment nets to 0.00.',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_INVESTMENTS_ELIMINATED',
+    name: 'Investments in subsidiaries eliminated',
+    description: 'No investment in a member subsidiary remains.',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_IC_ELIMINATED',
+    name: 'Intercompany fully eliminated',
+    description:
+      'No intercompany receivable, payable, revenue or charge between members remains (differences parked in IC suspense excluded).',
+    severity: 'BLOCKING',
+  },
+  {
+    code: 'CFS_BS_BALANCES',
+    name: 'Consolidated balance sheet balances',
+    description: 'Total assets equal total equity and liabilities.',
+    severity: 'BLOCKING',
+    threshold: '0.00',
+    thresholdUnit: 'AMOUNT',
+  },
+  {
+    code: 'CFS_PROFIT_TIES',
+    name: 'Profit ties to the balance sheet',
+    description: 'The P&L profit equals the profit carried to the balance sheet.',
+    severity: 'BLOCKING',
+    threshold: '0.00',
+    thresholdUnit: 'AMOUNT',
+  },
+  {
+    code: 'CFS_ATTRIBUTION_TIES',
+    name: 'Owners + NCI = profit',
+    description: 'Profit attributable to owners and NCI adds up to the profit for the period.',
+    severity: 'BLOCKING',
+    threshold: '0.00',
+    thresholdUnit: 'AMOUNT',
+  },
+  {
+    code: 'CFS_IC_DIFFERENCES_EXPLAINED',
+    name: 'IC differences explained',
+    description: 'Every intercompany difference parked in IC suspense has an explanation.',
+    severity: 'WARNING',
+    threshold: '0',
+    thresholdUnit: 'COUNT',
+  },
+  {
+    code: 'CFS_NOTES_REVIEWED',
+    name: 'Notes reviewed',
+    description: 'Every visible consolidation note is marked reviewed.',
+    severity: 'WARNING',
+    threshold: '0',
+    thresholdUnit: 'COUNT',
+  },
+  {
+    code: 'CFS_STALE_NUMBERS',
+    name: 'No stale numbers in notes',
+    description: 'No note text repeats last period’s figure.',
+    severity: 'WARNING',
+    threshold: '0',
+    thresholdUnit: 'COUNT',
+  },
+  {
+    code: 'CFS_ACQUISITIONS_CONFIRMED',
+    name: 'Acquisitions register confirmed',
+    description: 'No acquisitions register row used is flagged "to be confirmed".',
+    severity: 'INFO',
+    threshold: '0',
+    thresholdUnit: 'COUNT',
+  },
+  {
+    code: 'CFS_COMPARATIVE_PRESENT',
+    name: 'Comparative available',
+    description: 'A finalised or recomputed comparative exists.',
+    severity: 'INFO',
+  },
+];
+
 export async function seedControls(prisma: PrismaClient): Promise<void> {
   let created = 0;
-  for (const [i, c] of SFS_CHECKS.entries()) {
+  for (const [i, c] of [
+    ...SFS_CHECKS.map((x) => ({ ...x, st: 'SFS' as const })),
+    ...CFS_CHECKS.map((x) => ({ ...x, st: 'CFS' as const })),
+  ].entries()) {
     if (await prisma.controlCheck.findUnique({ where: { code: c.code } })) continue;
     await prisma.controlCheck.create({
       data: {
         code: c.code,
-        statementType: 'SFS',
+        statementType: c.st,
         name: c.name,
         description: c.description,
         severity: c.severity,

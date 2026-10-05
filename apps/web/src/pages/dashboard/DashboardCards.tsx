@@ -255,7 +255,11 @@ function CardTitle({ icon: Icon, title }: { icon: typeof Clock; title: string })
 
 function Deadline({ deadline }: { deadline: NonNullable<DashboardDto['period']>['deadline'] }) {
   if (deadline.kind === 'COMPLETE') {
-    return <p className="mt-3 text-sm font-semibold text-success">All statements finalised</p>;
+    return (
+      <p className="mt-3 text-sm font-semibold text-success">
+        Close complete{deadline.completedOn ? ` · ${formatDate(deadline.completedOn)}` : ''}
+      </p>
+    );
   }
   return deadline.status === 'OVERDUE' ? (
     <p

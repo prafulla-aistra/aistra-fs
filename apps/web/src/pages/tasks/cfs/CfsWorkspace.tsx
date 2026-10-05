@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronRight, Construction, Lock } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Lock } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router';
 import {
   CFS_LEVEL_STEPS,
@@ -10,17 +10,21 @@ import {
 import { PageHeader } from '@/components/AppShell';
 import { ItemStatusBadge, TaskStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Alert } from '@/components/ui/form';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { ApiBaseContext } from '../api-base';
+import { EntityNotes } from '../notes/EntityNotes';
+import { EntityFinalised } from '../review/FinalisedStep';
+import { EntityReview } from '../review/ReviewStep';
 import { AggregationStep } from './AggregationStep';
 import { EliminationsStep } from './EliminationsStep';
 import { ReadinessStep } from './ReadinessStep';
+import { StatementsStep } from './StatementsStep';
 
-const BUILT: CfsLevelStepCode[] = ['READINESS', 'AGGREGATION', 'ELIMINATIONS'];
+const BUILT: CfsLevelStepCode[] = CFS_LEVEL_STEPS.map((s) => s.code);
 
 /** CFS task workspace (page 9): the level path, then the selected level's steps. */
 export function CfsWorkspace({ taskId }: { taskId: string }) {
@@ -96,15 +100,53 @@ export function CfsWorkspace({ taskId }: { taskId: string }) {
               onContinue={() => go(selected.level, 'ELIMINATIONS')}
             />
           ) : step === 'ELIMINATIONS' ? (
-            <EliminationsStep key={selected.level} taskId={taskId} level={selected.level} />
+            <EliminationsStep
+              key={selected.level}
+              taskId={taskId}
+              level={selected.level}
+              onContinue={() => go(selected.level, 'STATEMENTS')}
+            />
+          ) : step === 'STATEMENTS' ? (
+            <StatementsStep
+              key={selected.level}
+              taskId={taskId}
+              level={selected.level}
+              onContinue={() => go(selected.level, 'NOTES')}
+              onNote={(n) =>
+                setSearch({ level: String(selected.level), step: 'NOTES', note: String(n) })
+              }
+            />
           ) : (
-            <Card>
-              <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Construction className="size-4" />
-                {CFS_LEVEL_STEPS.find((s) => s.code === step)!.label} comes on the next page
-                (consolidated statements, notes, NCI attribution, review and finalise).
-              </CardContent>
-            </Card>
+            <ApiBaseContext.Provider value={`/tasks/${taskId}/cfs/levels/${selected.level}`}>
+              {step === 'NOTES' ? (
+                <EntityNotes
+                  key={selected.level}
+                  taskId={taskId}
+                  entityCode={`L${selected.level}`}
+                  onUpload={() => go(selected.level, 'ELIMINATIONS')}
+                  onContinue={() => go(selected.level, 'REVIEW')}
+                />
+              ) : step === 'REVIEW' ? (
+                <EntityReview
+                  key={selected.level}
+                  taskId={taskId}
+                  entityCode={`L${selected.level}`}
+                  onGo={(s, key) =>
+                    setSearch({
+                      level: String(selected.level),
+                      step: s,
+                      ...(s === 'NOTES' && key ? { noteId: key } : {}),
+                    })
+                  }
+                />
+              ) : (
+                <EntityFinalised
+                  key={selected.level}
+                  taskId={taskId}
+                  entityCode={`L${selected.level}`}
+                />
+              )}
+            </ApiBaseContext.Provider>
           )}
         </>
       )}

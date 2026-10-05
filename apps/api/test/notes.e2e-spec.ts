@@ -376,7 +376,7 @@ describe('exports and templates', () => {
   it('templates: listed per format; removal blocked while a finalised report uses the format', async () => {
     const t = (await ctx.http().get('/api/config/formats/STATUTORY/note-templates').set(as(master)))
       .body as NoteTemplatesDto;
-    expect(t.templates.slice(0, 3).map((x) => x.title)).toEqual([
+    expect(t.templates.filter((x) => x.appliesTo !== 'CFS').slice(0, 3).map((x) => x.title)).toEqual([
       'Corporate information',
       'Basis of preparation',
       'Significant accounting policies',

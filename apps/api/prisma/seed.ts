@@ -25,6 +25,7 @@ import { seedDemoTranslations } from './seed-demo-translations';
 import { seedDemoUploads } from './seed-demo-uploads';
 import { seedControls } from './seed-controls';
 import { seedConsolidation } from './seed-consolidation';
+import { seedCfsNoteTemplates } from './seed-cfs-note-templates';
 import { seedFormats } from './seed-formats';
 import { seedNoteTemplates } from './seed-note-templates';
 import { withConnectionDefaults } from '../src/prisma/database-url';
@@ -131,6 +132,7 @@ async function seedReferenceData(): Promise<void> {
   await seedAccounts(prisma);
   await seedFormats(prisma);
   await seedNoteTemplates(prisma);
+  await seedCfsNoteTemplates(prisma);
   await seedControls(prisma);
   for (const [key, value] of [
     ['IC_DIFF_THRESHOLD', '1.00'],

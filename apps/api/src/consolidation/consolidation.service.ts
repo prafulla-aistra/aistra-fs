@@ -59,8 +59,8 @@ import { aggregationWorkbook } from './consolidation-export';
 import { finalisedSnapshot, monthlyRates } from '../uploads/translation-inputs';
 
 const cfsInclude = { ...taskInclude, consolidationRuns: true } satisfies Prisma.TaskInclude;
-type CfsTask = Prisma.TaskGetPayload<{ include: typeof cfsInclude }>;
-type LevelRow = CfsTask['levels'][number];
+export type CfsTask = Prisma.TaskGetPayload<{ include: typeof cfsInclude }>;
+export type LevelRow = CfsTask['levels'][number];
 
 const TYPE_LABEL: Record<EliminationEntry['type'], string> = {
   IC_BALANCE: 'Intercompany balances',
@@ -71,7 +71,7 @@ const TYPE_LABEL: Record<EliminationEntry['type'], string> = {
 };
 
 /** One member as the level sees it: its finalised SFS and its figures in the level currency. */
-interface MemberData {
+export interface MemberData {
   code: string;
   shortName: string;
   functionalCurrency: string;
@@ -83,6 +83,24 @@ interface MemberData {
   source: ReadinessMemberDto['source'];
   warnings: string[];
   member: ConsolMember | null;
+  /** Account level, in the level currency (for the consolidation notes). */
+  accounts: {
+    code: string;
+    name: string;
+    fsliCode: string | null;
+    counterpartyCode: string | null;
+    amount: string;
+  }[];
+  /** The finalised SFS snapshot used (to detect a new version after generation). */
+  identity: MemberIdentity | null;
+}
+
+export interface MemberIdentity {
+  code: string;
+  taskId: string;
+  snapshotId: string;
+  version: number | null;
+  hash: string | null;
 }
 
 const flatten = (
@@ -333,18 +351,40 @@ export class ConsolidationService {
           },
           warnings: [],
           member: null,
+          accounts: [],
+          identity: null,
         });
         continue;
       }
+      const identity: MemberIdentity = {
+        code,
+        taskId: snap.taskId,
+        snapshotId: snap.id,
+        version: final?.version ?? null,
+        hash: final?.hash ?? null,
+      };
       const figures = snap.figures as unknown as EntityFigures;
       const functional =
         figures.currencies.find((c) => c.currency === e.functionalCurrency) ??
         figures.currencies[0]!;
       const inLevel = figures.currencies.find((c) => c.currency === l.currency);
       const toMember = (
-        accounts: { fsliCode: string | null; counterpartyCode: string | null; amount: string }[],
+        accounts: {
+          code: string;
+          name: string;
+          fsliCode: string | null;
+          counterpartyCode: string | null;
+          amount: string;
+        }[],
         fctr: string | null,
-      ): ConsolMember => ({
+      ): ConsolMember & { all: MemberData['accounts'] } => ({
+        all: accounts.map((a) => ({
+          code: a.code,
+          name: a.name,
+          fsliCode: a.fsliCode,
+          counterpartyCode: a.counterpartyCode,
+          amount: a.amount,
+        })),
         code,
         parentCode: base.parentCode,
         heldByParentPct: base.heldByParentPct,
@@ -368,7 +408,8 @@ export class ConsolidationService {
             warning: null,
           },
           warnings: [],
-          member: toMember(functional.current.accounts, null),
+          ...this.split(toMember(functional.current.accounts, null)),
+          identity,
         });
         continue;
       }
@@ -378,7 +419,8 @@ export class ConsolidationService {
           snapshotVersion,
           source: { kind: 'SNAPSHOT', text: 'From finalised SFS', warning: null },
           warnings: inLevel.current.warnings,
-          member: toMember(inLevel.current.accounts, inLevel.current.fctr),
+          ...this.split(toMember(inLevel.current.accounts, inLevel.current.fctr)),
+          identity,
         });
         continue;
       }
@@ -436,6 +478,8 @@ export class ConsolidationService {
           },
           warnings: [],
           member: null,
+          accounts: [],
+          identity,
         });
         continue;
       }
@@ -447,18 +491,30 @@ export class ConsolidationService {
           text: "Computed from snapshot (level currency not in the entity's translated currencies)",
           warning,
         },
+        identity,
         warnings: r.warnings,
-        member: toMember(
-          r.lines.map((x) => ({
-            fsliCode: x.fsliCode,
-            counterpartyCode: lines.find((y) => y.code === x.code)?.counterpartyCode ?? null,
-            amount: x.translated,
-          })),
-          r.fctr,
+        ...this.split(
+          toMember(
+            r.lines.map((x) => ({
+              code: x.code,
+              name: x.name,
+              fsliCode: x.fsliCode,
+              counterpartyCode: lines.find((y) => y.code === x.code)?.counterpartyCode ?? null,
+              amount: x.translated,
+            })),
+            r.fctr,
+          ),
         ),
       });
     }
     return out;
+  }
+
+  private split(
+    m: ConsolMember & { all: MemberData['accounts'] },
+  ): Pick<MemberData, 'member' | 'accounts'> {
+    const { all, ...member } = m;
+    return { member, accounts: all };
   }
 
   /** Period rates into the level currency, full precision (engine), per functional currency. */
@@ -725,7 +781,11 @@ export class ConsolidationService {
     await this.prisma.$transaction(async (tx) => {
       await tx.taskLevel.update({
         where: { taskId_level: { taskId, level } },
-        data: { currency, status: l.status === 'NOT_STARTED' ? 'IN_PROGRESS' : l.status },
+        data: {
+          currency,
+          status: l.status === 'NOT_STARTED' ? 'IN_PROGRESS' : l.status,
+          lastEditedById: user.id,
+        },
       });
       await tx.consolidationRun.deleteMany({ where: { taskId, level } });
       await this.audit.record(
@@ -1014,6 +1074,10 @@ export class ConsolidationService {
         canonicalJson(fresh.entries) !== canonicalJson(run.entries) || run.currency !== l.currency;
     }
     const entries = (run?.entries as unknown as EliminationEntry[] | undefined) ?? [];
+    const membersChanged = run ? this.membersChanged(run.members, members) : [];
+    const explanations = await this.prisma.eliminationExplanation.findMany({
+      where: { taskId, level },
+    });
     const manual = await this.prisma.consolidationAdjustment.findMany({
       where: { taskId, level: { lte: level } },
       include: {},
@@ -1057,6 +1121,17 @@ export class ConsolidationService {
         difference: e.difference ?? null,
         goodwill: e.goodwill ?? null,
         nciProfit: e.nciProfit ?? null,
+        explanation: (() => {
+          const x = explanations.find((y) => y.entryId === e.id);
+          return x
+            ? {
+                text: x.text,
+                by: users.get(x.updatedById) ?? 'Unknown user',
+                at: x.updatedAt.toISOString(),
+              }
+            : null;
+        })(),
+        canExplain: e.flagged && (e.type === 'IC_BALANCE' || e.type === 'IC_PNL') && h.editable,
         manual: m
           ? {
               id: m.id,
@@ -1079,6 +1154,7 @@ export class ConsolidationService {
         ? { at: run.generatedAt.toISOString(), by: users.get(run.generatedById) ?? 'Unknown user' }
         : null,
       stale,
+      membersChanged,
       entries: entries.map(dto),
       issues: (run?.issues as string[] | undefined) ?? [],
       summary: run ? eliminationSummary(entries) : null,
@@ -1110,6 +1186,9 @@ export class ConsolidationService {
       entries: JSON.parse(JSON.stringify(r.entries)) as Prisma.InputJsonValue,
       issues: r.issues,
       nciProfit,
+      members: JSON.parse(
+        JSON.stringify(members.map((m) => m.identity).filter(Boolean)),
+      ) as Prisma.InputJsonValue,
       generatedById: user.id,
       generatedAt: new Date(),
     };
@@ -1117,6 +1196,10 @@ export class ConsolidationService {
       where: { taskId_level: { taskId: task.id, level: l.level } },
       create: { taskId: task.id, level: l.level, ...data },
       update: data,
+    });
+    await tx.taskLevel.update({
+      where: { taskId_level: { taskId: task.id, level: l.level } },
+      data: { lastEditedById: user.id },
     });
     return r;
   }
@@ -1299,20 +1382,348 @@ export class ConsolidationService {
     return this.eliminations(user, taskId, level);
   }
 
-  /** Consolidated amounts (aggregate + eliminations), for page 10 and the checks. */
-  async consolidated(user: AuthUser, taskId: string, level: number) {
+  // ---------------------------------------------------------------------- page 10: level data
+
+  /** Members whose SFS snapshot is not the one the eliminations were generated from. */
+  membersChanged(stored: Prisma.JsonValue, members: MemberData[]): string[] {
+    const ids = Array.isArray(stored) ? (stored as unknown as MemberIdentity[]) : [];
+    if (ids.length === 0) return [];
+    return members
+      .filter((m) => {
+        const was = ids.find((x) => x.code === m.code);
+        if (!was || !m.identity) return true;
+        return (
+          was.snapshotId !== m.identity.snapshotId ||
+          was.version !== m.identity.version ||
+          was.hash !== m.identity.hash
+        );
+      })
+      .map((m) => m.code);
+  }
+
+  /** Explain a flagged IC difference (kept across regenerations; required before review). */
+  async explain(
+    user: AuthUser,
+    taskId: string,
+    level: number,
+    entryId: string,
+    text: string,
+    ip: string | null,
+  ): Promise<EliminationsDto> {
     const task = await this.load(user, taskId);
     const l = this.levelRow(task, level);
-    const { sfs } = await this.availability(task);
+    const { waiting } = await this.availability(task);
+    this.assertEditable(this.header(user, task, l, waiting.get(level) ?? []));
+    const run = await this.prisma.consolidationRun.findUnique({
+      where: { taskId_level: { taskId, level } },
+    });
+    const entry = ((run?.entries as unknown as EliminationEntry[] | undefined) ?? []).find(
+      (e) => e.id === entryId,
+    );
+    if (!entry || !entry.flagged || (entry.type !== 'IC_BALANCE' && entry.type !== 'IC_PNL'))
+      throw ApiError.notFound('Flagged intercompany entry not found.');
+    const before = await this.prisma.eliminationExplanation.findUnique({
+      where: { taskId_level_entryId: { taskId, level, entryId } },
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.eliminationExplanation.upsert({
+        where: { taskId_level_entryId: { taskId, level, entryId } },
+        create: { taskId, level, entryId, text: text.trim(), updatedById: user.id },
+        update: { text: text.trim(), updatedById: user.id },
+      });
+      await tx.taskLevel.update({
+        where: { taskId_level: { taskId, level } },
+        data: { lastEditedById: user.id },
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.EliminationExplain,
+          entityType: 'TASK_LEVEL',
+          entityId: `${taskId}:${level}`,
+          oldValue: before ? { entry: entryId, text: before.text } : null,
+          newValue: {
+            task: task.number,
+            level: `${level} ${l.name}`,
+            entry: entryId,
+            title: entry.title,
+            difference: entry.difference,
+            text: text.trim(),
+          },
+          ip,
+        },
+        tx,
+      );
+    });
+    return this.eliminations(user, taskId, level);
+  }
+
+  private async comparativePeriod(task: CfsTask) {
+    if (task.comparativeBasis === 'SAME_PERIOD_LAST_YEAR') {
+      const start = new Date(task.period.startDate);
+      start.setUTCFullYear(start.getUTCFullYear() - 1);
+      return this.prisma.period.findFirst({ where: { type: task.period.type, startDate: start } });
+    }
+    return this.previousPeriod(task);
+  }
+
+  /**
+   * The comparative of a level: the finalised snapshot of the same level (same parent) for the
+   * comparative period in the same currency; else recomputed from that period's finalised SFS
+   * snapshots of all members; else none.
+   */
+  private async comparativeFor(task: CfsTask, l: LevelRow): Promise<LevelComparative> {
+    const prev = await this.comparativePeriod(task);
+    const immediatelyPreceding = task.comparativeBasis !== 'SAME_PERIOD_LAST_YEAR';
+    const none = (label: string): LevelComparative => ({
+      kind: 'NONE',
+      label,
+      periodLabel: prev?.label ?? '',
+      consolidated: null,
+      entries: [],
+      immediatelyPreceding,
+    });
+    if (!prev) return none('No comparative period.');
+    const cfsPrev = await this.prisma.task.findFirst({
+      where: { type: 'CFS', periodId: prev.id },
+      include: { levels: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const lvlPrev = cfsPrev?.levels.find((x) => x.parentEntityCode === l.parentEntityCode);
+    if (cfsPrev && lvlPrev?.status === 'FINALISED') {
+      const snap = await this.prisma.finalSnapshot.findFirst({
+        where: { taskId: cfsPrev.id, entityCode: `L${lvlPrev.level}`, state: 'FINAL' },
+        orderBy: { version: 'desc' },
+      });
+      const d = snap?.data as unknown as LevelSnapshotData | undefined;
+      if (snap && d && d.currency === l.currency)
+        return {
+          kind: 'SNAPSHOT',
+          label: `Finalised ${cfsPrev.number} Level ${lvlPrev.level} (v${snap.version})`,
+          periodLabel: prev.label,
+          consolidated: d.consolidated,
+          entries: d.entries,
+          immediatelyPreceding,
+        };
+    }
+    const synth = {
+      ...task,
+      id: cfsPrev?.id ?? '00000000-0000-0000-0000-000000000000',
+      period: { ...prev, financialYear: task.period.financialYear },
+      periodId: prev.id,
+      consolidationRuns: [],
+    } as unknown as CfsTask;
+    const sfs = await this.sfsStatus(prev.id, l.members);
+    const members = await this.members(synth, l, sfs);
+    const missing = members.filter((m) => !m.member);
+    if (missing.length)
+      return none(
+        `No comparative: ${missing.map((m) => m.code).join(', ')} not finalised for ${prev.label}.`,
+      );
+    const { entries } = await this.compute(synth, l, members);
+    const fslis = await loadFslis(this.prisma);
+    return {
+      kind: 'RECOMPUTED',
+      label:
+        lvlPrev?.status === 'FINALISED'
+          ? `Recomputed – no stored ${l.currency} snapshot of the level for ${prev.label}`
+          : `Recomputed – level not finalised for ${prev.label}`,
+      periodLabel: prev.label,
+      consolidated: consolidatedAmounts(
+        members.map((m) => m.member!),
+        entries,
+        fslis,
+      ),
+      entries,
+      immediatelyPreceding,
+    };
+  }
+
+  /**
+   * Everything the level's statements, notes, review and finalisation need. A finalised level is
+   * read from its snapshot (immutable); otherwise from the members' finalised SFS snapshots and the
+   * generated eliminations.
+   */
+  async levelData(user: AuthUser, taskId: string, level: number): Promise<LevelData> {
+    const task = await this.load(user, taskId);
+    const l = this.levelRow(task, level);
+    const { waiting, sfs } = await this.availability(task);
+    const header = this.header(user, task, l, waiting.get(level) ?? []);
+    const fslis = await loadFslis(this.prisma);
+    if (l.status === 'FINALISED') {
+      const snap = await this.prisma.finalSnapshot.findFirst({
+        where: { taskId, entityCode: `L${level}`, state: 'FINAL' },
+        orderBy: { version: 'desc' },
+      });
+      const d = snap?.data as unknown as LevelSnapshotData | undefined;
+      if (snap && d)
+        return {
+          task,
+          level: l,
+          header,
+          fromSnapshot: true,
+          snapshot: {
+            version: snap.version,
+            hash: snap.hash,
+            finalisedAt: (snap.finalisedAt ?? snap.createdAt).toISOString(),
+          },
+          members: d.members,
+          entries: d.entries,
+          issues: d.issues,
+          generated: true,
+          generatedAt: d.generatedAt,
+          stale: false,
+          membersChanged: [],
+          consolidated: d.consolidated,
+          comparative: d.comparative,
+          fslis,
+          explanations: d.explanations,
+          manual: d.manual,
+        };
+    }
     const members = await this.members(task, l, sfs);
     const run = await this.prisma.consolidationRun.findUnique({
       where: { taskId_level: { taskId, level } },
     });
-    const fslis = await loadFslis(this.prisma);
-    return consolidatedAmounts(
-      members.filter((m) => m.member).map((m) => m.member!),
-      (run?.entries as unknown as EliminationEntry[]) ?? [],
+    const entries = (run?.entries as unknown as EliminationEntry[] | undefined) ?? [];
+    const ok = members.filter((m) => m.member);
+    let stale = false;
+    if (run && ok.length === members.length) {
+      const fresh = await this.compute(task, l, members);
+      stale =
+        canonicalJson(fresh.entries) !== canonicalJson(run.entries) || run.currency !== l.currency;
+    }
+    const manual = await this.prisma.consolidationAdjustment.findMany({
+      where: { taskId, level: { lte: level } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const explanations = await this.prisma.eliminationExplanation.findMany({
+      where: { taskId, level },
+    });
+    return {
+      task,
+      level: l,
+      header,
+      fromSnapshot: false,
+      snapshot: null,
+      members,
+      entries,
+      issues: (run?.issues as string[] | undefined) ?? [],
+      generated: Boolean(run),
+      generatedAt: run?.generatedAt.toISOString() ?? null,
+      stale,
+      membersChanged: run ? this.membersChanged(run.members, members) : [],
+      consolidated: consolidatedAmounts(
+        ok.map((m) => m.member!),
+        entries,
+        fslis,
+      ),
+      comparative: await this.comparativeFor(task, l),
       fslis,
-    );
+      explanations: explanations.map((x) => ({ entryId: x.entryId, text: x.text })),
+      manual: manual.map((m) => ({
+        id: m.id,
+        level: m.level,
+        currency: m.currency,
+        narration: m.narration,
+        reason: m.reason,
+        createdById: m.createdById,
+        createdAt: m.createdAt.toISOString(),
+        lines: m.lines as unknown as LevelSnapshotData['manual'][number]['lines'],
+      })),
+    };
   }
+
+  /** Rates into the level currency, per functional currency of the members (10 dp). */
+  async levelRatesFor(d: LevelData) {
+    const fns = [...new Set(d.members.map((m) => m.functionalCurrency))].filter(
+      (c) => c !== d.level.currency,
+    );
+    const { monthly, period } = await this.levelRates(d.task, d.level, fns);
+    return fns.map((c) => ({
+      currency: c,
+      opening: crossRate(monthly, period, c, d.level.currency, 'opening').value,
+      closing: crossRate(monthly, period, c, d.level.currency, 'closing').value,
+      average: crossRate(monthly, period, c, d.level.currency, 'average').value,
+      formula: crossRate(monthly, period, c, d.level.currency, 'closing').formula,
+    }));
+  }
+
+  /** The level's format lines (task format, or another chosen one). */
+  async formatLines(task: CfsTask, code?: string) {
+    const isTask = !code || code === (task.formatCode ?? 'STATUTORY');
+    const { format, version, lines } = await loadFormatLines(
+      this.prisma,
+      isTask ? (task.formatCode ?? 'STATUTORY') : code,
+      isTask ? task.formatVersion : null,
+    );
+    return { format, version, lines, isTask };
+  }
+
+  /** For the level review: the level row, header and the rule key (approvals by level parent). */
+  async levelContext(user: AuthUser, taskId: string, level: number) {
+    const task = await this.load(user, taskId);
+    const l = this.levelRow(task, level);
+    const { waiting } = await this.availability(task);
+    return { task, level: l, header: this.header(user, task, l, waiting.get(level) ?? []) };
+  }
+}
+
+/** A level's comparative figures. */
+export interface LevelComparative {
+  kind: 'SNAPSHOT' | 'RECOMPUTED' | 'NONE';
+  label: string;
+  periodLabel: string;
+  consolidated: Record<string, string> | null;
+  entries: EliminationEntry[];
+  immediatelyPreceding: boolean;
+}
+
+/** What a finalised level stores (final_snapshot.data, key "L<n>"); part of the hash. */
+export interface LevelSnapshotData {
+  schema: 1;
+  level: number;
+  name: string;
+  currency: string;
+  parentCode: string;
+  generatedAt: string | null;
+  members: MemberData[];
+  entries: EliminationEntry[];
+  issues: string[];
+  aggregate: Record<string, string>;
+  consolidated: Record<string, string>;
+  comparative: LevelComparative;
+  explanations: { entryId: string; text: string }[];
+  manual: {
+    id: string;
+    level: number;
+    currency: string;
+    narration: string;
+    reason: string;
+    createdById: string;
+    createdAt: string;
+    lines: { entityCode: string | null; fsliCode: string; amount: string }[];
+  }[];
+  nci: { entityCode: string; nciProfit: string }[];
+  [extra: string]: unknown;
+}
+
+export interface LevelData {
+  task: CfsTask;
+  level: LevelRow;
+  header: CfsLevelHeaderDto;
+  fromSnapshot: boolean;
+  snapshot: { version: number; hash: string | null; finalisedAt: string } | null;
+  members: MemberData[];
+  entries: EliminationEntry[];
+  issues: string[];
+  generated: boolean;
+  generatedAt: string | null;
+  stale: boolean;
+  membersChanged: string[];
+  consolidated: Record<string, string>;
+  comparative: LevelComparative;
+  fslis: FormatFsli[];
+  explanations: { entryId: string; text: string }[];
+  manual: LevelSnapshotData['manual'];
 }

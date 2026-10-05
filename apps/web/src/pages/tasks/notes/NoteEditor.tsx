@@ -22,7 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, Input } from '@/components/ui/form';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { FiguresBlockEditor, TableBlockEditor } from './BlockEditors';
+import { FiguresBlockEditor, GeneratedBlockView, TableBlockEditor } from './BlockEditors';
+import { useApiBase } from '../api-base';
 import { newTableBlock, newTextBlock } from './blocks';
 import { FigurePicker } from './FigurePicker';
 import { indianGrouping, statusVariant } from './figures';
@@ -40,6 +41,7 @@ export function NoteEditor({
   d: EntityNotesDto;
   note: NoteDto;
 }) {
+  const base = useApiBase(taskId, d.entity.code);
   const qc = useQueryClient();
   const editable = d.canEdit;
   const [draft, setDraft] = useState({ title: note.title, blocks: note.blocks });
@@ -53,13 +55,10 @@ export function NoteEditor({
 
   const save = useMutation({
     mutationFn: (body: typeof draft) =>
-      api.put<{ version: number; status: string }>(
-        `/tasks/${taskId}/entities/${d.entity.code}/notes/${note.id}`,
-        {
-          ...body,
-          baseVersion: version.current,
-        },
-      ),
+      api.put<{ version: number; status: string }>(`${base}/notes/${note.id}`, {
+        ...body,
+        baseVersion: version.current,
+      }),
     onMutate: () => setSaveState('saving'),
     onSuccess: async (r) => {
       version.current = r.version;
@@ -91,14 +90,11 @@ export function NoteEditor({
 
   const review = useMutation({
     mutationFn: (reviewed: boolean) =>
-      api.post<{ status: string }>(
-        `/tasks/${taskId}/entities/${d.entity.code}/notes/${note.id}/review`,
-        { reviewed },
-      ),
+      api.post<{ status: string }>(`${base}/notes/${note.id}/review`, { reviewed }),
     onSuccess: refresh,
   });
   const remove = useMutation({
-    mutationFn: () => api.delete(`/tasks/${taskId}/entities/${d.entity.code}/notes/${note.id}`),
+    mutationFn: () => api.delete(`${base}/notes/${note.id}`),
     onSuccess: async () => {
       toast('Note deleted.');
       await refresh();
@@ -176,11 +172,15 @@ export function NoteEditor({
             return (
               <div key={b.id} className="space-y-2 rounded-md border border-dashed p-3">
                 <div className="flex items-center gap-2">
-                  {b.type === 'TEXT' || b.type === 'TABLE' ? (
+                  {b.type === 'TEXT' || b.type === 'TABLE' || b.type === 'GENERATED' ? (
                     <Input
                       aria-label="Block label"
                       placeholder={
-                        b.type === 'TEXT' ? 'Label (e.g. Terms and conditions)' : 'Table title'
+                        b.type === 'TEXT'
+                          ? 'Label (e.g. Terms and conditions)'
+                          : b.type === 'GENERATED'
+                            ? 'Title (the table is filled from the consolidation)'
+                            : 'Table title'
                       }
                       className="h-8 max-w-sm text-sm"
                       value={b.label}
@@ -243,6 +243,7 @@ export function NoteEditor({
                     onInsertFigure={() => setPicker({ blockId: b.id, replace: null })}
                   />
                 )}
+                {b.type === 'GENERATED' && <GeneratedBlockView view={note.generated?.[b.id]} />}
                 {b.type === 'TABLE' && (
                   <TableBlockEditor
                     block={b}

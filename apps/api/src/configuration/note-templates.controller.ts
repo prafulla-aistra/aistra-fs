@@ -121,6 +121,7 @@ export class NoteTemplatesController {
         lineKeys: t.lineKeys,
         defaultBlocks: t.defaultBlocks as unknown as NoteBlockDto[],
         mandatory: t.mandatory,
+        appliesTo: t.appliesTo as 'SFS' | 'CFS' | 'ALL',
       })),
       removeBlocked: await this.finalisedUse(code),
       lines: (version?.lines ?? [])

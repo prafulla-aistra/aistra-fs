@@ -28,6 +28,7 @@ import { statusVariant } from './figures';
 import { NoteEditor } from './NoteEditor';
 import { useQueryMarkers } from '../review/markers';
 import { QueryMarker } from '../review/ReviewStep';
+import { useApiBase } from '../api-base';
 
 /** Notes for one entity: list on the left, the selected note on the right. */
 export function EntityNotes({
@@ -41,6 +42,7 @@ export function EntityNotes({
   onUpload: () => void;
   onContinue: () => void;
 }) {
+  const base = useApiBase(taskId, entityCode);
   const qc = useQueryClient();
   const [search, setSearch] = useSearchParams();
   const queriesOn = useQueryMarkers(taskId, entityCode);
@@ -56,24 +58,23 @@ export function EntityNotes({
   }).toString();
   const q = useQuery({
     queryKey: ['notes', taskId, entityCode, qs],
-    queryFn: () => api.get<EntityNotesDto>(`/tasks/${taskId}/entities/${entityCode}/notes?${qs}`),
+    queryFn: () => api.get<EntityNotesDto>(`${base}/notes?${qs}`),
     placeholderData: (prev) => prev,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['notes', taskId, entityCode] });
   const reorder = useMutation({
-    mutationFn: (ids: string[]) =>
-      api.put(`/tasks/${taskId}/entities/${entityCode}/notes-order`, { ids }),
+    mutationFn: (ids: string[]) => api.put(`${base}/notes-order`, { ids }),
     onSuccess: refresh,
   });
   const exportFile = useMutation({
     mutationFn: (type: 'docx' | 'pdf') =>
       downloadPath(
-        `/tasks/${taskId}/entities/${entityCode}/notes/export?type=${type}&${qs}`,
+        `${base}/notes/export?type=${type}&${qs}`,
         `${entityCode}-financial-statements.${type}`,
       ),
   });
   const next = useMutation({
-    mutationFn: () => api.post(`/tasks/${taskId}/entities/${entityCode}/notes-continue`),
+    mutationFn: () => api.post(`${base}/notes-continue`),
     onSuccess: async () => {
       toast(`${entityCode} moved to Review.`);
       await qc.invalidateQueries({ queryKey: ['notes-step', taskId] });
@@ -304,11 +305,12 @@ function AddNoteDialog({
   onClose: () => void;
   onDone: (id: string) => Promise<void>;
 }) {
+  const base = useApiBase(taskId, entityCode);
   const [title, setTitle] = useState('');
   const [where, setWhere] = useState<'after' | 'end'>('after');
   const add = useMutation({
     mutationFn: () =>
-      api.post<{ id: string }>(`/tasks/${taskId}/entities/${entityCode}/notes`, {
+      api.post<{ id: string }>(`${base}/notes`, {
         title,
         afterNoteId: where === 'after' ? after.id : null,
       }),

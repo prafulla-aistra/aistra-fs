@@ -13,6 +13,7 @@ import { formatDateTime, statementAmount } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { EntityTabs } from '../EntityTabs';
 import { useSelectedEntity } from '../useSelectedEntity';
+import { useApiBase } from '../api-base';
 import { useEntityFromUrl } from './markers';
 
 /** Step "Finalised": the read-only result, downloads, edit access and the version history. */
@@ -47,9 +48,10 @@ export function FinalisedStep({ taskId }: { taskId: string }) {
   );
 }
 
-function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: string }) {
+export function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: string }) {
   const qc = useQueryClient();
-  const base = `/tasks/${taskId}/entities/${entityCode}`;
+  const base = useApiBase(taskId, entityCode);
+  const cfs = base.includes('/cfs/');
   const q = useQuery({
     queryKey: ['finalised', taskId, entityCode],
     queryFn: () => api.get<FinalisedViewDto>(`${base}/finalised`),
@@ -65,14 +67,19 @@ function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: s
   });
   const download = useMutation({
     mutationFn: (kind: 'xlsx' | 'docx' | 'pdf' | 'record') =>
-      kind === 'xlsx'
-        ? downloadPath(`${base}/statements/export?currency=ALL`, `${entityCode}-statements.xlsx`)
-        : kind === 'record'
-          ? downloadPath(`${base}/finalised/review-record`, `${entityCode}-review-record.pdf`)
-          : downloadPath(
-              `${base}/notes/export?type=${kind}`,
-              `${entityCode}-financial-statements.${kind}`,
-            ),
+      cfs && kind !== 'record'
+        ? downloadPath(
+            `${base}/statements/export?type=${kind}`,
+            `${entityCode}-${kind === 'xlsx' ? 'group-pack' : 'consolidated-financial-statements'}.${kind}`,
+          )
+        : kind === 'xlsx'
+          ? downloadPath(`${base}/statements/export?currency=ALL`, `${entityCode}-statements.xlsx`)
+          : kind === 'record'
+            ? downloadPath(`${base}/finalised/review-record`, `${entityCode}-review-record.pdf`)
+            : downloadPath(
+                `${base}/notes/export?type=${kind}`,
+                `${entityCode}-financial-statements.${kind}`,
+              ),
   });
   if (q.error) return <Alert>{errorMessage(q.error)}</Alert>;
   if (!q.data) return <Skeleton className="h-64 w-full" />;
@@ -115,7 +122,7 @@ function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: s
                 disabled={download.isPending}
                 onClick={() => download.mutate('xlsx')}
               >
-                <Download /> Statements (Excel)
+                <Download /> {cfs ? 'Group reporting pack (Excel)' : 'Statements (Excel)'}
               </Button>
               <Button
                 variant="outline"
@@ -123,7 +130,7 @@ function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: s
                 disabled={download.isPending}
                 onClick={() => download.mutate('docx')}
               >
-                <Download /> Full set (Word)
+                <Download /> {cfs ? 'Consolidated statements (Word)' : 'Full set (Word)'}
               </Button>
               <Button
                 variant="outline"
@@ -131,7 +138,7 @@ function EntityFinalised({ taskId, entityCode }: { taskId: string; entityCode: s
                 disabled={download.isPending}
                 onClick={() => download.mutate('pdf')}
               >
-                <Download /> Full set (PDF)
+                <Download /> {cfs ? 'Consolidated statements (PDF)' : 'Full set (PDF)'}
               </Button>
               <Button
                 variant="outline"

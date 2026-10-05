@@ -28,6 +28,7 @@ import { api, apiFetch, errorMessage } from '@/lib/api';
 import { formatDateTime, statementAmount } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { useApiBase } from '../api-base';
 import { EntityTabs } from '../EntityTabs';
 import { useSelectedEntity } from '../useSelectedEntity';
 import { useEntityFromUrl } from './markers';
@@ -82,7 +83,7 @@ const SIGN_OFF_TEXT: Record<SignOffDto['status'], string> = {
   NOT_REQUIRED: 'Not required',
 };
 
-function EntityReview({
+export function EntityReview({
   taskId,
   entityCode,
   onGo,
@@ -92,21 +93,23 @@ function EntityReview({
   onGo: GoTo;
 }) {
   const qc = useQueryClient();
+  const apiBase = useApiBase(taskId, entityCode);
   const key = ['review', taskId, entityCode];
   const q = useQuery({
     queryKey: key,
-    queryFn: () => api.get<ReviewPackDto>(`/tasks/${taskId}/entities/${entityCode}/review`),
+    queryFn: () => api.get<ReviewPackDto>(`${apiBase}/review`),
   });
   const refresh = (p: ReviewPackDto) => {
     qc.setQueryData(key, p);
     void qc.invalidateQueries({ queryKey: ['review-step', taskId] });
     void qc.invalidateQueries({ queryKey: ['task', taskId] });
+    void qc.invalidateQueries({ queryKey: ['cfs', taskId] });
     void qc.invalidateQueries({ queryKey: ['notifications'] });
   };
   if (q.error) return <Alert>{errorMessage(q.error)}</Alert>;
   if (!q.data) return <Skeleton className="h-96 w-full" />;
   const p = q.data;
-  const base = `/tasks/${taskId}/entities/${entityCode}/review`;
+  const base = `${apiBase}/review`;
   const failing = p.checks.filter((c) => c.result === 'FAIL');
   return (
     <div className="space-y-4">
@@ -380,6 +383,8 @@ function EntityReview({
           </ul>
         )}
       </Section>
+
+      {p.consolidation && <ConsolidationSections p={p} />}
 
       {!p.fromSnapshot && !p.actions.decidingAs && p.entity.itemStatus !== 'FINALISED' && (
         <SubmitPanel p={p} base={base} onDone={refresh} />
@@ -967,5 +972,160 @@ function RaiseQuery({
         Raise query
       </Button>
     </div>
+  );
+}
+
+/** Review pack sections of a consolidation level (page 10). */
+function ConsolidationSections({ p }: { p: ReviewPackDto }) {
+  const c = p.consolidation!;
+  return (
+    <>
+      {c.membersChanged.length > 0 && (
+        <Alert>
+          Member data changed – regenerate eliminations ({c.membersChanged.join(', ')}). Submission
+          is blocked until then.
+        </Alert>
+      )}
+      <Section
+        n={11}
+        title="Intercompany differences"
+        summary={`${c.icDifferences.length} parked in IC suspense`}
+        open={c.icDifferences.some((x) => !x.explanation)}
+      >
+        {c.icDifferences.length === 0 ? (
+          <Empty>No intercompany differences above the tolerances.</Empty>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Entry</Th>
+                <Th className="text-right">In IC suspense</Th>
+                <Th>Explanation</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.icDifferences.map((x) => (
+                <tr key={x.entryId}>
+                  <Td>{x.title}</Td>
+                  <Td className="text-right tabular-nums">
+                    {statementAmount(x.amount.replace('-', ''))}
+                  </Td>
+                  <Td className={cn(!x.explanation && 'text-destructive')}>
+                    {x.explanation ?? 'Not explained (explain it on step 3)'}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Section>
+      <Section
+        n={12}
+        title="Manual adjustments"
+        summary={`${c.manualAdjustments.length} adjustments`}
+      >
+        {c.manualAdjustments.length === 0 ? (
+          <Empty>No manual adjustments.</Empty>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Narration</Th>
+                <Th>Reason</Th>
+                <Th>Level</Th>
+                <Th>By</Th>
+                <Th className="text-right">Amount</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.manualAdjustments.map((m, i) => (
+                <tr key={i}>
+                  <Td>{m.narration}</Td>
+                  <Td>{m.reason}</Td>
+                  <Td>{m.originLevel}</Td>
+                  <Td>{m.by}</Td>
+                  <Td className="text-right tabular-nums">{statementAmount(m.total)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Section>
+      <Section
+        n={13}
+        title="Goodwill and NCI"
+        summary={`${c.goodwill.length} acquisitions · ${c.nci.length} NCI`}
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Acquisition</Th>
+                <Th className="text-right">Goodwill / (capital reserve)</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.goodwill.map((g) => (
+                <tr key={g.title}>
+                  <Td>{g.title}</Td>
+                  <Td className="text-right tabular-nums">{statementAmount(g.goodwill)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Non-controlling interests</Th>
+                <Th className="text-right">Share of profit</Th>
+                <Th className="text-right">NCI</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.nci.map((n) => (
+                <tr key={n.title}>
+                  <Td>{n.title}</Td>
+                  <Td className="text-right tabular-nums">{statementAmount(n.nciProfit)}</Td>
+                  <Td className="text-right tabular-nums">{statementAmount(n.nciEquity)}</Td>
+                </tr>
+              ))}
+              {c.nci.length === 0 && (
+                <tr>
+                  <Td colSpan={3} className="text-muted-foreground">
+                    No partly owned subsidiaries at this level.
+                  </Td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+        </div>
+      </Section>
+      <Section n={14} title="Members' snapshots used" summary={`${c.members.length} members`}>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Member</Th>
+              <Th>SFS task</Th>
+              <Th>Snapshot</Th>
+              <Th>SHA-256</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.members.map((m) => (
+              <tr key={m.code}>
+                <Td>
+                  {m.code} {m.shortName}
+                </Td>
+                <Td>{m.taskNumber ?? '–'}</Td>
+                <Td>{m.snapshotVersion ?? '–'}</Td>
+                <Td>
+                  <code className="text-xs">{m.hash ? `${m.hash.slice(0, 16)}…` : '–'}</code>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </Section>
+    </>
   );
 }

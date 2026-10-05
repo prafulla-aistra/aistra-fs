@@ -26,15 +26,36 @@ const SEVERITY_VARIANT: Record<CheckSeverityCode, 'destructive' | 'warning' | 'n
 
 /** Configuration → Control checks: the register run before a submission (page 8). */
 export function ControlChecksPage() {
+  const [st, setSt] = useState<'SFS' | 'CFS'>('SFS');
   const checks = useQuery({
-    queryKey: ['config', 'control-checks'],
-    queryFn: () => api.get<ControlCheckDto[]>('/config/control-checks?statementType=SFS'),
+    queryKey: ['config', 'control-checks', st],
+    queryFn: () => api.get<ControlCheckDto[]>(`/config/control-checks?statementType=${st}`),
   });
   const [editing, setEditing] = useState<ControlCheckDto | null>(null);
   return (
     <ConfigPage
       title="Control checks"
-      purpose="Checks run on every standalone entity before it can be submitted. Blocking checks stop the submission; warnings need an acknowledgement."
+      purpose={
+        st === 'SFS'
+          ? 'Checks run on every standalone entity before it can be submitted. Blocking checks stop the submission; warnings need an acknowledgement.'
+          : 'Checks run on every consolidation level before it can be submitted. Blocking checks stop the submission; warnings need an acknowledgement.'
+      }
+      action={
+        <div role="tablist" aria-label="Statement type" className="flex gap-1">
+          {(['SFS', 'CFS'] as const).map((x) => (
+            <Button
+              key={x}
+              role="tab"
+              aria-selected={st === x}
+              size="sm"
+              variant={st === x ? 'default' : 'outline'}
+              onClick={() => setSt(x)}
+            >
+              {x === 'SFS' ? 'Standalone (SFS)' : 'Consolidation (CFS)'}
+            </Button>
+          ))}
+        </div>
+      }
       count={
         checks.data
           ? `${checks.data.filter((c) => c.isActive).length} active of ${checks.data.length}`

@@ -30,6 +30,10 @@ export interface FullSetInput {
   taskNumber: string;
   exportedBy: string;
   exportedAt: Date;
+  /** Cover subtitle (default "Financial statements"). */
+  subtitle?: string;
+  /** Signature block at the end (consolidated statements). */
+  signature?: { entityName: string; lines: string[] };
 }
 
 const indian = (s: EntityStatementsDto) =>
@@ -98,6 +102,20 @@ function noteParts(n: NoteDto, d: EntityNotesDto, s: EntityStatementsDto): Part[
       if (b.label) parts.push({ kind: 'label', text: b.label });
       for (const p of toParas(b.doc, d.catalog)) parts.push({ kind: 'para', para: p });
     }
+    if (b.type === 'GENERATED') {
+      const g = n.generated?.[b.id];
+      if (b.label) parts.push({ kind: 'label', text: b.label });
+      if (g && g.columns.length)
+        parts.push({
+          kind: 'table',
+          head: g.columns.map((c) => c.label),
+          rows: g.rows.map((r) => ({
+            cells: r.cells.map((c) => c ?? ''),
+            style: r.total ? 'total' : 'line',
+          })),
+        });
+      if (g?.footnote) parts.push({ kind: 'label', text: g.footnote });
+    }
     if (b.type === 'FIGURES') {
       const f = n.figures[b.id];
       if (!f) continue;
@@ -164,7 +182,7 @@ const coverLines = (x: FullSetInput) => {
   const end = s.profitAndLoss.title.replace('Statement of profit and loss ', '');
   return {
     title: s.header.legalName,
-    subtitle: 'Financial statements',
+    subtitle: x.subtitle ?? 'Financial statements',
     period: end.charAt(0).toUpperCase() + end.slice(1),
     details: [
       `Format: ${s.header.formatName}`,
@@ -368,6 +386,34 @@ export async function fullSetDocx(x: FullSetInput): Promise<Buffer> {
           new Paragraph({ children: [new PageBreak()] }),
           h('Notes to the financial statements'),
           ...noteBlocks,
+          ...(x.signature
+            ? [
+                new Paragraph({
+                  spacing: { before: 600 },
+                  children: [
+                    new TextRun({
+                      text: `For and on behalf of the Board of ${x.signature.entityName}`,
+                      bold: true,
+                      size: 20,
+                    }),
+                  ],
+                }),
+                ...x.signature.lines.map(
+                  (l) =>
+                    new Paragraph({
+                      spacing: { before: 480 },
+                      children: [
+                        new TextRun({ text: `_____________________________   ${l}`, size: 20 }),
+                        new TextRun({
+                          text: '   Name:                     Date:              Place:',
+                          size: 16,
+                          color: '64748B',
+                        }),
+                      ],
+                    }),
+                ),
+              ]
+            : []),
           new Paragraph({
             spacing: { before: 400 },
             children: [new TextRun({ text: s.footer, italics: true, size: 16, color: '64748B' })],
@@ -558,6 +604,28 @@ export function fullSetPdf(x: FullSetInput): Promise<Buffer> {
         );
     }
     doc.moveDown(0.5);
+  }
+  if (x.signature) {
+    ensure(140);
+    doc
+      .moveDown(2)
+      .font('Helvetica-Bold')
+      .fontSize(10)
+      .fillColor('#000')
+      .text(`For and on behalf of the Board of ${x.signature.entityName}`, 50, doc.y, { width });
+    for (const l of x.signature.lines) {
+      doc
+        .moveDown(2.2)
+        .font('Helvetica')
+        .fontSize(9)
+        .text(`_____________________________   ${l}`, 50, doc.y, { width });
+      doc
+        .fontSize(8)
+        .fillColor('#64748B')
+        .text('Name:                         Date:                 Place:', 50, doc.y, { width })
+        .fillColor('#000');
+    }
+    doc.moveDown(1);
   }
   doc
     .font('Helvetica-Oblique')

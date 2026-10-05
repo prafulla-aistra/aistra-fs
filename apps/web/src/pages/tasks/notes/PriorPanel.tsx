@@ -8,6 +8,7 @@ import { api, errorMessage } from '@/lib/api';
 import { statementAmount } from '@/lib/format';
 import { indianGrouping } from './figures';
 import { RichTextView } from './RichTextView';
+import { useApiBase } from '../api-base';
 
 /**
  * "Last finalised (Jul-2026)": the note exactly as finalised (read-only), and the words added /
@@ -22,16 +23,14 @@ export function PriorPanel({
   d: EntityNotesDto;
   note: NoteDto;
 }) {
+  const base = useApiBase(taskId, d.entity.code);
   const qs = new URLSearchParams({
     currency: d.selection.currency,
     unit: d.selection.unit,
   }).toString();
   const q = useQuery({
     queryKey: ['note-prior', taskId, d.entity.code, note.id, qs, note.version],
-    queryFn: () =>
-      api.get<PriorNoteDto>(
-        `/tasks/${taskId}/entities/${d.entity.code}/notes/${note.id}/prior?${qs}`,
-      ),
+    queryFn: () => api.get<PriorNoteDto>(`${base}/notes/${note.id}/prior?${qs}`),
   });
   const indian = indianGrouping(d);
   if (q.error) return <Alert>{errorMessage(q.error)}</Alert>;
@@ -59,6 +58,7 @@ export function PriorPanel({
                   <RichTextView doc={b.doc} catalog={p.catalog} indian={indian} />
                 </div>
               );
+            if (b.type === 'GENERATED') return null;
             if (b.type === 'FIGURES') {
               const f = p.note!.figures[b.id];
               if (!f) return null;

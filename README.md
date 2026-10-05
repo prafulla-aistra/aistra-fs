@@ -639,6 +639,41 @@ is refused (400).
   seed marks the pairs found in the charts of accounts and adds ILLUSTRATIVE acquisitions from the
   demo snapshots, all "to be confirmed".
 
+### Consolidation: statements, notes, review, levels 1–4 (page 10)
+
+- **Statements** (step 4, per level, level currency): Balance sheet | Profit and loss | FSLI
+  breakdown; columns (toggle "Show entity columns"): each member · Eliminations brought forward ·
+  Eliminations at this level · Consolidated · Consolidated comparative. The comparative is the
+  finalised snapshot of the same level for the comparative period in the same currency, else
+  recomputed from that period's finalised SFS snapshots (labelled), else none. Equity
+  attributable to owners / NCI / total equity; profit attributable to owners / NCI; FCTR movement
+  memo (owners / NCI) against the immediately preceding period. Ticks: balance sheet balances,
+  profit ties, cross-foot (entities + eliminations = consolidated) for every FSLI, owners + NCI =
+  profit. Units, nil lines, format selector; exports: group pack (Excel), Word, PDF.
+- **Notes** (step 5): the SFS notes framework on the level (blocks, sub-captions, live figures,
+  roll forward from the last finalised snapshot of the same level, "Last finalised" panel, stale
+  check, review status). Consolidation templates (applies to CFS): basis of consolidation
+  (auto-drafted), list of subsidiaries, goodwill, NCI, intercompany eliminations, FCTR — the
+  tables are generated from the level each time. Line notes show the line by member, eliminations
+  and consolidated.
+- **Review** (step 6): the page 8 workflow on the level — CFS checks from the register (Configuration
+  → Control checks → Consolidation), key consolidated figures, IC differences with explanations
+  (entered on step 3; a missing one is a warning to acknowledge), manual adjustments, goodwill and
+  NCI, members' snapshot versions and hashes, changes; submit / queries / return / approve with
+  segregation of duties and the approvals for the level parent (Configuration → Approvals, CFS).
+- **Finalised** (step 7): one transaction re-runs the checks, stores an immutable level snapshot
+  (members' snapshots, every elimination, aggregate, consolidated, NCI, notes, checks, sign-offs)
+  with a SHA-256 hash, locks the period's rates and opens the next level. A finalised level is
+  read from its snapshot. Reopening (edit access, key "L<n>") is blocked while a higher finalised
+  level includes it; an entity's SFS is blocked while a finalised level includes it. A member's
+  new SFS snapshot after generation shows "Member data changed – regenerate eliminations" and
+  blocks submission.
+- **Group reporting pack** (Excel): Exchange Rates; Entity Wise PL; Entity Wise BS; Eliminations;
+  Consol PL; Consol BS; NCI; Goodwill; Checks; Notes — real numbers, SUM formulas. Word / PDF
+  consolidated financial statements with a signature block (names left blank: no statutory
+  details are configured yet).
+- **Dashboard**: "N of 4 levels finalised"; the period card shows "Close complete · <date>".
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
@@ -860,6 +895,19 @@ These need confirmation from the process owners before the related features are 
     currency is translated here from its snapshot; its retained earnings roll forward only from a
     finalised SFS translation into that currency, otherwise at the opening rate (warning). Confirm,
     or should the previous period's CFS level figures be used?
+38. **Signature block.** No statutory details (directors, CFO, registered office) are configured;
+    the consolidated Word/PDF show a blank signature block for the level parent. Add the
+    statutory details to the entity master?
+39. **Comparative of a level.** When the comparative period's level is finalised without a stored
+    snapshot in the same currency (the demo Jul-2026 levels), the comparative is recomputed from
+    that period's finalised SFS snapshots (labelled). Confirm.
+40. **CFS check register.** The 14 CFS checks and their severities are proposals ("to be
+    confirmed"); e.g. unexplained IC differences are a warning, not blocking.
+41. **CFS note templates.** "Basis of preparation" now applies to SFS only (CFS uses "Basis of
+    consolidation"); the NCI and goodwill line notes of formats with those lines carry the
+    generated tables in consolidation. Confirm the wording of the basis of consolidation.
+42. **FCTR memo sign.** The memo shows the movement as a gain (positive) when the reserve's credit
+    balance grows. Confirm the presentation (OCI-style).
 
 ## Known dependency warnings (clean-up later)
 

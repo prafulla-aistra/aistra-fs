@@ -42,30 +42,30 @@ const Prepare = () => RequirePermission(Permission.SfsPrepare);
 const Review = () => RequirePermission(Permission.SfsReview);
 const entityCode = z.string().regex(/^[A-Z0-9]{1,10}$/, 'Invalid entity code');
 
-const submitSchema = z.object({
+export const submitSchema = z.object({
   declaration: z.boolean(),
   acknowledgements: z
     .array(z.object({ key: z.string().max(80), comment: z.string().max(1000) }))
     .max(50)
     .default([]),
 });
-const querySchema = z.object({
+export const querySchema = z.object({
   targetType: z.enum(['LINE', 'ACCOUNT', 'NOTE', 'CHECK', 'ENTITY']),
   targetKey: z.string().max(200).nullable().default(null),
   text: z.string().trim().min(3, 'Write the query (at least 3 characters)').max(2000),
 });
-const answerSchema = z.object({
+export const answerSchema = z.object({
   text: z.string().trim().min(3, 'Write the answer (at least 3 characters)').max(2000),
 });
-const statusSchema = z.object({
+export const statusSchema = z.object({
   status: z.enum(['CLOSED', 'OPEN']),
   comment: z.string().max(1000).nullable().default(null),
 });
-const returnSchema = z.object({
+export const returnSchema = z.object({
   comment: z.string().trim().min(10, 'Explain what to fix (at least 10 characters)').max(2000),
 });
-const approveSchema = z.object({ comment: z.string().max(1000).nullable().default(null) });
-const versionQuery = z.object({ version: z.coerce.number().int().min(1).optional() });
+export const approveSchema = z.object({ comment: z.string().max(1000).nullable().default(null) });
+export const versionQuery = z.object({ version: z.coerce.number().int().min(1).optional() });
 
 @Controller()
 export class ReviewController {

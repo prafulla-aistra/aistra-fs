@@ -147,14 +147,17 @@ export class DashboardService {
         fyLabel: selected.fyLabel,
         sfsDueDate,
         cfsDueDate,
-        deadline: closeDeadline({
-          today,
-          sfsDue: sfsDueDate,
-          cfsDue: cfsDueDate,
-          sfsDone: standalone.finalised === standalone.total,
-          cfsDone: consolidation.finalised === consolidation.total,
-          holidays,
-        }),
+        deadline: this.withCompletion(
+          closeDeadline({
+            today,
+            sfsDue: sfsDueDate,
+            cfsDue: cfsDueDate,
+            sfsDone: standalone.finalised === standalone.total,
+            cfsDone: consolidation.finalised === consolidation.total,
+            holidays,
+          }),
+          tasks.filter((t) => t.periodId === selected.id),
+        ),
       },
       standalone,
       consolidation,
@@ -178,6 +181,19 @@ export class DashboardService {
       startDate: fromDbDate(p.startDate),
       endDate: fromDbDate(p.endDate),
     }));
+  }
+
+  /** Close complete: the date the last task of the period was completed (Asia/Kolkata calendar date). */
+  private withCompletion(
+    d: ReturnType<typeof closeDeadline>,
+    tasks: { completedAt: Date | null }[],
+  ): NonNullable<DashboardDto['period']>['deadline'] {
+    if (d.kind !== 'COMPLETE') return d;
+    const last = tasks
+      .map((t) => t.completedAt)
+      .filter((x): x is Date => x !== null)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+    return { kind: 'COMPLETE', completedOn: last ? this.clock.dateOf(last) : null };
   }
 
   /** Page 8: submissions waiting for this user's decision, queries needing them, edit requests. */

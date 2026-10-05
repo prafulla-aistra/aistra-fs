@@ -164,6 +164,9 @@ export interface EliminationEntryDto {
   difference: string | null;
   goodwill: string | null;
   nciProfit: string | null;
+  /** Flagged IC differences: the explanation (required for review). */
+  explanation: { text: string; by: string; at: string } | null;
+  canExplain: boolean;
   manual: {
     id: string;
     reason: string;
@@ -179,6 +182,8 @@ export interface EliminationsDto {
   generated: { at: string; by: string } | null;
   /** The eliminations no longer match the members' data or configuration: regenerate. */
   stale: boolean;
+  /** Members whose SFS snapshot changed since the eliminations were generated: regenerate. */
+  membersChanged: string[];
   entries: EliminationEntryDto[];
   issues: string[];
   summary: {
@@ -286,4 +291,110 @@ export interface AcquisitionInput {
   toBeConfirmed: boolean;
   note: string | null;
   rates: { currency: string; rate: string; toBeConfirmed: boolean }[];
+}
+
+// ---------------------------------------------------------------------------------------
+// Page 10: consolidated statements, review extras
+// ---------------------------------------------------------------------------------------
+
+export type CfsColumnKind = 'ENTITY' | 'ELIM_BF' | 'ELIM_LEVEL' | 'CONSOLIDATED' | 'COMPARATIVE';
+
+export interface CfsStatementRowDto {
+  key: string;
+  type: 'HEADING' | 'LINE' | 'TOTAL';
+  label: string;
+  indent: number;
+  role: string | null;
+  note: number | null;
+  /** Per column code (displayed sign, selected units); null for headings / no comparative. */
+  values: Record<string, string | null>;
+}
+
+export interface CfsAttributionDto {
+  owners: string;
+  nci: string;
+  total: string;
+}
+
+export interface CfsStatementsDto {
+  level: CfsLevelHeaderDto;
+  /** Read from the level's finalised snapshot. */
+  fromSnapshot: boolean;
+  currency: string;
+  options: {
+    formats: { code: string; name: string; version: number; isTaskFormat: boolean }[];
+    units: { code: string; label: string }[];
+  };
+  selection: {
+    format: string;
+    formatName: string;
+    unit: string;
+    showNil: boolean;
+    showEntities: boolean;
+  };
+  header: {
+    legalName: string;
+    periodLabel: string;
+    comparativeLabel: string;
+    comparativeSource: { kind: 'SNAPSHOT' | 'RECOMPUTED' | 'NONE'; label: string };
+    currencyUnits: string;
+  };
+  columns: { code: string; label: string; kind: CfsColumnKind }[];
+  balanceSheet: {
+    title: string;
+    rows: CfsStatementRowDto[];
+    /** Equity attributable to owners / NCI / total, per CONSOLIDATED and COMPARATIVE. */
+    equity: Record<string, CfsAttributionDto | null>;
+  };
+  profitAndLoss: {
+    title: string;
+    rows: CfsStatementRowDto[];
+    /** Profit attributable to owners / NCI, per CONSOLIDATED and COMPARATIVE. */
+    attribution: Record<string, CfsAttributionDto | null>;
+  };
+  /** "Exchange differences on translation of foreign operations (FCTR movement)", for information. */
+  fctrMemo: {
+    label: string;
+    available: boolean;
+    reason: string | null;
+    movement: CfsAttributionDto | null;
+  };
+  fslis: {
+    code: string;
+    name: string;
+    statement: 'BS' | 'PL';
+    values: Record<string, string | null>;
+    crossFoots: boolean;
+  }[];
+  ticks: {
+    bsBalances: boolean;
+    bsDifference: string;
+    profitTies: boolean;
+    crossFoots: boolean;
+    attributionTies: boolean;
+  };
+  roundingNote: string | null;
+  warnings: string[];
+}
+
+/** Consolidation sections of the review pack (CFS levels). */
+export interface CfsReviewExtrasDto {
+  icDifferences: { entryId: string; title: string; amount: string; explanation: string | null }[];
+  manualAdjustments: {
+    narration: string;
+    reason: string;
+    originLevel: number;
+    by: string;
+    total: string;
+  }[];
+  goodwill: { title: string; goodwill: string; capitalReserve: boolean }[];
+  nci: { title: string; nciProfit: string; nciEquity: string }[];
+  members: {
+    code: string;
+    shortName: string;
+    taskNumber: string | null;
+    snapshotVersion: string | null;
+    hash: string | null;
+  }[];
+  membersChanged: string[];
 }

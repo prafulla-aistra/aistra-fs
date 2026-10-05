@@ -63,7 +63,18 @@ export interface TableBlock {
   /** AGREE: the statement line the CURRENT column must total to. */
   agreeLine: string | null;
 }
-export type NoteBlock = FiguresBlock | TextBlock | TableBlock;
+/**
+ * A table the system fills from consolidation data each time it is shown (list of subsidiaries,
+ * goodwill, NCI, intercompany summary, FCTR). Read-only; only its label is editable.
+ */
+export interface GeneratedBlock {
+  id: string;
+  type: 'GENERATED';
+  source: 'SUBSIDIARIES' | 'GOODWILL' | 'NCI' | 'IC_SUMMARY' | 'FCTR';
+  label: string;
+}
+
+export type NoteBlock = FiguresBlock | TextBlock | TableBlock | GeneratedBlock;
 
 // ---------------------------------------------------------------------------------------
 // Roll forward

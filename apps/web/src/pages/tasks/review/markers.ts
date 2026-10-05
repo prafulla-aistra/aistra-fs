@@ -3,13 +3,14 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import type { QueryMarkerDto, QueryTargetType } from '@finance-close/shared';
 import { api } from '@/lib/api';
+import { useApiBase } from '../api-base';
 
 /** Keys ("NOTE:<id>", "LINE:BS:<key>", "ACCOUNT:<code>") with a review query not yet closed. */
 export function useQueryMarkers(taskId: string, entityCode: string) {
+  const base = useApiBase(taskId, entityCode);
   const q = useQuery({
     queryKey: ['review-markers', taskId, entityCode],
-    queryFn: () =>
-      api.get<QueryMarkerDto[]>(`/tasks/${taskId}/entities/${entityCode}/review/markers`),
+    queryFn: () => api.get<QueryMarkerDto[]>(`${base}/review/markers`),
     staleTime: 30_000,
   });
   const counts = new Map<string, number>();
