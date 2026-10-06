@@ -297,6 +297,7 @@ model User {
   permissions   UserPermission[]
   entityScopes  UserEntityScope[]
   refreshTokens RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
   auditLogs     AuditLog[]
 
   financialYearsCreated FinancialYear[]         @relation("FinancialYearCreatedBy")
@@ -396,6 +397,22 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_token")
+}
+
+/// A one-time link emailed to a user to set a new password (SHA-256 of the token; 60 minutes).
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  ip        String?   @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("password_reset_token")
 }
 
 // ---------------------------------------------------------------------------

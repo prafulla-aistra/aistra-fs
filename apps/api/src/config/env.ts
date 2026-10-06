@@ -2,6 +2,11 @@
 export const STORAGE_DRIVERS = ['local'] as const;
 export type StorageDriver = (typeof STORAGE_DRIVERS)[number];
 
+/** Email back-ends: "outbox" writes each email to a local folder (no mail server needed);
+ * "smtp" sends through an SMTP server (e.g. Office 365, Gmail, AWS SES SMTP). */
+export const MAIL_DRIVERS = ['outbox', 'smtp'] as const;
+export type MailDriver = (typeof MAIL_DRIVERS)[number];
+
 /**
  * Environment variables the API needs, validated once at startup so a missing or
  * malformed setting fails fast instead of surfacing later as a confusing runtime error.
@@ -26,6 +31,18 @@ export interface Env {
   BCRYPT_ROUNDS: number;
   /** Demo accounts + one-click sign-in. Off unless explicitly "true"; never in production. */
   DEMO_MODE: boolean;
+  /** The web app's address, used in links sent by email. */
+  APP_URL: string;
+  MAIL_DRIVER: MailDriver;
+  /** Folder for emails when MAIL_DRIVER=outbox (relative to the repo root). */
+  MAIL_OUTBOX_DIR: string;
+  MAIL_FROM: string;
+  SMTP_HOST: string;
+  SMTP_PORT: number;
+  /** true = TLS from the start (port 465); false = STARTTLS when offered (587). */
+  SMTP_SECURE: boolean;
+  SMTP_USER: string;
+  SMTP_PASSWORD: string;
 }
 
 export function validateEnv(raw: Record<string, unknown>): Env {
@@ -79,6 +96,20 @@ export function validateEnv(raw: Record<string, unknown>): Env {
   const demoModeRaw = (str(raw.DEMO_MODE) || 'false').toLowerCase();
   if (!['true', 'false'].includes(demoModeRaw)) errors.push('DEMO_MODE must be true or false');
 
+  const appUrl = (str(raw.APP_URL) || 'http://localhost:5173').replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(appUrl)) errors.push('APP_URL must start with http:// or https://');
+
+  const mailDriver = str(raw.MAIL_DRIVER) || 'outbox';
+  if (!(MAIL_DRIVERS as readonly string[]).includes(mailDriver))
+    errors.push(`MAIL_DRIVER must be one of: ${MAIL_DRIVERS.join(', ')} (got "${mailDriver}")`);
+  const smtpHost = str(raw.SMTP_HOST);
+  if (mailDriver === 'smtp' && !smtpHost)
+    errors.push('SMTP_HOST must be set when MAIL_DRIVER=smtp');
+  const smtpPort = intIn(raw.SMTP_PORT, 587, 1, 65535);
+  if (smtpPort === undefined) errors.push('SMTP_PORT must be an integer from 1 to 65535');
+  const smtpSecureRaw = (str(raw.SMTP_SECURE) || 'false').toLowerCase();
+  if (!['true', 'false'].includes(smtpSecureRaw)) errors.push('SMTP_SECURE must be true or false');
+
   if (errors.length > 0) {
     throw new Error(`Invalid API configuration:\n  - ${errors.join('\n  - ')}`);
   }
@@ -94,6 +125,15 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     COOKIE_SECURE: cookieSecureRaw === 'true',
     BCRYPT_ROUNDS: bcryptRounds ?? 12,
     DEMO_MODE: demoModeRaw === 'true',
+    APP_URL: appUrl,
+    MAIL_DRIVER: mailDriver as MailDriver,
+    MAIL_OUTBOX_DIR: str(raw.MAIL_OUTBOX_DIR) || './data/outbox',
+    MAIL_FROM: str(raw.MAIL_FROM) || 'Finance Close <no-reply@financeclose.local>',
+    SMTP_HOST: smtpHost,
+    SMTP_PORT: smtpPort ?? 587,
+    SMTP_SECURE: smtpSecureRaw === 'true',
+    SMTP_USER: str(raw.SMTP_USER),
+    SMTP_PASSWORD: str(raw.SMTP_PASSWORD),
   };
 }
 

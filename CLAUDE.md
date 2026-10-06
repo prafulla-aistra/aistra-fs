@@ -74,6 +74,9 @@
   hard-deleted (DB trigger); the master admin cannot be deactivated (DB trigger).
 - API errors always have the shape { statusCode, code, message } with a user-readable
   message (ApiError / AllExceptionsFilter).
+- Email goes through one MailService (MAIL_DRIVER): outbox (./data/outbox + API log) locally,
+  SMTP when configured. Password change from the user menu emails a one-time link (60 min,
+  SHA-256 stored, single use, earlier links void, all sessions end).
 - File uploads go through one StorageService: a local folder (./data/uploads) today,
   S3 on AWS later. Business code never touches the file system or S3 directly.
 

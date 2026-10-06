@@ -17,7 +17,17 @@ describe('validateEnv', () => {
       COOKIE_SECURE: false,
       BCRYPT_ROUNDS: 12,
       DEMO_MODE: false,
+      APP_URL: 'http://localhost:5173',
+      MAIL_DRIVER: 'outbox',
+      MAIL_OUTBOX_DIR: './data/outbox',
+      MAIL_FROM: 'Finance Close <no-reply@financeclose.local>',
+      SMTP_HOST: '',
+      SMTP_PORT: 587,
+      SMTP_SECURE: false,
+      SMTP_USER: '',
+      SMTP_PASSWORD: '',
     });
+    expect(() => validateEnv({ ...BASE, MAIL_DRIVER: 'smtp' })).toThrow(/SMTP_HOST must be set/);
     expect(
       validateEnv({
         ...BASE,

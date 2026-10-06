@@ -41,6 +41,7 @@ const listSchema = z.object({
     ])
     .optional(),
   search: z.string().max(100).optional(),
+  sort: z.enum(['PERIOD_DESC', 'PERIOD_ASC']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

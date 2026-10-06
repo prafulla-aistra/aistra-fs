@@ -86,9 +86,13 @@ export interface TaskListQuery {
   type?: StatementType;
   status?: TaskFilterStatus;
   search?: string;
+  /** Period order: newest first (default in the web app) or oldest first. */
+  sort?: TaskSort;
   page?: number;
   pageSize?: number;
 }
+
+export type TaskSort = 'PERIOD_DESC' | 'PERIOD_ASC';
 
 export interface TaskListPage {
   items: TaskRowDto[];

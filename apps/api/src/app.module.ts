@@ -10,6 +10,7 @@ import { ConfigurationModule } from './configuration/configuration.module';
 import { DemoModule, demoModeEnabled } from './demo/demo.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { MailModule } from './mail/mail.module';
 import { StorageModule } from './storage/storage.module';
 import { TasksModule } from './tasks/tasks.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -22,6 +23,7 @@ import { UsersModule } from './users/users.module';
     PrismaModule,
     ClockModule,
     StorageModule,
+    MailModule,
     AuditModule,
     AuthModule,
     HealthModule,

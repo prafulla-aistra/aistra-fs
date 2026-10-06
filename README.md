@@ -695,6 +695,21 @@ is refused (400).
   data (format lines, the IC check, approval rules, illustrative NCI fair value, setting
   PER_ENTITY_HOLIDAYS).
 
+### Dashboard feedback round (preparer)
+
+- The left menu collapses completely (arrow at its top); the page then uses the full width.
+  Re-open it with the button at the top left. The choice is remembered per browser.
+- The menu footer reads "Aistra Group".
+- Click your name (top right) → **Change password** emails a one-time link to your address
+  (valid 60 minutes, works once; afterwards sign in with the new password). Without a mail
+  server (default `MAIL_DRIVER=outbox`) the email is saved in `data/outbox` and the link is
+  printed in the API log. To send real email set in apps/api/.env: `MAIL_DRIVER=smtp`,
+  `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`, and
+  `APP_URL` (the address users open). "Change it here instead" keeps the old in-app form.
+- The demo-data banner is gone from the dashboard (demo mode itself is unchanged).
+- Tasks: the description search is removed; a **Period** button sorts newest → oldest
+  (default) or oldest → newest.
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance

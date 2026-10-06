@@ -133,6 +133,13 @@ describe('dashboard for Priya (Preparer, all entities)', () => {
       'CFS-2026-07-001',
     ]);
     expect((await tasks(priya, { periodType: 'QUARTERLY' })).total).toBe(0);
+    // Period sort: newest period first, or oldest first.
+    const periodsOf = async (sort: string) =>
+      (await tasks(priya, { sort })).items.map((t) => t.periodLabel);
+    const desc = await periodsOf('PERIOD_DESC');
+    expect(desc.indexOf('Aug-2026')).toBeLessThan(desc.indexOf('Jul-2026'));
+    const asc = await periodsOf('PERIOD_ASC');
+    expect(asc.indexOf('Jul-2026')).toBeLessThan(asc.indexOf('Aug-2026'));
   });
 
   it('the period switcher changes every card (Jul-2026 is fully closed; Jun-2026 has nothing)', async () => {

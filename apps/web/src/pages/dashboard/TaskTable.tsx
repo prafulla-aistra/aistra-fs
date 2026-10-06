@@ -1,5 +1,13 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, FilePlus2, Lock, X } from 'lucide-react';
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ChevronDown,
+  ChevronRight,
+  FilePlus2,
+  Lock,
+  X,
+} from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
@@ -9,11 +17,12 @@ import {
   type StatementType,
   type TaskFilterStatus,
   type TaskListPage,
+  type TaskSort,
   type TaskRowDto,
 } from '@finance-close/shared';
 import { Badge, ItemStatusBadge, TaskStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Alert, Input, Select } from '@/components/ui/form';
+import { Alert, Select } from '@/components/ui/form';
 import { Table, Td, Th } from '@/components/ui/overlay';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
@@ -26,7 +35,8 @@ export interface TableFilters {
   periodType?: PeriodType;
   type?: StatementType;
   status?: TaskFilterStatus;
-  search: string;
+  /** Period order (the "Period" sort button). */
+  sort: TaskSort;
   page: number;
 }
 
@@ -49,7 +59,7 @@ function toQuery(f: TableFilters): string {
   if (f.periodType) q.set('periodType', f.periodType);
   if (f.type) q.set('type', f.type);
   if (f.status) q.set('status', f.status);
-  if (f.search.trim()) q.set('search', f.search.trim());
+  q.set('sort', f.sort);
   return q.toString();
 }
 
@@ -79,9 +89,7 @@ export function TaskTable({
     return [...m.entries()];
   }, [dashboard.periods]);
   const periodLabel = dashboard.periods.find((p) => p.id === filters.periodId)?.label;
-  const filtered = Boolean(
-    filters.fyId || filters.periodType || filters.type || filters.status || filters.search.trim(),
-  );
+  const filtered = Boolean(filters.fyId || filters.periodType || filters.type || filters.status);
   const totalPages = tasks.data ? Math.max(1, Math.ceil(tasks.data.total / PAGE_SIZE)) : 1;
 
   return (
@@ -107,13 +115,18 @@ export function TaskTable({
             />
           )}
         </div>
-        <Input
-          aria-label="Search task descriptions"
-          placeholder="Search descriptions"
-          className="w-full max-w-64"
-          value={filters.search}
-          onChange={(e) => set({ search: e.target.value })}
-        />
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Sort by period: ${filters.sort === 'PERIOD_DESC' ? 'newest first' : 'oldest first'}`}
+          title="Sort by period"
+          onClick={() =>
+            set({ sort: filters.sort === 'PERIOD_DESC' ? 'PERIOD_ASC' : 'PERIOD_DESC' })
+          }
+        >
+          {filters.sort === 'PERIOD_DESC' ? <ArrowDownWideNarrow /> : <ArrowUpNarrowWide />}
+          Period: {filters.sort === 'PERIOD_DESC' ? 'newest first' : 'oldest first'}
+        </Button>
       </div>
 
       <div className="grid gap-2 border-b bg-muted/30 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -184,7 +197,7 @@ export function TaskTable({
         <EmptyState
           filtered={filtered}
           canCreate={canCreate}
-          onClear={() => onChange({ search: '', page: 1, periodId: filters.periodId })}
+          onClear={() => onChange({ sort: filters.sort, page: 1, periodId: filters.periodId })}
         />
       ) : (
         <div className="p-2 sm:p-4">

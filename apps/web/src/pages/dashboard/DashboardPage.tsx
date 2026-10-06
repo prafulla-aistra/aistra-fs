@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CalendarDays, Plus, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { DEMO_DATA_BANNER, Permission, type DashboardDto } from '@finance-close/shared';
+import { Permission, type DashboardDto } from '@finance-close/shared';
 import { useAuth, useCurrentUser } from '@/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Alert, Select } from '@/components/ui/form';
@@ -50,7 +50,7 @@ export function DashboardPage() {
   });
   const data = dashboard.data;
 
-  const [filters, setFilters] = useState<TableFilters>({ search: '', page: 1 });
+  const [filters, setFilters] = useState<TableFilters>({ sort: 'PERIOD_DESC', page: 1 });
   const tableRef = useRef<HTMLDivElement>(null);
   // When the period in close changes, the table follows it.
   const selectedId = data?.period?.id;
@@ -59,7 +59,7 @@ export function DashboardPage() {
   }, [selectedId]);
 
   const applyFilter = (next: Partial<TableFilters>) => {
-    setFilters({ search: '', page: 1, ...next });
+    setFilters({ sort: 'PERIOD_DESC', page: 1, ...next });
     tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -72,14 +72,6 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {data?.demoData && (
-        <p
-          role="note"
-          className="rounded-md border border-warning/40 bg-amber-50 px-3 py-2 text-sm text-warning-foreground"
-        >
-          {DEMO_DATA_BANNER}
-        </p>
-      )}
       <section className="relative overflow-hidden rounded-2xl bg-sidebar px-6 py-6 text-white shadow-sm sm:px-8">
         <div
           aria-hidden

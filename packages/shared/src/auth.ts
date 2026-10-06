@@ -197,6 +197,8 @@ export const AuditAction = {
   Logout: 'LOGOUT',
   PasswordChange: 'PASSWORD_CHANGE',
   PasswordReset: 'PASSWORD_RESET',
+  PasswordResetLinkSent: 'PASSWORD_RESET_LINK_SENT',
+  PasswordResetByLink: 'PASSWORD_RESET_BY_LINK',
   UserCreate: 'USER_CREATE',
   UserUpdate: 'USER_UPDATE',
   PermissionChange: 'PERMISSION_CHANGE',
@@ -302,4 +304,12 @@ export interface AuditLogPage {
   total: number;
   page: number;
   pageSize: number;
+}
+
+/** POST /auth/password-reset/request: where the link went. */
+export interface PasswordResetLinkResponse {
+  sentTo: string;
+  /** EMAIL = sent by email; OUTBOX = no mail server configured, written to the local outbox. */
+  delivery: 'EMAIL' | 'OUTBOX';
+  expiresInMinutes: number;
 }

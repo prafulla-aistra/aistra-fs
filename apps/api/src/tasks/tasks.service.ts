@@ -9,6 +9,7 @@ import {
   type TaskListPage,
   type TaskListQuery,
   type TaskRowDto,
+  type TaskSort,
 } from '@finance-close/shared';
 import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
@@ -65,12 +66,23 @@ export class TasksService {
   ) {}
 
   /** Every task the user may see, as table rows, newest first. */
-  async visible(user: AuthUser, where: Prisma.TaskWhereInput = {}): Promise<TaskRowDto[]> {
+  async visible(
+    user: AuthUser,
+    where: Prisma.TaskWhereInput = {},
+    sort?: TaskSort,
+  ): Promise<TaskRowDto[]> {
     const today = this.clock.today();
     const tasks = await this.prisma.task.findMany({
       where,
       include: taskInclude,
-      orderBy: [{ createdAt: 'desc' }, { number: 'desc' }],
+      orderBy: sort
+        ? [
+            { period: { endDate: sort === 'PERIOD_ASC' ? 'asc' : 'desc' } },
+            { period: { startDate: sort === 'PERIOD_ASC' ? 'asc' : 'desc' } },
+            { createdAt: 'desc' },
+            { number: 'desc' },
+          ]
+        : [{ createdAt: 'desc' }, { number: 'desc' }],
     });
     return tasks
       .filter((t) => taskVisibleTo(t, user.entityScope))
@@ -101,7 +113,7 @@ export class TasksService {
           }
         : {}),
     };
-    let rows = await this.visible(user, where);
+    let rows = await this.visible(user, where, q.sort);
     // Status is derived, so it is filtered after deriving it.
     if (q.status) {
       rows = rows.filter((t) => {

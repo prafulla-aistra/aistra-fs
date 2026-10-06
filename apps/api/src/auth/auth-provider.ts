@@ -38,6 +38,20 @@ export abstract class AuthProvider {
     newPassword: string,
     ip: string | null,
   ): Promise<SessionTokens>;
+  /**
+   * Issues a one-time password-reset token for the user (the caller emails the link). Earlier
+   * unused tokens of the user stop working.
+   */
+  abstract createPasswordResetToken(
+    userId: string,
+    ip: string | null,
+  ): Promise<{ token: string; expiresAt: Date; email: string; name: string }>;
+  /** Sets a new password from an emailed token; ends every session of the user. */
+  abstract resetPasswordWithToken(
+    token: string,
+    newPassword: string,
+    ip: string | null,
+  ): Promise<void>;
   /** Admin sets a temporary password; the user must change it at next sign-in. */
   abstract setTemporaryPassword(
     userId: string,

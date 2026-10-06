@@ -12,6 +12,9 @@ import { type AccessClaims, AuthProvider, type SessionTokens } from './auth-prov
 import { assertPasswordPolicy, hashPassword, normaliseEmail, verifyPassword } from './passwords';
 import { SessionUserLoader } from './session-user';
 
+/** Minutes an emailed password-reset link stays valid. */
+export const RESET_TOKEN_TTL_MINUTES = 60;
+
 /** Access tokens live 15 minutes (requirement). */
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 /** Lock the account for 15 minutes after 5 failed attempts in a row (requirement). */
@@ -206,6 +209,85 @@ export class LocalAuthProvider extends AuthProvider {
         tx,
       );
       return this.openSession(userId, ip, tx);
+    });
+  }
+
+  async createPasswordResetToken(userId: string, ip: string | null) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const recent = await this.prisma.passwordResetToken.count({
+      where: { userId, createdAt: { gte: new Date(Date.now() - 15 * 60_000) } },
+    });
+    if (recent >= 3)
+      throw ApiError.validation(
+        'A reset link was sent several times in the last 15 minutes. Check your inbox, or try again later.',
+      );
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60_000);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.passwordResetToken.create({
+        data: { userId, tokenHash: sha256(token), expiresAt, ip },
+      });
+      await this.audit.record(
+        {
+          userId,
+          action: AuditAction.PasswordResetLinkSent,
+          entityType: 'USER',
+          entityId: userId,
+          newValue: { email: user.email, expiresAt: expiresAt.toISOString() },
+          ip,
+        },
+        tx,
+      );
+    });
+    return { token, expiresAt, email: user.email, name: user.name };
+  }
+
+  async resetPasswordWithToken(token: string, newPassword: string, ip: string | null) {
+    const row = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: sha256(token) },
+      include: { user: true },
+    });
+    if (!row || row.usedAt || row.expiresAt < new Date() || row.user.status !== 'ACTIVE')
+      throw ApiError.validation(
+        'This link is invalid or has expired. Ask for a new one from your profile menu.',
+      );
+    assertPasswordPolicy(newPassword, 'New password');
+    if (await verifyPassword(newPassword, row.user.passwordHash))
+      throw ApiError.validation('Your new password must be different from the current one.');
+    const hash = await hashPassword(newPassword, this.rounds);
+    await this.prisma.$transaction(async (tx) => {
+      // Single use: only the first request to mark it wins.
+      const used = await tx.passwordResetToken.updateMany({
+        where: { id: row.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (used.count !== 1) throw ApiError.validation('This link has already been used.');
+      await tx.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash: hash,
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+        },
+      });
+      await this.revokeSessions(row.userId, tx);
+      await this.audit.record(
+        {
+          userId: row.userId,
+          action: AuditAction.PasswordResetByLink,
+          entityType: 'USER',
+          entityId: row.userId,
+          newValue: { via: 'EMAIL_LINK' },
+          ip,
+        },
+        tx,
+      );
     });
   }
 

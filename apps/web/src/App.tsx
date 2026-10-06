@@ -26,6 +26,7 @@ import { EditAccessPage } from '@/pages/EditAccessPage';
 import { NewTaskPage } from '@/pages/tasks/NewTaskPage';
 import { TaskWorkspacePage } from '@/pages/tasks/TaskWorkspacePage';
 import { LoginPage } from '@/pages/LoginPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { NotFoundPage } from '@/pages/SimplePages';
 import { UsersPage } from '@/pages/users/UsersPage';
 
@@ -33,6 +34,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<RequireAuth />}>
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route element={<AppShell />}>
