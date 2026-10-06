@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import type { PeriodType } from '@prisma/client';
+import { pickApprovalRule } from '../configuration/approval-rules';
 import {
   closeDeadline,
   countItemStatuses,
@@ -201,20 +203,22 @@ export class DashboardService {
     const scoped = <T extends { entityCode: string }>(rows: T[]) =>
       rows.filter((r) => inScope(user.entityScope, r.entityCode));
     const rules = await this.prisma.approvalRule.findMany({ where: { statementType: 'SFS' } });
-    const rule = (code: string) =>
-      rules.find((r) => r.entityCode === code) ?? rules.find((r) => r.entityCode === null);
+    const rule = (code: string, periodType: PeriodType) =>
+      pickApprovalRule(rules, code, periodType);
     const active = user.permissions.has(Permission.SfsReview)
       ? scoped(
           await this.prisma.reviewSubmission.findMany({
             where: { status: 'ACTIVE' },
-            include: { signOffs: true },
+            include: { signOffs: true, task: { select: { period: { select: { type: true } } } } },
           }),
         )
       : [];
     const awaitingYourReview = active.filter((s) => {
       if (s.submittedById === user.id) return false;
       const listed =
-        (s.stage === 2 ? rule(s.entityCode)?.approverIds : rule(s.entityCode)?.reviewerIds) ?? [];
+        (s.stage === 2
+          ? rule(s.entityCode, s.task.period.type)?.approverIds
+          : rule(s.entityCode, s.task.period.type)?.reviewerIds) ?? [];
       if (listed.length > 0 && !listed.includes(user.id) && !user.isMaster) return false;
       return !(
         s.stage === 2 &&

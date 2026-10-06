@@ -60,6 +60,17 @@ export interface EntityCheckData {
   notes: { visible: number; notReviewed: string[]; staleFlags: number };
   comparativePresent: boolean;
   historicalRatesToBeConfirmed: string[];
+  /** Quarterly / annual tasks: the months of the period (decision round 1, Q10b). */
+  period?: {
+    type: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+    monthsNotFinalised: string[];
+    /** null until every month is finalised. */
+    ties: {
+      plDiffs: { fsli: string; months: string; period: string; difference: string }[];
+      bsDiffs: { fsli: string; lastMonth: string; period: string; difference: string }[];
+    } | null;
+    explanation: string | null;
+  };
 }
 
 export interface CheckResult {
@@ -309,6 +320,67 @@ export function runSfsChecks(
           link: { step: 'TRANSLATION' },
         });
         break;
+      case 'PERIOD_MONTHS_FINALISED': {
+        const p = data.period;
+        if (!p || p.type === 'MONTHLY') {
+          add(e, {
+            currency: null,
+            result: 'NA',
+            details: 'Monthly task.',
+            link: { step: 'STATEMENTS' },
+          });
+          break;
+        }
+        add(e, {
+          currency: null,
+          result: p.monthsNotFinalised.length === 0 ? 'PASS' : 'FAIL',
+          details: p.monthsNotFinalised.length
+            ? `Months not finalised: ${p.monthsNotFinalised.join(', ')}.`
+            : 'Every month of the period is finalised.',
+          link: { step: 'STATEMENTS' },
+        });
+        break;
+      }
+      case 'PERIOD_TIES_TO_MONTHS': {
+        const p = data.period;
+        if (!p || p.type === 'MONTHLY' || !p.ties) {
+          add(e, {
+            currency: null,
+            result: 'NA',
+            details:
+              !p || p.type === 'MONTHLY'
+                ? 'Monthly task.'
+                : 'Checked once every month of the period is finalised.',
+            link: { step: 'STATEMENTS' },
+          });
+          break;
+        }
+        const n = p.ties.plDiffs.length + p.ties.bsDiffs.length;
+        const parts = [
+          ...p.ties.plDiffs.map(
+            (x) =>
+              `P&L ${x.fsli}: months ${amountText(x.months)} vs period ${amountText(x.period)} (difference ${amountText(x.difference)})`,
+          ),
+          ...p.ties.bsDiffs.map(
+            (x) =>
+              `BS ${x.fsli}: last month ${amountText(x.lastMonth)} vs period ${amountText(x.period)} (difference ${amountText(x.difference)})`,
+          ),
+        ];
+        // Blocking unless an explanation is recorded; explained, it is a warning to acknowledge.
+        out.push({
+          code: e.code,
+          name: e.name,
+          severity: n > 0 && p.explanation ? 'WARNING' : e.severity,
+          currency: null,
+          result: n === 0 ? 'PASS' : 'FAIL',
+          details:
+            n === 0
+              ? `The period agrees to its months: monthly P&L by FSLI adds up and the balance sheet equals the last month's${tolerance(e)}.`
+              : `${n} difference(s)${tolerance(e)}: ${list(parts, 4)}${p.explanation ? ` · Explained: ${p.explanation}` : ' · Record an explanation to continue.'}`,
+          link: { step: 'STATEMENTS' },
+        });
+        break;
+      }
       default:
         add(e, {
           currency: null,

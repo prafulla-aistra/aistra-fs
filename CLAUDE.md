@@ -125,6 +125,43 @@
 - Configuration seed runs once (marker: audit_log SEED_APPLIED step2-configuration); after
   that the UI owns the data and the seed must never overwrite it.
 
+- Decisions round 1 (seed marker decisions-round1, prisma/seed-decisions-round1.ts):
+  1. No verified samples: keep the demo data; expected-figure tests stay skipped.
+  2. RATE_SOURCE default (RATE_SOURCE_LABEL, shown while the setting is blank) "FBIL reference rate (INR); other pairs via USD cross rates; closing =
+     last working day of the month; average = mean of daily rates in the month" (TBC; prefer the
+     Zoho month-end revaluation source). Manual entry / upload only; no website integration.
+  3. Acquisitions stay illustrative (TBC); the register has an Excel template download and a
+     filled-template upload (engine parseAcquisitionTemplate; preview, then confirm; nothing saves
+     with an error; matched on subsidiary + parent + date; rows not in the file are kept).
+  4. One group calendar (India, holiday.calendar = GROUP) drives every due date. Optional
+     per-entity country calendars (entity.holidayCalendar, setting PER_ENTITY_HOLIDAYS, off by
+     default) only add an informational per-entity SFS due date. Historical rates stay TBC.
+  5. Veracity SGD / LKR stay TBC and never block.
+  6. Approval defaults: Monthly SFS 1, Quarterly / Annual SFS 2, CFS Levels 1–3 1, CFS Level 4
+     (top parent) 2. approval_rule.periodType; resolution entity+period → entity → period →
+     default (pickApprovalRule). EDIT_ACCESS_APPROVE separate, master only by default. Nobody
+     decides their own edit-access request, nor one for an entity / level they submitted or
+     last edited in that task (EditAccessService.decideConflict).
+  7. CFS "IC difference above threshold" is BLOCKING while unexplained, WARNING once explained
+     (20+ characters); the explanation shows in the review pack and the IC eliminations note.
+  8. NCI measurement per acquisition: PROPORTIONATE or FAIR_VALUE (+ NCI fair value, subsidiary
+     currency). Total goodwill = (cost + NCI FV) − 100% × net assets × acquisition rate; parent
+     share = cost − parent % × net assets; NCI share added to NCI. Default (null): FAIR_VALUE when
+     the level parent's GAAP is US GAAP, else PROPORTIONATE (TBC; nciMethod). P&L IC differences
+     go to FSLI IC_DIFF_PL (P&L, expense, consolidation only, under Other expenses in every
+     format); balance differences stay in IC_DIFF.
+  9. Statutory details are their own record (statutory_details, statutory_officer with effective
+     dates), not the entity master. Board approval date and place of signing are entered on the
+     task (signing_details, key = entity or "L<n>", editable until the task is Done); exports sign
+     with the officers effective at the board approval date (StatutoryService.signature).
+  10. Upload profile plBasis PERIOD (default) / YTD: period P&L = YTD − previous month's YTD
+      (that TB required, else the upload is an ERROR; April as is); BS lines are closing
+      balances; earlier months' profit on line YTD-PRIOR (auto-mapped to RETAINED); tb_line
+      .ytdAmount keeps the uploaded YTD figure (engine ytdToPeriod). Quarterly / annual SFS:
+      PERIOD_MONTHS_FINALISED (warning) and PERIOD_TIES_TO_MONTHS (blocking, 0.50, unless
+      task_entity.periodTieExplanation, 20+ characters; engine periodTiesToMonths). TBC: what a
+      Zoho date-range TB export contains.
+
 - Configuration C2: report formats are versioned (format_version / format_line); a task stores
   its format version; saving a version used by a finalised report creates the next version.
   Coverage check (engine checkFormatCoverage) must pass before a format saves. Global settings
@@ -133,7 +170,9 @@
   when an existing mapping changes (source CONFIGURATION).
 
 ## Open questions (do not guess)
-- Exchange-rate source (website and which rate).
+- Exchange-rate source: the round-1 default (FBIL / USD cross rates) is TBC; what a Zoho
+  date-range TB export contains; NCI default by GAAP; illustrative acquisitions and NCI fair
+  value; country holiday lists; signing details after a task is Done.
 - FCTR: confirm it is introduced as the translation balancing figure.
 - Elimination method: which reports are extracted and how.
 - Historical rates (seeded values are illustrative); which currencies require one;

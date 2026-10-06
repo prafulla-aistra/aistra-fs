@@ -16,12 +16,14 @@ import { TbcBadge, WarningText } from './common';
 import { EditButton } from './ConfigPage';
 import { ActiveDialog, OwnershipDialog } from './EntityDialogs';
 import { EntityDrawer } from './EntityDrawer';
+import { StatutoryPanel } from './StatutoryPanel';
 import { useCurrencies, useEntities } from './hooks';
 
 const TABS = [
   'Overview',
   'Currencies and historical rates',
   'Ownership history',
+  'Statutory details',
   'Chart of accounts',
   'Tasks and reports',
   'Change history',
@@ -189,6 +191,8 @@ export function EntityDetailPage() {
               </Table>
             </div>
           )}
+
+          {tab === 'Statutory details' && <StatutoryPanel code={e.code} />}
 
           {tab === 'Ownership history' && (
             <Table>

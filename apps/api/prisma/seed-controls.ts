@@ -126,6 +126,22 @@ export const SFS_CHECKS: CheckDef[] = [
     threshold: '0',
     thresholdUnit: 'COUNT',
   },
+  {
+    code: 'PERIOD_MONTHS_FINALISED',
+    name: 'Every month of the period finalised',
+    description:
+      'Quarterly and annual tasks: each month of the period has a finalised SFS (warning only).',
+    severity: 'WARNING',
+  },
+  {
+    code: 'PERIOD_TIES_TO_MONTHS',
+    name: 'Period agrees to its months',
+    description:
+      'Quarterly and annual tasks, once every month is finalised: monthly P&L by FSLI adds up to the period, and the period-end balance sheet equals the last month’s. Blocking unless an explanation is recorded.',
+    severity: 'BLOCKING',
+    threshold: '0.50',
+    thresholdUnit: 'AMOUNT',
+  },
 ];
 
 /** CFS checks (page 10): evaluated per consolidation level by the engine runCfsChecks. */
@@ -195,9 +211,10 @@ export const CFS_CHECKS: CheckDef[] = [
   },
   {
     code: 'CFS_IC_DIFFERENCES_EXPLAINED',
-    name: 'IC differences explained',
-    description: 'Every intercompany difference parked in IC suspense has an explanation.',
-    severity: 'WARNING',
+    name: 'IC difference above threshold',
+    description:
+      'An intercompany difference above the pair tolerance is blocking while unexplained; once explained (20+ characters) it is a warning to acknowledge.',
+    severity: 'BLOCKING',
     threshold: '0',
     thresholdUnit: 'COUNT',
   },

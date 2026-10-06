@@ -32,8 +32,26 @@ export interface FullSetInput {
   exportedAt: Date;
   /** Cover subtitle (default "Financial statements"). */
   subtitle?: string;
-  /** Signature block at the end (consolidated statements). */
-  signature?: { entityName: string; lines: string[] };
+  /**
+   * Signature block at the end: officers effective at the board approval date (decision round 1,
+   * Q9), with the date and place of signing when entered.
+   */
+  signature?: {
+    entityName: string;
+    lines: { role: string; name: string | null; identifier: string | null }[];
+    date: string | null;
+    place: string | null;
+  };
+}
+
+/** "Name: … (DIN …)   Date: …   Place: …" (blanks to fill in by hand when not entered). */
+function signLine(
+  l: { name: string | null; identifier: string | null },
+  sig: { date: string | null; place: string | null },
+): string {
+  const blank = '                    ';
+  const date = sig.date ? sig.date.split('-').reverse().join('/') : blank;
+  return `Name: ${l.name ? `${l.name}${l.identifier ? ` (${l.identifier})` : ''}` : blank}   Date: ${date}   Place: ${sig.place ?? blank}`;
 }
 
 const indian = (s: EntityStatementsDto) =>
@@ -403,9 +421,12 @@ export async function fullSetDocx(x: FullSetInput): Promise<Buffer> {
                     new Paragraph({
                       spacing: { before: 480 },
                       children: [
-                        new TextRun({ text: `_____________________________   ${l}`, size: 20 }),
                         new TextRun({
-                          text: '   Name:                     Date:              Place:',
+                          text: `_____________________________   ${l.role}`,
+                          size: 20,
+                        }),
+                        new TextRun({
+                          text: `   ${signLine(l, x.signature!)}`,
                           size: 16,
                           color: '64748B',
                         }),
@@ -618,11 +639,11 @@ export function fullSetPdf(x: FullSetInput): Promise<Buffer> {
         .moveDown(2.2)
         .font('Helvetica')
         .fontSize(9)
-        .text(`_____________________________   ${l}`, 50, doc.y, { width });
+        .text(`_____________________________   ${l.role}`, 50, doc.y, { width });
       doc
         .fontSize(8)
         .fillColor('#64748B')
-        .text('Name:                         Date:                 Place:', 50, doc.y, { width })
+        .text(signLine(l, x.signature), 50, doc.y, { width })
         .fillColor('#000');
     }
     doc.moveDown(1);

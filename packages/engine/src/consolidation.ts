@@ -62,6 +62,13 @@ export interface AcquisitionInput {
   subsidiaryCode: string;
   parentCode: string;
   steps: readonly AcquisitionStep[];
+  /**
+   * How NCI is measured at acquisition: proportionate share of net assets (default), or fair
+   * value ("full goodwill"; the NCI's share of goodwill is added to NCI).
+   */
+  nciMeasurement?: 'PROPORTIONATE' | 'FAIR_VALUE';
+  /** Fair value method: NCI fair value at the acquisition date, subsidiary's currency. */
+  nciFairValue?: string | null;
 }
 
 export interface IcPairInput {
@@ -140,6 +147,8 @@ export interface EliminationEntry {
   difference?: string;
   /** Investment entries: goodwill (positive) or capital reserve (negative), level currency. */
   goodwill?: string;
+  /** Fair value method: the NCI's share of goodwill (level currency), included in goodwill. */
+  nciGoodwill?: string;
   /** Investment entries: goodwill in the parent's currency, and the closing rate into the level. */
   goodwillParent?: string;
   parentCurrency?: string;
@@ -224,14 +233,14 @@ function icEntry(
     const rounding = diff.abs().lessThan(tolerance);
     lines.push({
       entityCode: null,
-      fsliCode: rounding ? 'FCTR' : 'IC_DIFF',
+      fsliCode: rounding ? 'FCTR' : type === 'IC_BALANCE' ? 'IC_DIFF' : 'IC_DIFF_PL',
       counterpartyCode: null,
       amount: diff.toFixed(2),
       note: rounding ? 'Rounding' : 'Unreconciled – investigate',
     });
     if (!rounding)
       flags.push(
-        `Intercompany ${kind} ${a.code}–${b.code} differ by ${fmt(diff.abs())} (tolerance ${fmt(D(tolerance))}): parked in IC_DIFF.`,
+        `Intercompany ${kind} ${a.code}–${b.code} differ by ${fmt(diff.abs())} (tolerance ${fmt(D(tolerance))}): parked in ${type === 'IC_BALANCE' ? 'IC_DIFF' : 'IC_DIFF_PL'}.`,
       );
   }
   return entry({
@@ -269,6 +278,14 @@ function investmentEntry(
   if (closing === undefined)
     missing.push(`closing rate ${parent.functionalCurrency} → ${input.levelCurrency}`);
   if (acq.steps.length === 0) missing.push('no acquisition step');
+  const fairValue =
+    acq.nciMeasurement === 'FAIR_VALUE' &&
+    acq.steps.reduce((s, x) => s.plus(pctOf(x.pct)), D('0')).lessThan(1);
+  if (
+    fairValue &&
+    (acq.nciFairValue === null || acq.nciFairValue === undefined || acq.nciFairValue === '')
+  )
+    missing.push('NCI fair value at the acquisition date (NCI measured at fair value)');
   if (missing.length > 0)
     return {
       entry: null,
@@ -299,6 +316,24 @@ function investmentEntry(
     calc.push(
       `In ${input.levelCurrency} at the closing rate ${parent.functionalCurrency} → ${input.levelCurrency} ${fmtRate(closing!)}: ${fmt(goodwillLevel)}.`,
     );
+  // Fair value (full goodwill): NCI share = NCI fair value − NCI % × net assets at acquisition.
+  let nciGoodwillParent = D('0');
+  if (fairValue) {
+    const first = acq.steps[0]!;
+    const nciPct = D('1').minus(totalPct);
+    const base100 = D(first.shareCapital).plus(first.premium).plus(first.preAcquisitionReserves);
+    const fv = D(acq.nciFairValue!).times(first.rateToParent!);
+    const nciNa = nciPct.times(base100).times(first.rateToParent!);
+    nciGoodwillParent = two(fv.minus(nciNa));
+    const total = goodwillParent.plus(nciGoodwillParent);
+    calc.push(
+      `NCI at fair value: ${fmt(D(acq.nciFairValue!))} ${sub.functionalCurrency} × ${fmtRate(first.rateToParent!)} = ${fmt(two(fv))} ${parent.functionalCurrency}; NCI share of net assets ${pctText(nciPct)} × ${fmt(base100)} × ${fmtRate(first.rateToParent!)} = ${fmt(two(nciNa))}; NCI share of goodwill = ${fmt(nciGoodwillParent)}.`,
+    );
+    calc.push(
+      `Total goodwill (${parent.functionalCurrency}) = (cost ${fmt(cost)} + NCI fair value ${fmt(two(fv))}) − 100% × net assets ${fmt(two(base100.times(first.rateToParent!)))} = ${fmt(total)}: parent ${fmt(goodwillParent)}, NCI ${fmt(nciGoodwillParent)}.`,
+    );
+  }
+  const nciGoodwillLevel = two(nciGoodwillParent.times(closing!));
 
   const inv = sumWhere(parent, 'INV_SUB', sub.code);
   const sc = two(sumWhere(sub, 'SHARE_CAP', null).times(totalPct)).negated();
@@ -357,6 +392,24 @@ function investmentEntry(
           amount: goodwillLevel.toFixed(2),
           note: `Goodwill on ${sub.code}`,
         },
+    ...(nciGoodwillLevel.isZero()
+      ? []
+      : [
+          {
+            entityCode: null,
+            fsliCode: 'GOODWILL',
+            counterpartyCode: null,
+            amount: nciGoodwillLevel.toFixed(2),
+            note: `NCI share of goodwill on ${sub.code} (fair value)`,
+          },
+          {
+            entityCode: null,
+            fsliCode: 'NCI',
+            counterpartyCode: null,
+            amount: nciGoodwillLevel.negated().toFixed(2),
+            note: `NCI share of goodwill on ${sub.code}`,
+          },
+        ]),
   ];
   const rest = lines.reduce((s, l) => s.plus(l.amount), D('0'));
   if (!rest.isZero()) {
@@ -383,8 +436,9 @@ function investmentEntry(
       flagged: false,
       flags: [],
       calculation: calc,
-      goodwill: goodwillLevel.toFixed(2),
-      goodwillParent: goodwillParent.toFixed(2),
+      goodwill: goodwillLevel.plus(nciGoodwillLevel).toFixed(2),
+      goodwillParent: goodwillParent.plus(nciGoodwillParent).toFixed(2),
+      ...(fairValue ? { nciGoodwill: nciGoodwillLevel.toFixed(2) } : {}),
       parentCurrency: parent.functionalCurrency,
       goodwillRate: fmtRate(closing!),
     }),
@@ -705,7 +759,7 @@ export function eliminationChecks(
       code: 'IC_ELIMINATED',
       label: 'Intercompany balances and transactions eliminated',
       passed: ic.every((x) => x.v.isZero()),
-      details: `${ic.map((x) => `${x.f} ${fmt(x.v)}`).join(' · ')} (differences parked in IC_DIFF excluded).`,
+      details: `${ic.map((x) => `${x.f} ${fmt(x.v)}`).join(' · ')} (differences parked in IC_DIFF / IC_DIFF_PL excluded).`,
     },
     {
       code: 'CONSOLIDATED_BALANCES',

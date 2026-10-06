@@ -138,6 +138,17 @@ export interface ReviewPackDto {
     decidingAs: 'REVIEWER' | 'APPROVER' | null;
   };
   declaration: string;
+  /**
+   * Quarterly / annual tasks (decision round 1, Q10b): the period against its months. null for
+   * monthly tasks.
+   */
+  periodCheck: {
+    monthsNotFinalised: string[];
+    /** Differences beyond the tolerance (0 when every month is not yet finalised). */
+    differences: number;
+    explanation: string | null;
+    canExplain: boolean;
+  } | null;
   signOffs: SignOffDto[];
   checks: CheckResultDto[];
   /** Failing warnings: each needs an acknowledgement (10+ characters) to submit. */

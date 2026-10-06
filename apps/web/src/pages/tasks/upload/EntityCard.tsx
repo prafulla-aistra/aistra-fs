@@ -16,7 +16,7 @@ import {
 import { Badge, ItemStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert } from '@/components/ui/form';
+import { Alert, Select } from '@/components/ui/form';
 import { api, downloadFile, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast';
@@ -70,10 +70,17 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
       await refresh();
     },
   });
+  const basis = useMutation({
+    mutationFn: (plBasis: 'PERIOD' | 'YTD') => api.put(`${base}/upload-profile`, { plBasis }),
+    onSuccess: async () => {
+      toast('P&L basis saved; it applies to the next trial balance upload.');
+      await refresh();
+    },
+  });
   const error =
     localError ??
-    ((tb.error ?? coa.error ?? docs.error)
-      ? errorMessage(tb.error ?? coa.error ?? docs.error)
+    ((tb.error ?? coa.error ?? docs.error ?? basis.error)
+      ? errorMessage(tb.error ?? coa.error ?? docs.error ?? basis.error)
       : null);
   const pick = (files: File[], run: (files: File[]) => void) => {
     setLocalError(null);
@@ -108,6 +115,19 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
             <Lock className="size-3" /> {card.readOnlyReason}
           </p>
         )}
+
+        <label className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">P&amp;L basis of the trial balance</span>
+          <Select
+            className="h-8 w-auto text-xs"
+            disabled={!card.canEdit || basis.isPending}
+            value={card.plBasis}
+            onChange={(e) => basis.mutate(e.target.value as 'PERIOD' | 'YTD')}
+          >
+            <option value="PERIOD">Period movement (default)</option>
+            <option value="YTD">Year-to-date (converted using the previous month)</option>
+          </Select>
+        </label>
 
         <UploadRow
           icon={<FileSpreadsheet />}

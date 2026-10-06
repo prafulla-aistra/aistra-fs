@@ -22,7 +22,7 @@ export async function readSettings(db: Db): Promise<Record<string, string>> {
   return { ...SETTING_DEFAULTS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) };
 }
 
-/** The rate-source text shown on rate panels ("To be confirmed – Open question 2" until set). */
+/** The rate-source text shown on rate panels (the round-1 default, to be confirmed, until set). */
 export async function rateSourceLabel(db: Db): Promise<string> {
   const v = (await db.appSetting.findUnique({ where: { key: SETTING.RateSource } }))?.value?.trim();
   return v ? v : RATE_SOURCE_LABEL;

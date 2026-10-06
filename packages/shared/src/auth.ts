@@ -276,6 +276,12 @@ export const AuditAction = {
   AccountTypeDefaultSet: 'ACCOUNT_TYPE_DEFAULT_SET',
   AccountTypeDefaultDelete: 'ACCOUNT_TYPE_DEFAULT_DELETE',
   AccountUpdate: 'ACCOUNT_UPDATE',
+  // Decisions round 1
+  HolidayCalendarsUpdate: 'HOLIDAY_CALENDARS_UPDATE',
+  StatutoryDetailsUpdate: 'STATUTORY_DETAILS_UPDATE',
+  SigningDetailsUpdate: 'SIGNING_DETAILS_UPDATE',
+  UploadProfileUpdate: 'UPLOAD_PROFILE_UPDATE',
+  PeriodTieExplain: 'PERIOD_TIE_EXPLAIN',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

@@ -8,6 +8,8 @@ import {
   type DueDateRuleDto,
   type FinancialYearDto,
   type FinancialYearOption,
+  GROUP_CALENDAR,
+  type HolidayCalendarsDto,
   type HolidayDto,
   type PeriodDto,
   type PeriodStatus,
@@ -32,8 +34,13 @@ type PeriodRow = Prisma.PeriodGetPayload<{ include: typeof periodInclude }>;
 
 interface DueDateContext {
   rules: Map<string, number>;
+  /** The group calendar (drives every due date). */
   holidays: IsoDate[];
+  /** Per-entity calendars (only when switched on): entity → its calendar's holidays. */
+  entityCalendars: { entityCode: string; calendar: string; holidays: IsoDate[] }[];
 }
+
+export const PER_ENTITY_HOLIDAYS = 'PER_ENTITY_HOLIDAYS';
 
 @Injectable()
 export class CalendarService {
@@ -300,8 +307,94 @@ export class CalendarService {
   }
 
   async holidays(): Promise<HolidayDto[]> {
-    const rows = await this.prisma.holiday.findMany({ orderBy: { date: 'asc' } });
-    return rows.map((h) => ({ id: h.id, date: fromDbDate(h.date), description: h.description }));
+    const rows = await this.prisma.holiday.findMany({
+      orderBy: [{ date: 'asc' }, { calendar: 'asc' }],
+    });
+    return rows.map((h) => ({
+      id: h.id,
+      date: fromDbDate(h.date),
+      description: h.description,
+      calendar: h.calendar,
+    }));
+  }
+
+  async holidayCalendars(actor: AuthUser, canEdit: boolean): Promise<HolidayCalendarsDto> {
+    void actor;
+    const [setting, cals, entities] = await Promise.all([
+      this.prisma.appSetting.findUnique({ where: { key: PER_ENTITY_HOLIDAYS } }),
+      this.prisma.holiday.findMany({ distinct: ['calendar'], select: { calendar: true } }),
+      this.prisma.entity.findMany({ orderBy: { sortOrder: 'asc' } }),
+    ]);
+    const names = [
+      ...new Set([
+        GROUP_CALENDAR,
+        ...cals.map((c) => c.calendar),
+        ...entities.flatMap((e) => (e.holidayCalendar ? [e.holidayCalendar] : [])),
+      ]),
+    ];
+    return {
+      perEntity: String(setting?.value ?? 'false') === 'true',
+      calendars: [GROUP_CALENDAR, ...names.filter((n) => n !== GROUP_CALENDAR).sort()],
+      entities: entities.map((e) => ({
+        code: e.code,
+        shortName: e.shortName,
+        holidayCalendar: e.holidayCalendar,
+      })),
+      canEdit,
+    };
+  }
+
+  async saveHolidayCalendars(
+    actor: AuthUser,
+    input: { perEntity: boolean; entities: { code: string; holidayCalendar: string | null }[] },
+    ip: string | null,
+  ): Promise<HolidayCalendarsDto> {
+    const before = await this.holidayCalendars(actor, true);
+    const known = new Set(before.entities.map((e) => e.code));
+    const unknown = input.entities.filter((e) => !known.has(e.code));
+    if (unknown.length) throw ApiError.notFound(`Entity ${unknown[0]!.code} not found.`);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.appSetting.upsert({
+        where: { key: PER_ENTITY_HOLIDAYS },
+        create: { key: PER_ENTITY_HOLIDAYS, value: String(input.perEntity) },
+        update: { value: String(input.perEntity) },
+      });
+      for (const e of input.entities) {
+        const cal =
+          e.holidayCalendar && e.holidayCalendar !== GROUP_CALENDAR ? e.holidayCalendar : null;
+        await tx.entity.update({ where: { code: e.code }, data: { holidayCalendar: cal } });
+      }
+      const after = {
+        perEntity: input.perEntity,
+        entities: Object.fromEntries(
+          before.entities.map((e) => {
+            const x = input.entities.find((y) => y.code === e.code);
+            const cal = x
+              ? x.holidayCalendar && x.holidayCalendar !== GROUP_CALENDAR
+                ? x.holidayCalendar
+                : null
+              : e.holidayCalendar;
+            return [e.code, cal];
+          }),
+        ),
+      };
+      await this.audit.record(
+        {
+          userId: actor.id,
+          action: AuditAction.HolidayCalendarsUpdate,
+          entityType: 'SETTING',
+          entityId: PER_ENTITY_HOLIDAYS,
+          oldValue: {
+            perEntity: before.perEntity,
+            entities: Object.fromEntries(before.entities.map((e) => [e.code, e.holidayCalendar])),
+          },
+          newValue: after,
+          ip,
+        },
+        tx,
+      );
+    });
+    return this.holidayCalendars(actor, true);
   }
 
   async createHoliday(
@@ -309,25 +402,28 @@ export class CalendarService {
     date: IsoDate,
     description: string,
     ip: string | null,
+    calendar: string = GROUP_CALENDAR,
   ): Promise<HolidayDto> {
     const h = await this.prisma
       .$transaction(async (tx) => {
-        const created = await tx.holiday.create({ data: { date: toDbDate(date), description } });
+        const created = await tx.holiday.create({
+          data: { date: toDbDate(date), description, calendar },
+        });
         await this.audit.record(
           {
             userId: actor.id,
             action: AuditAction.HolidayCreate,
             entityType: 'HOLIDAY',
             entityId: date,
-            newValue: { date, description },
+            newValue: { date, description, calendar },
             ip,
           },
           tx,
         );
         return created;
       })
-      .catch(duplicateHoliday(date));
-    return { id: h.id, date, description };
+      .catch(duplicateHoliday(date, calendar));
+    return { id: h.id, date, description, calendar };
   }
 
   async updateHoliday(
@@ -336,13 +432,22 @@ export class CalendarService {
     date: IsoDate,
     description: string,
     ip: string | null,
+    calendarIn?: string,
   ): Promise<HolidayDto> {
     const before = await this.findHoliday(id);
-    const old = { date: fromDbDate(before.date), description: before.description };
+    const calendar = calendarIn ?? before.calendar;
+    const old = {
+      date: fromDbDate(before.date),
+      description: before.description,
+      calendar: before.calendar,
+    };
     await this.prisma
       .$transaction(async (tx) => {
-        await tx.holiday.update({ where: { id }, data: { date: toDbDate(date), description } });
-        if (old.date !== date || old.description !== description) {
+        await tx.holiday.update({
+          where: { id },
+          data: { date: toDbDate(date), description, calendar },
+        });
+        if (old.date !== date || old.description !== description || old.calendar !== calendar) {
           await this.audit.record(
             {
               userId: actor.id,
@@ -350,15 +455,15 @@ export class CalendarService {
               entityType: 'HOLIDAY',
               entityId: date,
               oldValue: old,
-              newValue: { date, description },
+              newValue: { date, description, calendar },
               ip,
             },
             tx,
           );
         }
       })
-      .catch(duplicateHoliday(date));
-    return { id, date, description };
+      .catch(duplicateHoliday(date, calendar));
+    return { id, date, description, calendar };
   }
 
   async deleteHoliday(actor: AuthUser, id: string, ip: string | null): Promise<void> {
@@ -372,7 +477,7 @@ export class CalendarService {
           action: AuditAction.HolidayDelete,
           entityType: 'HOLIDAY',
           entityId: date,
-          oldValue: { date, description: before.description },
+          oldValue: { date, description: before.description, calendar: before.calendar },
           ip,
         },
         tx,
@@ -404,13 +509,26 @@ export class CalendarService {
   }
 
   private async dueDateContext(): Promise<DueDateContext> {
-    const [rules, holidays] = await Promise.all([
+    const [rules, holidays, setting, entities] = await Promise.all([
       this.prisma.dueDateRule.findMany(),
       this.holidays(),
+      this.prisma.appSetting.findUnique({ where: { key: PER_ENTITY_HOLIDAYS } }),
+      this.prisma.entity.findMany({
+        where: { holidayCalendar: { not: null }, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
     ]);
+    const on = String(setting?.value ?? 'false') === 'true';
     return {
       rules: new Map(rules.map((r) => [`${r.statementType}:${r.periodType}`, r.workingDays])),
-      holidays: holidays.map((h) => h.date),
+      holidays: holidays.filter((h) => h.calendar === GROUP_CALENDAR).map((h) => h.date),
+      entityCalendars: on
+        ? entities.map((e) => ({
+            entityCode: e.code,
+            calendar: e.holidayCalendar!,
+            holidays: holidays.filter((h) => h.calendar === e.holidayCalendar).map((h) => h.date),
+          }))
+        : [],
     };
   }
 }
@@ -448,6 +566,11 @@ function toPeriodDto(p: PeriodRow, ctx: DueDateContext): PeriodDto {
     statusChangedAt: p.statusChangedAt?.toISOString() ?? null,
     statusChangedBy: p.statusChangedBy?.name ?? null,
     dueDates,
+    entityDueDates: ctx.entityCalendars.map((c) => ({
+      entityCode: c.entityCode,
+      calendar: c.calendar,
+      calculated: calculateDueDate(end, ctx.rules.get(`SFS:${p.type}`) ?? 0, c.holidays),
+    })),
   };
 }
 
@@ -457,10 +580,12 @@ function taskLabel(periodType: PeriodType, statementType: StatementType): string
   return `${p} ${statementType}`;
 }
 
-function duplicateHoliday(date: IsoDate) {
+function duplicateHoliday(date: IsoDate, calendar: string) {
   return (err: unknown): never => {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      throw ApiError.conflict(`There is already a holiday on ${date}.`);
+      throw ApiError.conflict(
+        `There is already a holiday on ${date}${calendar === GROUP_CALENDAR ? '' : ` in the ${calendar} calendar`}.`,
+      );
     }
     throw err;
   };

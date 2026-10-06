@@ -48,7 +48,7 @@ const MANAGEMENT = build(
     L('software', 'Software and subscriptions', ['SOFTWARE'], 1),
     L('rent', 'Rent and facilities', ['RENT'], 1),
     L('ic_charges', 'Intercompany charges', ['IC_EXP'], 1),
-    L('other_opex', 'Other operating expenses', ['OTH_EXP'], 1),
+    L('other_opex', 'Other operating expenses', ['OTH_EXP', 'IC_DIFF_PL'], 1),
     T(
       'total_opex',
       'Total operating expenses',
@@ -133,6 +133,7 @@ const INVESTOR = build(
       'RENT',
       'OTH_EXP',
       'IC_EXP',
+      'IC_DIFF_PL',
     ]),
     T('adj_ebitda', 'Adjusted EBITDA', 'gross_profit - employee - other_opex'),
     L('depr', 'Depreciation and amortisation', ['DEPR']),
@@ -196,7 +197,7 @@ const STATUTORY = build(
     L(
       'other_exp',
       'Other expenses',
-      ['COST_SERV', 'TRAVEL', 'PROF', 'SOFTWARE', 'RENT', 'OTH_EXP', 'IC_EXP'],
+      ['COST_SERV', 'TRAVEL', 'PROF', 'SOFTWARE', 'RENT', 'OTH_EXP', 'IC_EXP', 'IC_DIFF_PL'],
       1,
     ),
     T('total_expenses', 'Total expenses (IV)', 'employee + finance + depr + other_exp'),

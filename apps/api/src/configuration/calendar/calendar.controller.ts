@@ -15,9 +15,11 @@ import type {
   DueDateRuleDto,
   FinancialYearDto,
   FinancialYearOption,
+  HolidayCalendarsDto,
   HolidayDto,
   PeriodDto,
 } from '@finance-close/shared';
+import { Permission } from '@finance-close/shared';
 import { z } from 'zod';
 import { CurrentUser } from '../../auth/access-control';
 import type { AuthUser } from '../../auth/session-user';
@@ -42,9 +44,25 @@ const ruleSchema = z.object({
     .min(0)
     .max(120, 'At most 120 working days'),
 });
+const calendarName = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z][A-Za-z0-9 _-]{1,59}$/, 'Calendar: a name such as GROUP, UK or Sri Lanka');
 const holidaySchema = z.object({
   date: isoDate,
   description: z.string().trim().min(1, 'Enter a description').max(200),
+  calendar: calendarName.optional(),
+});
+const holidayCalendarsSchema = z.object({
+  perEntity: z.boolean(),
+  entities: z
+    .array(
+      z.object({
+        code: z.string().regex(/^[A-Z0-9]{1,10}$/),
+        holidayCalendar: calendarName.nullable(),
+      }),
+    )
+    .max(200),
 });
 
 @Controller('config')
@@ -146,7 +164,13 @@ export class CalendarController {
     @Body(new ZodPipe(holidaySchema)) body: z.output<typeof holidaySchema>,
     @ClientIp() ip: string | null,
   ): Promise<HolidayDto> {
-    return this.calendar.createHoliday(actor, body.date, body.description, ip);
+    return this.calendar.createHoliday(
+      actor,
+      body.date,
+      body.description,
+      ip,
+      body.calendar ?? 'GROUP',
+    );
   }
 
   @Patch('holidays/:id')
@@ -157,7 +181,23 @@ export class CalendarController {
     @Body(new ZodPipe(holidaySchema)) body: z.output<typeof holidaySchema>,
     @ClientIp() ip: string | null,
   ): Promise<HolidayDto> {
-    return this.calendar.updateHoliday(actor, id, body.date, body.description, ip);
+    return this.calendar.updateHoliday(actor, id, body.date, body.description, ip, body.calendar);
+  }
+
+  @Get('holiday-calendars')
+  @ViewConfig()
+  holidayCalendars(@CurrentUser() actor: AuthUser): Promise<HolidayCalendarsDto> {
+    return this.calendar.holidayCalendars(actor, actor.permissions.has(Permission.ConfigManage));
+  }
+
+  @Put('holiday-calendars')
+  @EditConfig()
+  saveHolidayCalendars(
+    @CurrentUser() actor: AuthUser,
+    @Body(new ZodPipe(holidayCalendarsSchema)) body: z.output<typeof holidayCalendarsSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<HolidayCalendarsDto> {
+    return this.calendar.saveHolidayCalendars(actor, body, ip);
   }
 
   @Delete('holidays/:id')

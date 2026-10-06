@@ -250,6 +250,8 @@ export interface PeriodDto {
   statusChangedAt: string | null;
   statusChangedBy: string | null;
   dueDates: DueDateDto[];
+  /** Per-entity calendars switched on: SFS due dates of entities with their own calendar. */
+  entityDueDates: { entityCode: string; calendar: string; calculated: IsoDate }[];
 }
 
 export interface FinancialYearDto {
@@ -280,6 +282,19 @@ export interface HolidayDto {
   id: string;
   date: IsoDate;
   description: string;
+  /** "GROUP" (the group calendar, India, which drives all due dates) or a country calendar. */
+  calendar: string;
+}
+
+export const GROUP_CALENDAR = 'GROUP';
+
+/** Decision round 1 (Q4): optional per-entity country holiday calendars, off by default. */
+export interface HolidayCalendarsDto {
+  perEntity: boolean;
+  /** Calendars that have holidays, GROUP first. */
+  calendars: string[];
+  entities: { code: string; shortName: string; holidayCalendar: string | null }[];
+  canEdit: boolean;
 }
 
 export interface OverrideDueDateRequest {
@@ -347,4 +362,46 @@ export interface ExchangeRateRowDto {
   source: string;
   enteredBy: string | null;
   enteredAt: string;
+}
+
+/** Decision round 1 (Q9): statutory details of an entity (kept apart from the entity master). */
+export interface StatutoryOfficerDto {
+  id: string;
+  name: string;
+  designation: string;
+  /** DIN or other identifier. */
+  identifier: string | null;
+  effectiveFrom: IsoDate;
+  /** null = still in office. */
+  effectiveTo: IsoDate | null;
+}
+
+export interface StatutoryDetailsDto {
+  entityCode: string;
+  legalName: string;
+  registeredOffice: string | null;
+  registrationNo: string | null;
+  officers: StatutoryOfficerDto[];
+  canEdit: boolean;
+}
+
+export interface StatutoryDetailsInput {
+  registeredOffice: string | null;
+  registrationNo: string | null;
+  officers: Omit<StatutoryOfficerDto, 'id'>[];
+}
+
+/** Entered on the task at finalisation: board approval date and place of signing. */
+export interface SigningDetailsDto {
+  /** Entity code (SFS) or "L<n>" (CFS level). */
+  key: string;
+  /** The entity whose officers sign (a level's parent). */
+  entityCode: string;
+  boardApprovalDate: IsoDate | null;
+  place: string | null;
+  /** Officers effective at the board approval date (or today, before one is entered). */
+  signatories: { designation: string; name: string | null; identifier: string | null }[];
+  officersConfigured: boolean;
+  canEdit: boolean;
+  readOnlyReason: string | null;
 }

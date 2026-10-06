@@ -108,7 +108,7 @@ export function EditAccessPage() {
                           disabled={!r.canDecide || r.blockedReason !== null}
                           title={
                             !r.canDecide
-                              ? 'You cannot decide your own request'
+                              ? (r.cannotDecideReason ?? 'You cannot decide this request')
                               : (r.blockedReason ?? undefined)
                           }
                           onClick={() => setDeciding({ r, approve: true })}

@@ -568,7 +568,7 @@ function SettingsDialog({
         <Field
           label="Rate source"
           htmlFor="rate-source"
-          hint="Website and which rate. Leave blank while Open question 2 is unresolved."
+          hint="Website and which rate. Blank = the default (FBIL reference rate for INR, other pairs via USD cross rates), to be confirmed."
         >
           <Input
             id="rate-source"

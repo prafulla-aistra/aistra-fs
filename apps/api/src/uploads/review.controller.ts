@@ -38,6 +38,9 @@ const ViewTasks = () =>
     Permission.CfsReview,
     Permission.ReportsView,
   );
+const periodExplainSchema = z.object({
+  text: z.string().trim().min(20, 'Explain the difference (at least 20 characters)').max(1000),
+});
 const Prepare = () => RequirePermission(Permission.SfsPrepare);
 const Review = () => RequirePermission(Permission.SfsReview);
 const entityCode = z.string().regex(/^[A-Z0-9]{1,10}$/, 'Invalid entity code');
@@ -110,6 +113,18 @@ export class ReviewController {
     @ClientIp() ip: string | null,
   ): Promise<ReviewPackDto> {
     return this.review.submit(user, id, code, body, ip);
+  }
+
+  @Post('tasks/:id/entities/:code/review/period-explanation')
+  @Prepare()
+  explainPeriod(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @Body(new ZodPipe(periodExplainSchema)) body: z.output<typeof periodExplainSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<ReviewPackDto> {
+    return this.review.explainPeriodTies(user, id, code, body.text, ip);
   }
 
   @Post('tasks/:id/entities/:code/review/queries')

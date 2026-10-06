@@ -1,3 +1,4 @@
+import { RATE_SOURCE_LABEL } from '@finance-close/shared';
 import type {
   CoaMergeSummaryDto,
   FileRefDto,
@@ -415,7 +416,7 @@ describe('Aug-2026 demo task', () => {
     expect(s.rates.months).toEqual([
       expect.objectContaining({ month: '2026-08-01', label: 'Aug-2026', locked: true }),
     ]);
-    expect(s.rates.sourceLabel).toBe('To be confirmed – Open question 2');
+    expect(s.rates.sourceLabel).toBe(RATE_SOURCE_LABEL);
     expect(s.entities.map((e) => [e.code, e.uploadStatus, e.canEdit])).toEqual([
       ['US', 'VALIDATED', false],
       ['IN', 'VALIDATED', true],

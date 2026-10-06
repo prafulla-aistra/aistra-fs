@@ -11,6 +11,8 @@ import { NoteTemplatesController } from './note-templates.controller';
 import { FormatsService } from './formats.service';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
+import { StatutoryController } from './statutory.controller';
+import { StatutoryService } from './statutory.service';
 
 /** Step 2 configuration: currencies, entities, group structure, calendar and due dates. */
 @Module({
@@ -22,6 +24,7 @@ import { ReferenceService } from './reference.service';
     ControlsController,
     ReferenceController,
     FormatsController,
+    StatutoryController,
   ],
   providers: [
     CurrenciesService,
@@ -29,7 +32,8 @@ import { ReferenceService } from './reference.service';
     CalendarService,
     ReferenceService,
     FormatsService,
+    StatutoryService,
   ],
-  exports: [EntitiesService, CalendarService],
+  exports: [EntitiesService, CalendarService, StatutoryService],
 })
 export class ConfigurationModule {}

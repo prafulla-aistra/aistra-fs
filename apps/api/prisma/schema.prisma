@@ -74,6 +74,9 @@ model Entity {
   materiality        Decimal?  @db.Decimal(20, 4)
   /// Display order (lists, group tree, level members).
   sortOrder          Int       @default(0) @map("sort_order")
+  /// Country holiday calendar for this entity's due dates (used only when per-entity calendars are
+  /// switched on); null = the group calendar.
+  holidayCalendar    String?   @map("holiday_calendar") @db.VarChar(60)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -221,10 +224,14 @@ model DueDateRule {
 /// Non-working days (in addition to Saturdays and Sundays).
 model Holiday {
   id          String   @id @default(uuid()) @db.Uuid
-  date        DateTime @unique @db.Date
+  date        DateTime @db.Date
   description String   @db.VarChar(200)
+  /// "GROUP" = the group calendar (India), which drives all due dates; else a country calendar
+  /// used per entity when per-entity calendars are switched on (decision round 1, Q4).
+  calendar    String   @default("GROUP") @db.VarChar(60)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
+  @@unique([date, calendar])
   @@map("holiday")
 }
 
@@ -473,6 +480,7 @@ model Task {
   consolidationRuns    ConsolidationRun[]
   consolidationAdjustments ConsolidationAdjustment[]
   eliminationExplanations  EliminationExplanation[]
+  signingDetails           SigningDetails[]
 
   @@index([periodId])
   @@map("task")
@@ -490,6 +498,8 @@ model TaskEntity {
   rollForward    Json?          @map("roll_forward")
   /// The last user who changed the entity's data in this task (segregation of duties).
   lastEditedById String?        @map("last_edited_by_id") @db.Uuid
+  /// Quarterly / annual: why the period does not tie to its months (decision round 1, Q10b).
+  periodTieExplanation String?  @map("period_tie_explanation") @db.VarChar(1000)
 
   task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   entity      Entity @relation(fields: [entityCode], references: [code])
@@ -774,6 +784,8 @@ model TbLine {
   zero        Boolean @default(false)
   /// From the TB file's account type column, when it has one.
   accountType String? @map("account_type") @db.VarChar(60)
+  /// YTD TBs: the P&L amount as uploaded (amount holds the period movement).
+  ytdAmount   Decimal? @map("ytd_amount") @db.Decimal(20, 4)
 
   tbVersion TbVersion @relation(fields: [tbVersionId], references: [id], onDelete: Cascade)
 
@@ -785,6 +797,8 @@ model TbLine {
 model UploadProfile {
   entityCode  String   @id @map("entity_code") @db.VarChar(10)
   settings    Json
+  /// "PERIOD" (P&L = the period's movement, default) or "YTD" (year-to-date P&L).
+  plBasis     String   @default("PERIOD") @map("pl_basis") @db.VarChar(10)
   updatedById String   @map("updated_by_id") @db.Uuid
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1035,6 +1049,8 @@ model ApprovalRule {
   id            String        @id @default(uuid()) @db.Uuid
   statementType StatementType @map("statement_type")
   entityCode    String?       @map("entity_code") @db.VarChar(10)
+  /// null = any period type; else MONTHLY / QUARTERLY / ANNUAL (decision round 1, Q6).
+  periodType    PeriodType?   @map("period_type")
   /// 1 = reviewer approves; 2 = reviewer, then approver.
   reviewLevels  Int           @default(1) @map("review_levels")
   reviewerIds   String[]      @map("reviewer_ids")
@@ -1233,6 +1249,11 @@ model Acquisition {
   shareCapital           Decimal  @map("share_capital") @db.Decimal(20, 4)
   premium                Decimal  @default(0) @db.Decimal(20, 4)
   preAcquisitionReserves Decimal  @default(0) @map("pre_acquisition_reserves") @db.Decimal(20, 4)
+  /// PROPORTIONATE or FAIR_VALUE; null = the default by the consolidating parent's GAAP (US GAAP:
+  /// fair value; otherwise proportionate) — decision round 1, Q8.
+  nciMeasurement         String?  @map("nci_measurement") @db.VarChar(20)
+  /// Fair value method: NCI fair value at the acquisition date, subsidiary's currency.
+  nciFairValue           Decimal? @map("nci_fair_value") @db.Decimal(20, 4)
   toBeConfirmed          Boolean  @default(true) @map("to_be_confirmed")
   note                   String?  @db.VarChar(500)
   updatedById            String?  @map("updated_by_id") @db.Uuid
@@ -1314,4 +1335,51 @@ model EliminationExplanation {
 
   @@id([taskId, level, entryId])
   @@map("elimination_explanation")
+}
+
+/// Statutory details of an entity (decision round 1, Q9), kept apart from the entity master.
+model StatutoryDetails {
+  entityCode       String   @id @map("entity_code") @db.VarChar(10)
+  registeredOffice String?  @map("registered_office") @db.VarChar(500)
+  registrationNo   String?  @map("registration_no") @db.VarChar(60)
+  updatedById      String?  @map("updated_by_id") @db.Uuid
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  officers StatutoryOfficer[]
+
+  @@map("statutory_details")
+}
+
+/// A director or officer signing the financial statements, effective for a date range.
+model StatutoryOfficer {
+  id            String    @id @default(uuid()) @db.Uuid
+  entityCode    String    @map("entity_code") @db.VarChar(10)
+  name          String    @db.VarChar(200)
+  designation   String    @db.VarChar(100)
+  /// DIN or other identifier.
+  identifier    String?   @db.VarChar(60)
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  sortOrder     Int       @default(0) @map("sort_order")
+
+  details StatutoryDetails @relation(fields: [entityCode], references: [entityCode], onDelete: Cascade)
+
+  @@index([entityCode])
+  @@map("statutory_officer")
+}
+
+/// Entered on the task at finalisation (not master data): board approval date and place of
+/// signing of an entity (key = entity code) or a CFS level (key "L<n>").
+model SigningDetails {
+  taskId            String   @map("task_id") @db.Uuid
+  key               String   @db.VarChar(10)
+  boardApprovalDate DateTime @map("board_approval_date") @db.Date
+  place             String   @db.VarChar(120)
+  updatedById       String   @map("updated_by_id") @db.Uuid
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, key])
+  @@map("signing_details")
 }

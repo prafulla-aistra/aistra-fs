@@ -29,6 +29,7 @@ import { formatDateTime, statementAmount } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { useApiBase } from '../api-base';
+import { SigningCard } from './SigningCard';
 import { EntityTabs } from '../EntityTabs';
 import { useSelectedEntity } from '../useSelectedEntity';
 import { useEntityFromUrl } from './markers';
@@ -136,6 +137,8 @@ export function EntityReview({
         </CardContent>
       </Card>
 
+      {p.periodCheck && <PeriodCheckPanel p={p} base={base} onDone={refresh} />}
+      {p.actions.decidingAs && <SigningCard taskId={taskId} itemKey={entityCode} />}
       {p.actions.decidingAs && <DecisionPanel p={p} base={base} onDone={refresh} />}
 
       <Section
@@ -1127,5 +1130,74 @@ function ConsolidationSections({ p }: { p: ReviewPackDto }) {
         </Table>
       </Section>
     </>
+  );
+}
+
+/** Quarterly / annual tasks (decision round 1, Q10b): the period against its months. */
+function PeriodCheckPanel({
+  p,
+  base,
+  onDone,
+}: {
+  p: ReviewPackDto;
+  base: string;
+  onDone: (p: ReviewPackDto) => void;
+}) {
+  const c = p.periodCheck!;
+  const [text, setText] = useState(c.explanation ?? '');
+  const save = useMutation({
+    mutationFn: () => api.post<ReviewPackDto>(base + '/period-explanation', { text }),
+    onSuccess: onDone,
+  });
+  if (c.monthsNotFinalised.length === 0 && c.differences === 0 && !c.explanation) return null;
+  return (
+    <Card>
+      <CardContent className="space-y-2 pt-6 text-sm">
+        {c.monthsNotFinalised.length > 0 ? (
+          <Alert variant="info">
+            Months of the period not finalised: {c.monthsNotFinalised.join(', ')}. The period is
+            checked against its months once every month is finalised.
+          </Alert>
+        ) : (
+          <>
+            <p>
+              {c.differences > 0
+                ? c.differences +
+                  ' difference(s) between the period and its months (see the check "Period agrees to its months").'
+                : 'The period agrees to its months.'}{' '}
+              {c.differences > 0 && !c.explanation && 'Blocking until explained.'}
+            </p>
+            {(c.differences > 0 || c.explanation) && (
+              <div className="space-y-2">
+                {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+                <textarea
+                  className="min-h-16 w-full rounded-md border bg-card px-3 py-2 text-sm"
+                  aria-label="Why the period does not tie to its months"
+                  disabled={!c.canExplain}
+                  value={text}
+                  maxLength={1000}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Explain the difference (at least 20 characters)"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    disabled={
+                      !c.canExplain ||
+                      text.trim().length < 20 ||
+                      text.trim() === (c.explanation ?? '') ||
+                      save.isPending
+                    }
+                    onClick={() => save.mutate()}
+                  >
+                    Save explanation
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

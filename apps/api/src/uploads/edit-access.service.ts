@@ -95,6 +95,36 @@ export class EditAccessService {
       : null;
   }
 
+  /**
+   * Segregation of duties (decision round 1, Q6): nobody decides their own request, nor one for
+   * an entity or level they prepared (submitted for review) or last edited in that task.
+   */
+  async decideConflict(
+    userId: string,
+    r: { taskId: string; entityCode: string; requestedById: string },
+  ): Promise<string | null> {
+    if (r.requestedById === userId) return 'You cannot decide your own request.';
+    const what = isLevelKey(r.entityCode) ? `Level ${r.entityCode.slice(1)}` : r.entityCode;
+    const submitted = await this.prisma.reviewSubmission.findFirst({
+      where: { taskId: r.taskId, entityCode: r.entityCode, submittedById: userId },
+      select: { id: true },
+    });
+    if (submitted)
+      return `You prepared ${what} in this task, so you cannot decide its edit-access request.`;
+    const row = isLevelKey(r.entityCode)
+      ? await this.prisma.taskLevel.findFirst({
+          where: { taskId: r.taskId, level: Number(r.entityCode.slice(1)) },
+          select: { lastEditedById: true },
+        })
+      : await this.prisma.taskEntity.findFirst({
+          where: { taskId: r.taskId, entityCode: r.entityCode },
+          select: { lastEditedById: true },
+        });
+    if (row?.lastEditedById === userId)
+      return `You last edited ${what} in this task, so you cannot decide its edit-access request.`;
+    return null;
+  }
+
   private async toDto(
     user: AuthUser,
     r: Prisma.EditAccessRequestGetPayload<{ include: typeof include }>,
@@ -107,6 +137,7 @@ export class EditAccessService {
     const entity = level
       ? { legalName: `Level ${level.level} ${level.name} (consolidation)` }
       : await this.prisma.entity.findUnique({ where: { code: r.entityCode } });
+    const conflict = r.status === 'PENDING' ? await this.decideConflict(user.id, r) : null;
     return {
       id: r.id,
       taskId: r.taskId,
@@ -122,9 +153,8 @@ export class EditAccessService {
       decidedAt: r.decidedAt?.toISOString() ?? null,
       decisionComment: r.decisionComment,
       canDecide:
-        r.status === 'PENDING' &&
-        user.permissions.has(Permission.EditAccessApprove) &&
-        r.requestedById !== user.id,
+        r.status === 'PENDING' && user.permissions.has(Permission.EditAccessApprove) && !conflict,
+      cannotDecideReason: r.status === 'PENDING' ? conflict : null,
       blockedReason:
         r.status === 'PENDING'
           ? await this.reopenBlocked(this.prisma, r.taskId, r.entityCode)
@@ -238,8 +268,8 @@ export class EditAccessService {
         ApiErrorCode.Conflict,
         'This request has already been decided.',
       );
-    if (r.requestedById === user.id)
-      throw ApiError.notAllowed('You cannot decide your own request.');
+    const conflict = await this.decideConflict(user.id, r);
+    if (conflict) throw ApiError.notAllowed(conflict);
     if (!input.approve && !(input.comment && input.comment.trim().length >= 3))
       throw ApiError.validation('Give a reason for rejecting the request.');
     if (input.approve) {
@@ -321,8 +351,11 @@ export class EditAccessService {
     if (!user.permissions.has(Permission.EditAccessApprove)) return 0;
     const rows = await this.prisma.editAccessRequest.findMany({
       where: { status: 'PENDING', requestedById: { not: user.id } },
-      select: { entityCode: true },
+      select: { taskId: true, entityCode: true, requestedById: true },
     });
-    return rows.filter((r) => inScope(user.entityScope, r.entityCode)).length;
+    let n = 0;
+    for (const r of rows)
+      if (inScope(user.entityScope, r.entityCode) && !(await this.decideConflict(user.id, r))) n++;
+    return n;
   }
 }

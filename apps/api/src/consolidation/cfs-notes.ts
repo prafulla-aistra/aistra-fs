@@ -281,6 +281,7 @@ function generated(
           .filter(
             (l) =>
               l.fsliCode !== 'IC_DIFF' &&
+              l.fsliCode !== 'IC_DIFF_PL' &&
               l.fsliCode !== 'FCTR' &&
               new Decimal(l.amount).isPositive(),
           )
@@ -289,7 +290,7 @@ function generated(
         else p.pnl = p.pnl.plus(dr);
         p.diff = p.diff.plus(
           e.lines
-            .filter((l) => l.fsliCode === 'IC_DIFF')
+            .filter((l) => l.fsliCode === 'IC_DIFF' || l.fsliCode === 'IC_DIFF_PL')
             .reduce((s, l) => s.plus(l.amount), new Decimal(0))
             .abs(),
         );

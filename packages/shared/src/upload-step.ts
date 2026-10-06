@@ -98,7 +98,12 @@ export interface CoaMergeSummaryDto {
   warnings: UploadIssueDto[];
 }
 
+/** Decision round 1 (Q10a): how the TB carries the P&L. */
+export type PlBasis = 'PERIOD' | 'YTD';
+
 export interface UploadEntityCardDto {
+  /** Upload profile: P&L as the period movement (default) or year-to-date. */
+  plBasis: PlBasis;
   code: string;
   legalName: string;
   shortName: string;
@@ -221,6 +226,11 @@ export interface RateInputDto {
   average: string | null;
 }
 
-export const RATE_SOURCE_LABEL = 'To be confirmed – Open question 2';
+/**
+ * Shown when no rate source is set (Configuration → Settings): the decision round 1 default,
+ * to be confirmed (preferably the same source as Zoho's month-end revaluation).
+ */
+export const RATE_SOURCE_LABEL =
+  'FBIL reference rate (INR); other pairs via USD cross rates; closing = last working day of the month; average = mean of daily rates in the month (to be confirmed)';
 export const PERIOD_AVERAGE_ASSUMPTION =
   'Assumption: for a quarter or year, opening = first month’s opening, closing = last month’s closing, average = simple mean of the monthly averages.';

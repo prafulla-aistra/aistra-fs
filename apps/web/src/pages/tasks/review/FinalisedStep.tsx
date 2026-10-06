@@ -14,6 +14,7 @@ import { toast } from '@/lib/toast';
 import { EntityTabs } from '../EntityTabs';
 import { useSelectedEntity } from '../useSelectedEntity';
 import { useApiBase } from '../api-base';
+import { SigningCard } from './SigningCard';
 import { useEntityFromUrl } from './markers';
 
 /** Step "Finalised": the read-only result, downloads, edit access and the version history. */
@@ -107,6 +108,8 @@ export function EntityFinalised({ taskId, entityCode }: { taskId: string; entity
           .
         </Alert>
       )}
+
+      <SigningCard taskId={taskId} itemKey={entityCode} />
 
       {v.finalised && (
         <Card>

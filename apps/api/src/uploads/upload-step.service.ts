@@ -3,6 +3,11 @@ import type { Prisma, TbVersion, UploadKind } from '@prisma/client';
 import {
   type Cell,
   checkTrialBalance,
+  Decimal,
+  inferMapping,
+  YTD_PRIOR_PROFIT_CODE,
+  YTD_PRIOR_PROFIT_NAME,
+  ytdToPeriod,
   deriveTaskStatus,
   detectTbLayout,
   parseChartOfAccounts,
@@ -192,6 +197,10 @@ export class UploadStepService {
       .sort((a, b) => a.entity.sortOrder - b.entity.sortOrder);
     const codes = entities.map((e) => e.entityCode);
 
+    const profiles = await this.prisma.uploadProfile.findMany({
+      where: { entityCode: { in: codes } },
+      select: { entityCode: true, plBasis: true },
+    });
     const [versions, files, counts] = await Promise.all([
       this.prisma.tbVersion.findMany({
         where: { taskId, entityCode: { in: codes }, purpose: 'CURRENT' },
@@ -215,6 +224,10 @@ export class UploadStepService {
       const coa = files.filter((f) => f.entityCode === te.entityCode && f.kind === 'COA');
       const reason = this.readOnlyReason(user, task, te.entityCode);
       return {
+        plBasis:
+          profiles.find((p) => p.entityCode === te.entityCode)?.plBasis === 'YTD'
+            ? 'YTD'
+            : 'PERIOD',
         code: te.entityCode,
         legalName: te.entity.legalName,
         shortName: te.entity.shortName,
@@ -408,6 +421,22 @@ export class UploadStepService {
         create: { entityCode, settings: { ...body.settings }, updatedById: user.id },
         update: { settings: { ...body.settings }, updatedById: user.id },
       });
+      if (check.lines.some((l) => l.accountCode === YTD_PRIOR_PROFIT_CODE))
+        await tx.entityAccount.upsert({
+          where: { entityCode_accountCode: { entityCode, accountCode: YTD_PRIOR_PROFIT_CODE } },
+          create: {
+            entityCode,
+            accountCode: YTD_PRIOR_PROFIT_CODE,
+            accountName: YTD_PRIOR_PROFIT_NAME,
+            accountType: 'Equity',
+            fsliCode: 'RETAINED',
+            source: 'TASK_MAPPING',
+            suggested: false,
+            mappedInTaskId: taskId,
+            updatedById: user.id,
+          },
+          update: {},
+        });
       if (te.status === 'NOT_STARTED' && !target) {
         await tx.taskEntity.update({
           where: { taskId_entityCode: { taskId, entityCode } },
@@ -463,7 +492,13 @@ export class UploadStepService {
       }
       return v;
     });
-    await this.guard.changed(user, taskId, entityCode, `Trial balance replaced (version ${version.version})`, ip);
+    await this.guard.changed(
+      user,
+      taskId,
+      entityCode,
+      `Trial balance replaced (version ${version.version})`,
+      ip,
+    );
     return toVersionDto(
       await this.prisma.tbVersion.findUniqueOrThrow({
         where: { id: version.id },
@@ -576,7 +611,7 @@ export class UploadStepService {
           ),
       ),
     ];
-    return checkTrialBalance({
+    const result = checkTrialBalance({
       rows,
       settings,
       layout,
@@ -585,6 +620,142 @@ export class UploadStepService {
       knownAccounts: new Set(accounts.map((a) => a.accountCode)),
       sameFileElsewhere: elsewhere,
     });
+    const profile = await this.prisma.uploadProfile.findUnique({
+      where: { entityCode: entity.code },
+    });
+    return profile?.plBasis === 'YTD' && result.errors.length === 0
+      ? this.toPeriodBasis(result, entity.code, period)
+      : result;
+  }
+
+  /**
+   * Decision round 1 (Q10a): a year-to-date TB. The period P&L = this TB's YTD P&L less the
+   * previous month's YTD TB (required; April = YTD as is). Balance-sheet lines stay closing
+   * balances; the earlier months' profit is one equity line (YTD-PRIOR → retained earnings).
+   */
+  private async toPeriodBasis(
+    result: TbCheckResult,
+    entityCode: string,
+    period: { startDate: string; label: string },
+  ): Promise<TbCheckResult> {
+    const [accounts, fslis] = await Promise.all([
+      this.prisma.entityAccount.findMany({ where: { entityCode }, include: { fsli: true } }),
+      this.prisma.fsli.findMany({ select: { code: true, statement: true } }),
+    ]);
+    const statementOf = new Map(fslis.map((x) => [x.code, x.statement]));
+    const isPL = (l: { accountCode: string; accountName: string; accountType: string | null }) => {
+      const a = accounts.find((x) => x.accountCode === l.accountCode);
+      if (a?.fsli) return a.fsli.statement === 'PL';
+      const guess = inferMapping({ name: l.accountName, type: l.accountType }, []).fsliCode;
+      return guess ? statementOf.get(guess) === 'PL' : false;
+    };
+    const firstPeriodOfYear = period.startDate.slice(5, 7) === '04';
+    const prevEnd = new Date(`${period.startDate}T00:00:00Z`);
+    prevEnd.setUTCDate(prevEnd.getUTCDate() - 1);
+    const prevPeriod = firstPeriodOfYear
+      ? null
+      : await this.prisma.period.findFirst({ where: { type: 'MONTHLY', endDate: prevEnd } });
+    const prevLabel = prevPeriod?.label ?? `the month ending ${prevEnd.toISOString().slice(0, 10)}`;
+    const prevVersion = prevPeriod
+      ? await this.prisma.tbVersion.findFirst({
+          where: {
+            entityCode,
+            purpose: 'CURRENT',
+            status: { not: 'ERROR' },
+            task: { periodId: prevPeriod.id },
+            lines: { some: { ytdAmount: { not: null } } },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { lines: { where: { ytdAmount: { not: null } } } },
+        })
+      : null;
+    const conv = ytdToPeriod({
+      current: result.lines.map((l) => ({
+        code: l.accountCode,
+        name: l.accountName,
+        type: l.accountType,
+        amount: l.amount,
+        isPL: isPL(l),
+      })),
+      previous: prevVersion
+        ? prevVersion.lines.map((l) => ({
+            code: l.accountCode,
+            name: l.accountName,
+            ytdAmount: l.ytdAmount!.toString(),
+          }))
+        : null,
+      firstPeriodOfYear,
+      previousLabel: prevLabel,
+    });
+    if (conv.problems.length)
+      return {
+        ...result,
+        errors: [
+          ...result.errors,
+          ...conv.problems.map((message) => ({ code: 'YTD_PREVIOUS_TB_MISSING', message })),
+        ],
+        status: 'ERROR',
+      };
+    const byCode = new Map(result.lines.map((l) => [l.accountCode, l]));
+    const lines = conv.lines.map((c) => {
+      const orig = byCode.get(c.code);
+      return {
+        accountCode: c.code,
+        accountName: c.name,
+        accountType: c.type,
+        amount: c.amount,
+        sourceRows: orig?.sourceRows ?? [],
+        zero: new Decimal(c.amount).isZero(),
+        ytdAmount: c.ytdAmount,
+      };
+    });
+    return {
+      ...result,
+      lines,
+      newAccounts: result.newAccounts.filter((a) => a.code !== YTD_PRIOR_PROFIT_CODE),
+      info: [
+        ...result.info,
+        {
+          code: 'YTD_CONVERTED',
+          message: firstPeriodOfYear
+            ? 'Year-to-date trial balance: April, so the YTD P&L is the period P&L.'
+            : `Year-to-date trial balance: P&L converted to ${period.label}'s movement (this TB's YTD less ${prevLabel}'s). Profit of the earlier months (${new Decimal(conv.priorProfit).negated().toFixed(2)}) is carried as ${YTD_PRIOR_PROFIT_CODE}, mapped to retained earnings.`,
+        },
+      ],
+    };
+  }
+
+  /** P&L basis of the entity's upload profile (decision round 1, Q10a). Audited. */
+  async setPlBasis(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    plBasis: 'PERIOD' | 'YTD',
+    ip: string | null,
+  ) {
+    await this.editable(user, taskId, entityCode);
+    const before = await this.prisma.uploadProfile.findUnique({ where: { entityCode } });
+    if ((before?.plBasis ?? 'PERIOD') === plBasis) return this.get(user, taskId);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.uploadProfile.upsert({
+        where: { entityCode },
+        create: { entityCode, settings: {}, plBasis, updatedById: user.id },
+        update: { plBasis, updatedById: user.id },
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.UploadProfileUpdate,
+          entityType: 'UPLOAD_PROFILE',
+          entityId: entityCode,
+          oldValue: { plBasis: before?.plBasis ?? 'PERIOD' },
+          newValue: { plBasis },
+          ip,
+        },
+        tx,
+      );
+    });
+    return this.get(user, taskId);
   }
 
   private async preview(

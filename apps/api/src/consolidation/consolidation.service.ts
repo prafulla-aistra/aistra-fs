@@ -608,6 +608,13 @@ export class ConsolidationService {
     });
 
     // Acquisitions register and acquisition-date rates.
+    const levelGaap =
+      (
+        await this.prisma.entity.findUnique({
+          where: { code: l.parentEntityCode },
+          select: { gaap: true },
+        })
+      )?.gaap ?? null;
     const subs = members.filter(
       (m) => m.code !== l.parentEntityCode && m.parentCode && l.members.includes(m.parentCode),
     );
@@ -635,6 +642,19 @@ export class ConsolidationService {
       }
       const tbc = rows.some((r) => r.toBeConfirmed);
       if (tbc) acqStatus = worse(acqStatus, 'WARNING');
+      const pct = rows.reduce((t, r) => t.plus(r.pctAcquired.toString()), new Decimal('0'));
+      if (pct.lessThan(100)) {
+        const nci = nciMethod(rows, levelGaap);
+        if (nci.nciMeasurement === 'FAIR_VALUE' && nci.nciFairValue === null) {
+          acqStatus = 'MISSING';
+          acqDetails.push(
+            `${s.code}: NCI is measured at fair value${nci.byDefault ? ` (default for ${levelGaap === 'US_GAAP' ? 'US GAAP' : levelGaap})` : ''} but no NCI fair value at the acquisition date is entered.`,
+          );
+        } else
+          acqDetails.push(
+            `${s.code}: NCI ${nci.nciMeasurement === 'FAIR_VALUE' ? 'at fair value (full goodwill)' : 'at the proportionate share of net assets'}${nci.byDefault ? ' — default by the level parent’s GAAP, to be confirmed' : ''}.`,
+          );
+      }
       acqDetails.push(
         `${s.code} (held by ${s.parentCode}): ${rows.length} step(s), ${rows.reduce((t, r) => t.plus(r.pctAcquired.toString()), new Decimal('0')).toFixed()}% acquired${tbc ? ' — to be confirmed' : ''}.`,
       );
@@ -972,6 +992,10 @@ export class ConsolidationService {
       orderBy: { acquiredOn: 'asc' },
     });
     const currencyOf = new Map(members.map((m) => [m.code, m.functionalCurrency]));
+    const levelParent = await this.prisma.entity.findUnique({
+      where: { code: l.parentEntityCode },
+      select: { gaap: true },
+    });
     const manual = await this.prisma.consolidationAdjustment.findMany({
       where: { taskId: task.id, level: { lte: l.level } },
       orderBy: { createdAt: 'asc' },
@@ -995,6 +1019,10 @@ export class ConsolidationService {
         .map((s) => ({
           subsidiaryCode: s.code,
           parentCode: s.parentCode!,
+          ...nciMethod(
+            acqs.filter((a) => a.subsidiaryCode === s.code && a.parentCode === s.parentCode),
+            levelParent?.gaap ?? null,
+          ),
           steps: acqs
             .filter((a) => a.subsidiaryCode === s.code && a.parentCode === s.parentCode)
             .map((a) => {
@@ -1726,4 +1754,32 @@ export interface LevelData {
   fslis: FormatFsli[];
   explanations: { entryId: string; text: string }[];
   manual: LevelSnapshotData['manual'];
+}
+
+/**
+ * NCI measurement of a subsidiary (decision round 1, Q8): the register's setting (the first step
+ * that has one), else the default by the consolidating level parent's GAAP — fair value (full
+ * goodwill) under US GAAP, proportionate otherwise (to be confirmed).
+ */
+export function nciMethod(
+  steps: readonly { nciMeasurement: string | null; nciFairValue: { toString(): string } | null }[],
+  levelParentGaap: string | null,
+): {
+  nciMeasurement: 'PROPORTIONATE' | 'FAIR_VALUE';
+  nciFairValue: string | null;
+  byDefault: boolean;
+} {
+  const set = steps.find((x) => x.nciMeasurement);
+  const fv = steps.find((x) => x.nciFairValue !== null)?.nciFairValue?.toString() ?? null;
+  if (set)
+    return {
+      nciMeasurement: set.nciMeasurement === 'FAIR_VALUE' ? 'FAIR_VALUE' : 'PROPORTIONATE',
+      nciFairValue: fv,
+      byDefault: false,
+    };
+  return {
+    nciMeasurement: levelParentGaap === 'US_GAAP' ? 'FAIR_VALUE' : 'PROPORTIONATE',
+    nciFairValue: fv,
+    byDefault: true,
+  };
 }

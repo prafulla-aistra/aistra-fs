@@ -1,3 +1,4 @@
+import { RATE_SOURCE_LABEL } from '@finance-close/shared';
 import type {
   AccountTypeDefaultDto,
   AppSettingsDto,
@@ -150,7 +151,7 @@ describe('settings', () => {
     const s = (await ctx.http().get('/api/config/settings').set(as(master))).body as AppSettingsDto;
     expect(s).toMatchObject({
       rateSource: '',
-      rateSourceLabel: 'To be confirmed – Open question 2',
+      rateSourceLabel: RATE_SOURCE_LABEL,
       icDiffThreshold: '1.00',
       variancePct: '20',
       canEdit: true,

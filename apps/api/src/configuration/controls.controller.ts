@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { Decimal } from '@finance-close/engine';
 import {
   AuditAction,
@@ -27,9 +37,15 @@ const checkSchema = z.object({
   isActive: z.boolean(),
   toBeConfirmed: z.boolean(),
 });
+const PERIOD_ORDER = ['MONTHLY', 'QUARTERLY', 'ANNUAL'];
+
 const ruleSchema = z.object({
   statementType: z.enum(['SFS', 'CFS']),
-  entityCode: z.string().regex(/^[A-Z0-9]{1,10}$/).nullable(),
+  entityCode: z
+    .string()
+    .regex(/^[A-Z0-9]{1,10}$/)
+    .nullable(),
+  periodType: z.enum(['MONTHLY', 'QUARTERLY', 'ANNUAL']).nullable().default(null),
   reviewLevels: z.union([z.literal(1), z.literal(2)]),
   reviewerIds: z.array(z.string().uuid()).max(50),
   approverIds: z.array(z.string().uuid()).max(50),
@@ -47,7 +63,9 @@ export class ControlsController {
   @ViewConfig()
   async checks(
     @Query(new ZodPipe(z.object({ statementType: z.enum(['SFS', 'CFS']).optional() })))
-    q: { statementType?: 'SFS' | 'CFS' },
+    q: {
+      statementType?: 'SFS' | 'CFS';
+    },
   ): Promise<ControlCheckDto[]> {
     const rows = await this.prisma.controlCheck.findMany({
       where: q.statementType ? { statementType: q.statementType } : {},
@@ -114,7 +132,9 @@ export class ControlsController {
   @ViewConfig()
   async approvals(@CurrentUser() user: AuthUser): Promise<ApprovalsDto> {
     const [rules, users, entities] = await Promise.all([
-      this.prisma.approvalRule.findMany({ orderBy: [{ statementType: 'asc' }, { entityCode: 'asc' }] }),
+      this.prisma.approvalRule.findMany({
+        orderBy: [{ statementType: 'asc' }, { entityCode: 'asc' }, { periodType: 'asc' }],
+      }),
       this.prisma.user.findMany({
         where: { status: 'ACTIVE' },
         include: { permissions: true },
@@ -127,12 +147,25 @@ export class ControlsController {
     const reviewPerms = new Set<string>([Permission.SfsReview, Permission.CfsReview]);
     return {
       rules: rules
-        .sort((a, b) => (a.entityCode === null ? -1 : b.entityCode === null ? 1 : a.entityCode.localeCompare(b.entityCode)))
+        .sort((a, b) =>
+          a.entityCode === b.entityCode
+            ? a.periodType === null
+              ? -1
+              : b.periodType === null
+                ? 1
+                : PERIOD_ORDER.indexOf(a.periodType) - PERIOD_ORDER.indexOf(b.periodType)
+            : a.entityCode === null
+              ? -1
+              : b.entityCode === null
+                ? 1
+                : a.entityCode.localeCompare(b.entityCode),
+        )
         .map((r) => ({
           id: r.id,
           statementType: r.statementType,
           entityCode: r.entityCode,
           entityName: r.entityCode ? (entityName.get(r.entityCode) ?? null) : null,
+          periodType: r.periodType,
           reviewLevels: (r.reviewLevels === 2 ? 2 : 1) as 1 | 2,
           reviewers: r.reviewerIds.map((id) => ({ id, name: name.get(id) ?? 'Unknown user' })),
           approvers: r.approverIds.map((id) => ({ id, name: name.get(id) ?? 'Unknown user' })),
@@ -157,12 +190,26 @@ export class ControlsController {
     @Body(new ZodPipe(ruleSchema)) body: z.output<typeof ruleSchema>,
     @ClientIp() ip: string | null,
   ): Promise<ApprovalsDto> {
-    if (body.entityCode && !(await this.prisma.entity.findUnique({ where: { code: body.entityCode } })))
+    if (
+      body.entityCode &&
+      !(await this.prisma.entity.findUnique({ where: { code: body.entityCode } }))
+    )
       throw ApiError.notFound(`Entity ${body.entityCode} not found.`);
-    if (body.reviewLevels === 2 && body.reviewerIds.some((id) => body.approverIds.includes(id)) && body.approverIds.length === 1 && body.reviewerIds.length === 1)
-      throw ApiError.validation('With two review levels, the reviewer and the approver must be different people.');
+    if (
+      body.reviewLevels === 2 &&
+      body.reviewerIds.some((id) => body.approverIds.includes(id)) &&
+      body.approverIds.length === 1 &&
+      body.reviewerIds.length === 1
+    )
+      throw ApiError.validation(
+        'With two review levels, the reviewer and the approver must be different people.',
+      );
     const before = await this.prisma.approvalRule.findFirst({
-      where: { statementType: body.statementType, entityCode: body.entityCode },
+      where: {
+        statementType: body.statementType,
+        entityCode: body.entityCode,
+        periodType: body.periodType,
+      },
     });
     const data = {
       reviewLevels: body.reviewLevels,
@@ -172,7 +219,14 @@ export class ControlsController {
     await this.prisma.$transaction(async (tx) => {
       const row = before
         ? await tx.approvalRule.update({ where: { id: before.id }, data })
-        : await tx.approvalRule.create({ data: { statementType: body.statementType, entityCode: body.entityCode, ...data } });
+        : await tx.approvalRule.create({
+            data: {
+              statementType: body.statementType,
+              entityCode: body.entityCode,
+              periodType: body.periodType,
+              ...data,
+            },
+          });
       await this.audit.record(
         {
           userId: user.id,
@@ -180,9 +234,18 @@ export class ControlsController {
           entityType: 'APPROVAL_RULE',
           entityId: row.id,
           oldValue: before
-            ? { reviewLevels: before.reviewLevels, reviewerIds: before.reviewerIds, approverIds: before.approverIds }
+            ? {
+                reviewLevels: before.reviewLevels,
+                reviewerIds: before.reviewerIds,
+                approverIds: before.approverIds,
+              }
             : null,
-          newValue: { statementType: body.statementType, entityCode: body.entityCode, ...data },
+          newValue: {
+            statementType: body.statementType,
+            entityCode: body.entityCode,
+            periodType: body.periodType,
+            ...data,
+          },
           ip,
         },
         tx,
@@ -201,7 +264,8 @@ export class ControlsController {
   ): Promise<void> {
     const before = await this.prisma.approvalRule.findUnique({ where: { id } });
     if (!before) throw ApiError.notFound('Approval rule not found.');
-    if (before.entityCode === null) throw ApiError.validation('The default rule cannot be removed.');
+    if (before.entityCode === null && before.periodType === null)
+      throw ApiError.validation('The default rule cannot be removed.');
     await this.prisma.$transaction(async (tx) => {
       await tx.approvalRule.delete({ where: { id } });
       await this.audit.record(
@@ -210,7 +274,13 @@ export class ControlsController {
           action: AuditAction.ApprovalRuleChange,
           entityType: 'APPROVAL_RULE',
           entityId: id,
-          oldValue: { entityCode: before.entityCode, reviewLevels: before.reviewLevels, reviewerIds: before.reviewerIds, approverIds: before.approverIds },
+          oldValue: {
+            entityCode: before.entityCode,
+            periodType: before.periodType,
+            reviewLevels: before.reviewLevels,
+            reviewerIds: before.reviewerIds,
+            approverIds: before.approverIds,
+          },
           newValue: null,
           ip,
         },

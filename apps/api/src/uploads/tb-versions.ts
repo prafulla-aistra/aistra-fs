@@ -64,6 +64,7 @@ export async function saveTbVersion(
       sourceRows: l.sourceRows,
       zero: l.zero,
       accountType: l.accountType?.slice(0, 60) ?? null,
+      ytdAmount: (l as { ytdAmount?: string | null }).ytdAmount ?? null,
     })),
   });
   return version;

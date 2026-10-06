@@ -8,16 +8,35 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { deriveConsolidationLevels, Decimal, type GroupEntity } from '@finance-close/engine';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ACQUISITION_COLUMNS,
+  deriveConsolidationLevels,
+  Decimal,
+  type GroupEntity,
+  parseAcquisitionTemplate,
+} from '@finance-close/engine';
 import {
   AuditAction,
+  MAX_UPLOAD_BYTES,
   Permission,
   type AcquisitionDto,
   type AcquisitionsDto,
+  type AcquisitionUploadPreviewDto,
+  type AcquisitionUploadRowDto,
   type IntercompanyPairsDto,
 } from '@finance-close/shared';
+import ExcelJS from 'exceljs';
+import type { Response } from 'express';
 import { z } from 'zod';
+import type { UploadedBlob } from '../uploads/upload-step.service';
+import { readSheetRows } from '../uploads/sheets';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../auth/access-control';
 import type { AuthUser } from '../auth/session-user';
@@ -62,6 +81,11 @@ const acquisitionSchema = z.object({
   shareCapital: amount('Share capital'),
   premium: amount('Premium'),
   preAcquisitionReserves: amount('Pre-acquisition reserves'),
+  nciMeasurement: z.enum(['PROPORTIONATE', 'FAIR_VALUE']).nullable().default(null),
+  nciFairValue: amount('NCI fair value')
+    .refine((v) => !v.startsWith('-'), 'NCI fair value: 0 or more')
+    .nullable()
+    .default(null),
   toBeConfirmed: z.boolean(),
   note: z.string().trim().max(500).nullable(),
   rates: z
@@ -276,6 +300,8 @@ export class ConsolidationConfigController {
         shareCapital: r.shareCapital.toFixed(2),
         premium: r.premium.toFixed(2),
         preAcquisitionReserves: r.preAcquisitionReserves.toFixed(2),
+        nciMeasurement: (r.nciMeasurement as AcquisitionDto['nciMeasurement']) ?? null,
+        nciFairValue: r.nciFairValue?.toFixed(2) ?? null,
         toBeConfirmed: r.toBeConfirmed,
         note: r.note,
         rates: r.rates
@@ -361,23 +387,49 @@ export class ConsolidationConfigController {
     body: z.output<typeof acquisitionSchema>,
     ip: string | null,
   ): Promise<AcquisitionsDto> {
-    const sub = await this.prisma.entity.findUnique({ where: { code: body.subsidiaryCode } });
-    if (!sub) throw ApiError.notFound(`Entity ${body.subsidiaryCode} not found.`);
-    if (!(await this.prisma.entity.findUnique({ where: { code: body.parentCode } })))
-      throw ApiError.notFound(`Entity ${body.parentCode} not found.`);
-    if (body.subsidiaryCode === body.parentCode)
-      throw ApiError.validation('The subsidiary and the parent must differ.');
-    const currencies = body.rates.map((r) => r.currency);
-    if (new Set(currencies).size !== currencies.length)
-      throw ApiError.validation('Enter each currency once.');
-    if (currencies.includes(sub.functionalCurrency))
-      throw ApiError.validation(
-        `No rate is needed into ${sub.functionalCurrency} (the subsidiary's own currency).`,
-      );
+    const problems = await this.problemsFor(body);
+    if (problems.length) {
+      if (problems[0]!.startsWith('Entity ')) throw ApiError.notFound(problems[0]!);
+      throw ApiError.validation(problems[0]!);
+    }
     const before = id
       ? await this.prisma.acquisition.findUnique({ where: { id }, include: { rates: true } })
       : null;
     if (id && !before) throw ApiError.notFound('Acquisition not found.');
+    await this.prisma.$transaction((tx) => this.write(tx, user, id, before, body, ip));
+    return this.acquisitions(user);
+  }
+
+  /** Checks against the group (the schema checks each value). */
+  private async problemsFor(body: z.output<typeof acquisitionSchema>): Promise<string[]> {
+    const out: string[] = [];
+    const sub = await this.prisma.entity.findUnique({ where: { code: body.subsidiaryCode } });
+    if (!sub) out.push(`Entity ${body.subsidiaryCode} not found.`);
+    if (!(await this.prisma.entity.findUnique({ where: { code: body.parentCode } })))
+      out.push(`Entity ${body.parentCode} not found.`);
+    if (body.subsidiaryCode === body.parentCode)
+      out.push('The subsidiary and the parent must differ.');
+    const currencies = body.rates.map((r) => r.currency);
+    if (new Set(currencies).size !== currencies.length) out.push('Enter each currency once.');
+    if (sub && currencies.includes(sub.functionalCurrency))
+      out.push(`No rate is needed into ${sub.functionalCurrency} (the subsidiary's own currency).`);
+    if (
+      body.nciMeasurement === 'FAIR_VALUE' &&
+      body.nciFairValue === null &&
+      new Decimal(body.pctAcquired).lessThan(100)
+    )
+      out.push('Enter the NCI fair value at the acquisition date (NCI measured at fair value).');
+    return out;
+  }
+
+  private async write(
+    tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0],
+    user: AuthUser,
+    id: string | null,
+    before: AcquisitionRow | null,
+    body: z.output<typeof acquisitionSchema>,
+    ip: string | null,
+  ): Promise<void> {
     const data = {
       subsidiaryCode: body.subsidiaryCode,
       parentCode: body.parentCode,
@@ -387,11 +439,13 @@ export class ConsolidationConfigController {
       shareCapital: body.shareCapital,
       premium: body.premium,
       preAcquisitionReserves: body.preAcquisitionReserves,
+      nciMeasurement: body.nciMeasurement,
+      nciFairValue: body.nciFairValue,
       toBeConfirmed: body.toBeConfirmed,
       note: body.note || null,
       updatedById: user.id,
     };
-    await this.prisma.$transaction(async (tx) => {
+    {
       const row = id
         ? await tx.acquisition.update({ where: { id }, data })
         : await tx.acquisition.create({ data });
@@ -421,14 +475,213 @@ export class ConsolidationConfigController {
         },
         tx,
       );
+    }
+  }
+
+  // ------------------------------------------------- acquisitions template (round 1, Q3)
+
+  /** Currencies for the template's rate columns: functional and level currencies. */
+  private async templateCurrencies(): Promise<string[]> {
+    const entities = await this.prisma.entity.findMany({ include: { levelCurrency: true } });
+    return [
+      ...new Set(
+        entities.flatMap((e) => [
+          e.functionalCurrency,
+          e.levelCurrency?.currency ?? e.reportingCurrency,
+        ]),
+      ),
+    ]
+      .filter(Boolean)
+      .sort();
+  }
+
+  @Get('acquisitions/template')
+  @ViewConfig()
+  async template(@Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    const currencies = await this.templateCurrencies();
+    const rows = await this.prisma.acquisition.findMany({
+      include: { rates: true },
+      orderBy: [{ subsidiaryCode: 'asc' }, { acquiredOn: 'asc' }],
     });
-    return this.acquisitions(user);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Acquisitions');
+    const header = [...ACQUISITION_COLUMNS, ...currencies.map((c) => `Rate ${c}`)];
+    ws.addRow(header).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    for (const r of rows)
+      ws.addRow([
+        r.subsidiaryCode,
+        r.parentCode,
+        fromDbDate(r.acquiredOn),
+        Number(r.pctAcquired.toString()),
+        Number(r.cost.toFixed(2)),
+        Number(r.shareCapital.toFixed(2)),
+        Number(r.premium.toFixed(2)),
+        Number(r.preAcquisitionReserves.toFixed(2)),
+        r.nciMeasurement === 'FAIR_VALUE'
+          ? 'Fair value'
+          : r.nciMeasurement === 'PROPORTIONATE'
+            ? 'Proportionate'
+            : '',
+        r.nciFairValue ? Number(r.nciFairValue.toFixed(2)) : null,
+        r.toBeConfirmed ? 'Y' : 'N',
+        r.rates.some((x) => x.toBeConfirmed) ? 'Y' : 'N',
+        r.note ?? '',
+        ...currencies.map((c) => {
+          const x = r.rates.find((y) => y.currency === c);
+          return x ? Number(x.rate.toFixed(10)) : null;
+        }),
+      ]);
+    ws.columns.forEach((c, i) => {
+      c.width = i < 2 ? 12 : i === 12 ? 40 : 16;
+      if (i === 2) c.numFmt = '@';
+    });
+    const help = wb.addWorksheet('Instructions');
+    for (const line of [
+      'One row per acquisition (step). Existing rows are matched on Subsidiary + Parent + Acquired on and updated; other rows are added. Rows not in the file are kept.',
+      'Subsidiary / Parent: entity codes. Acquired on: YYYY-MM-DD. % acquired: e.g. 58.49.',
+      "Amounts in the subsidiary's functional currency. Pre-acquisition reserves may be negative.",
+      'NCI measurement: Proportionate, Fair value, or blank (default by the consolidating parent’s GAAP: US GAAP fair value, otherwise proportionate — to be confirmed).',
+      'NCI fair value: required for Fair value when less than 100% is held (subsidiary currency, at the acquisition date).',
+      'To be confirmed / Rates to be confirmed: Y or N (blank = Y).',
+      "Rate <CCY>: 1 unit of the subsidiary's currency = rate units of CCY at the acquisition date; blank = no rate.",
+      'Upload the filled file under Configuration → Acquisitions → Upload filled template: you see a preview and confirm before anything is saved.',
+    ])
+      help.addRow([line]);
+    help.getColumn(1).width = 140;
+    const body = Buffer.from(await wb.xlsx.writeBuffer());
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent('acquisitions-template.xlsx')}`,
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(body);
+  }
+
+  /** Preview (default) or save (confirm=true) a filled template; nothing saves with any error. */
+  @Post('acquisitions/upload')
+  @EditConfig()
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
+  async upload(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: UploadedBlob | undefined,
+    @Query('confirm') confirm: string | undefined,
+    @ClientIp() ip: string | null,
+  ): Promise<AcquisitionUploadPreviewDto> {
+    if (!file) throw ApiError.validation('Choose the filled acquisitions template to upload.');
+    if (!/\.(xlsx|xls|csv)$/i.test(file.originalname))
+      throw ApiError.validation('Upload an Excel (.xlsx, .xls) or CSV file.');
+    let cells;
+    try {
+      cells = readSheetRows(file.buffer, file.originalname);
+    } catch {
+      throw ApiError.validation('The file could not be read as a spreadsheet.');
+    }
+    const parsed = parseAcquisitionTemplate(cells);
+    const existing = await this.prisma.acquisition.findMany({ include: { rates: true } });
+    const rows: AcquisitionUploadRowDto[] = [];
+    const toSave: {
+      id: string | null;
+      before: AcquisitionRow | null;
+      body: z.output<typeof acquisitionSchema>;
+    }[] = [];
+    for (const p of parsed.rows) {
+      const problems = [...p.problems];
+      const input = {
+        subsidiaryCode: p.subsidiaryCode,
+        parentCode: p.parentCode,
+        acquiredOn: p.acquiredOn,
+        pctAcquired: p.pctAcquired,
+        cost: p.cost,
+        shareCapital: p.shareCapital,
+        premium: p.premium,
+        preAcquisitionReserves: p.preAcquisitionReserves,
+        nciMeasurement: p.nciMeasurement,
+        nciFairValue: p.nciFairValue,
+        toBeConfirmed: p.toBeConfirmed,
+        note: p.note,
+        rates: p.rates.map((r) => ({ ...r, toBeConfirmed: p.ratesToBeConfirmed })),
+      };
+      let body: z.output<typeof acquisitionSchema> | null = null;
+      if (problems.length === 0) {
+        const z1 = acquisitionSchema.safeParse(input);
+        if (!z1.success) problems.push(...z1.error.issues.map((i) => i.message));
+        else {
+          body = z1.data;
+          problems.push(...(await this.problemsFor(body)));
+        }
+      }
+      const match = existing.find(
+        (e) =>
+          e.subsidiaryCode === p.subsidiaryCode &&
+          e.parentCode === p.parentCode &&
+          fromDbDate(e.acquiredOn) === p.acquiredOn,
+      );
+      const same =
+        match && body
+          ? JSON.stringify(snapshot(match)) === JSON.stringify(snapshotOf(body, match))
+          : false;
+      rows.push({
+        row: p.row,
+        action: problems.length ? 'ERROR' : !match ? 'CREATE' : same ? 'UNCHANGED' : 'UPDATE',
+        subsidiaryCode: p.subsidiaryCode,
+        parentCode: p.parentCode,
+        acquiredOn: p.acquiredOn,
+        pctAcquired: p.pctAcquired,
+        cost: p.cost,
+        nciMeasurement: p.nciMeasurement,
+        nciFairValue: p.nciFairValue,
+        rates: p.rates.map((r) => `${r.currency} ${r.rate}`),
+        problems,
+      });
+      if (body && !problems.length && !same)
+        toSave.push({ id: match?.id ?? null, before: match ?? null, body });
+    }
+    const canSave =
+      parsed.problems.length === 0 && rows.length > 0 && rows.every((r) => r.action !== 'ERROR');
+    let saved = false;
+    if (confirm === 'true') {
+      if (!canSave) throw ApiError.validation('Fix the errors in the file before saving.');
+      await this.prisma.$transaction(async (tx) => {
+        for (const x of toSave) await this.write(tx, user, x.id, x.before, x.body, ip);
+      });
+      saved = true;
+    }
+    return { fileName: file.originalname, rows, problems: parsed.problems, canSave, saved };
   }
 }
 
 type AcquisitionRow = Awaited<ReturnType<PrismaService['acquisition']['findUniqueOrThrow']>> & {
   rates: { currency: string; rate: { toFixed: (n: number) => string }; toBeConfirmed: boolean }[];
 };
+/** The snapshot an upload row would leave (to tell UNCHANGED rows apart). */
+function snapshotOf(body: z.output<typeof acquisitionSchema>, match: AcquisitionRow) {
+  return snapshot({
+    ...match,
+    acquiredOn: toDbDate(body.acquiredOn),
+    pctAcquired: new Decimal(body.pctAcquired) as never,
+    cost: new Decimal(body.cost) as never,
+    shareCapital: new Decimal(body.shareCapital) as never,
+    premium: new Decimal(body.premium) as never,
+    preAcquisitionReserves: new Decimal(body.preAcquisitionReserves) as never,
+    nciMeasurement: body.nciMeasurement,
+    nciFairValue: body.nciFairValue === null ? null : (new Decimal(body.nciFairValue) as never),
+    toBeConfirmed: body.toBeConfirmed,
+    note: body.note || null,
+    rates: body.rates
+      .map((r) => ({
+        currency: r.currency,
+        rate: new Decimal(r.rate),
+        toBeConfirmed: r.toBeConfirmed,
+      }))
+      .sort((a, b) => a.currency.localeCompare(b.currency)),
+  });
+}
+
 function snapshot(a: AcquisitionRow) {
   return {
     subsidiary: a.subsidiaryCode,
@@ -439,10 +692,12 @@ function snapshot(a: AcquisitionRow) {
     shareCapital: a.shareCapital.toFixed(2),
     premium: a.premium.toFixed(2),
     preAcquisitionReserves: a.preAcquisitionReserves.toFixed(2),
+    nciMeasurement: a.nciMeasurement,
+    nciFairValue: a.nciFairValue?.toFixed(2) ?? null,
     toBeConfirmed: a.toBeConfirmed,
     note: a.note,
-    rates: a.rates.map(
-      (r) => `${r.currency} ${r.rate.toFixed(10)}${r.toBeConfirmed ? ' (TBC)' : ''}`,
-    ),
+    rates: [...a.rates]
+      .sort((x, y) => x.currency.localeCompare(y.currency))
+      .map((r) => `${r.currency} ${r.rate.toFixed(10)}${r.toBeConfirmed ? ' (TBC)' : ''}`),
   };
 }

@@ -137,15 +137,21 @@ export function runCfsChecks(
         break;
       }
       case 'CFS_IC_DIFFERENCES_EXPLAINED': {
+        // Decision round 1 (Q7): an IC difference above the pair tolerance is BLOCKING while
+        // unexplained; once every one has an explanation it is a WARNING (acknowledged at submit).
         const missing = data.icDifferences.filter((x) => !x.explained);
-        add(e, {
-          result: countOk(missing.length, e) ? 'PASS' : 'FAIL',
-          details:
-            data.icDifferences.length === 0
-              ? 'No intercompany differences parked in IC suspense.'
-              : missing.length
-                ? `${missing.length} IC difference(s) without an explanation: ${list(missing.map((m) => `${m.title} (${amountText(new Decimal(m.amount).abs())})`))}.`
-                : `${data.icDifferences.length} IC difference(s), each explained.`,
+        const any = data.icDifferences.length > 0;
+        out.push({
+          code: e.code,
+          name: e.name,
+          severity: !any ? e.severity : missing.length ? 'BLOCKING' : 'WARNING',
+          currency: null,
+          result: any ? 'FAIL' : 'PASS',
+          details: !any
+            ? 'No intercompany differences above the tolerances.'
+            : missing.length
+              ? `${missing.length} IC difference(s) above the tolerance without an explanation (blocking until explained): ${list(missing.map((m) => `${m.title} (${amountText(new Decimal(m.amount).abs())})`))}.`
+              : `${data.icDifferences.length} IC difference(s) above the tolerance, each explained: acknowledge to submit.`,
           link: { step: 'ELIMINATIONS' },
         });
         break;

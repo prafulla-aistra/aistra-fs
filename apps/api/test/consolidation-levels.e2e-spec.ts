@@ -120,12 +120,22 @@ async function finaliseLevel(n: number) {
       })),
     });
   expect(sub.status).toBe(201);
-  const ap = await ctx
+  let ap = await ctx
     .http()
     .post(`${lv(n)}/review/approve`)
     .set(as(rahul))
     .send({ comment: null });
   expect(ap.status).toBe(201);
+  // Decisions round 1: the top level (Level 4) has two review levels by default.
+  if ((ap.body as ReviewPackDto).state.reviewLevels === 2) {
+    expect((ap.body as ReviewPackDto).entity.itemStatus).not.toBe('FINALISED');
+    ap = await ctx
+      .http()
+      .post(`${lv(n)}/review/approve`)
+      .set(as(master))
+      .send({ comment: null });
+    expect(ap.status).toBe(201);
+  }
   expect((ap.body as ReviewPackDto).entity.itemStatus).toBe('FINALISED');
   return { e, s, pack: ap.body as ReviewPackDto };
 }
@@ -392,6 +402,23 @@ describe('levels 1 → 4', () => {
   });
 
   it('the preparer cannot approve; finalising level 2 opens level 3', async () => {
+    // Decisions round 1: an IC difference above the tolerance blocks until it is explained.
+    const elim = (
+      await ctx
+        .http()
+        .get(`${lv(2)}/eliminations`)
+        .set(as(priya))
+    ).body as EliminationsDto;
+    for (const x of elim.entries.filter((y) => y.canExplain && !y.explanation))
+      expect(
+        (
+          await ctx
+            .http()
+            .post(`${lv(2)}/eliminations/${encodeURIComponent(x.id)}/explanation`)
+            .set(as(priya))
+            .send({ text: 'Timing difference on a cross-border invoice.' })
+        ).status,
+      ).toBe(201);
     await ctx
       .http()
       .post(`/api/tasks/${taskId}/cfs/levels/2/continue`)

@@ -259,6 +259,10 @@ export interface AcquisitionDto {
   shareCapital: string;
   premium: string;
   preAcquisitionReserves: string;
+  /** null = the default by the consolidating parent's GAAP (US GAAP: fair value; else proportionate). */
+  nciMeasurement: NciMeasurement | null;
+  /** NCI fair value at the acquisition date (subsidiary's currency), fair value method. */
+  nciFairValue: string | null;
   toBeConfirmed: boolean;
   note: string | null;
   rates: { currency: string; rate: string; toBeConfirmed: boolean }[];
@@ -288,9 +292,38 @@ export interface AcquisitionInput {
   shareCapital: string;
   premium: string;
   preAcquisitionReserves: string;
+  nciMeasurement?: NciMeasurement | null;
+  nciFairValue?: string | null;
   toBeConfirmed: boolean;
   note: string | null;
   rates: { currency: string; rate: string; toBeConfirmed: boolean }[];
+}
+
+export type NciMeasurement = 'PROPORTIONATE' | 'FAIR_VALUE';
+
+/** Acquisitions template upload: one row per acquisition, previewed before saving. */
+export interface AcquisitionUploadRowDto {
+  /** Spreadsheet row number. */
+  row: number;
+  action: 'CREATE' | 'UPDATE' | 'UNCHANGED' | 'ERROR';
+  subsidiaryCode: string;
+  parentCode: string;
+  acquiredOn: string;
+  pctAcquired: string;
+  cost: string;
+  nciMeasurement: NciMeasurement | null;
+  nciFairValue: string | null;
+  rates: string[];
+  problems: string[];
+}
+
+export interface AcquisitionUploadPreviewDto {
+  fileName: string;
+  rows: AcquisitionUploadRowDto[];
+  /** File-level problems (missing columns, no rows). */
+  problems: string[];
+  canSave: boolean;
+  saved: boolean;
 }
 
 // ---------------------------------------------------------------------------------------

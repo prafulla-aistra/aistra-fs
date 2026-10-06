@@ -25,6 +25,7 @@ import { CurrentUser, RequirePermission } from '../auth/access-control';
 import type { AuthUser } from '../auth/session-user';
 import { ClientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod.pipe';
+import { StatutoryService } from '../configuration/statutory.service';
 import { fullSetDocx, fullSetPdf } from './notes-export';
 import { NotesService } from './notes.service';
 import { StatementsService } from './statements.service';
@@ -117,6 +118,7 @@ export class NotesController {
   constructor(
     private readonly notes: NotesService,
     private readonly statements: StatementsService,
+    private readonly statutory: StatutoryService,
   ) {}
 
   @Get('tasks/:id/notes-step')
@@ -159,6 +161,7 @@ export class NotesController {
       taskNumber: '',
       exportedBy: `${user.name} (${user.email})`,
       exportedAt: new Date(),
+      signature: await this.statutory.signature(taskId, code),
     };
     const step = await this.notes.step(user, taskId);
     input.taskNumber = step.task.number;

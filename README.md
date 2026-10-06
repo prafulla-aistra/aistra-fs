@@ -674,6 +674,27 @@ is refused (400).
   details are configured yet).
 - **Dashboard**: "N of 4 levels finalised"; the period card shows "Close complete · <date>".
 
+### Decisions round 1
+
+- **Approvals** (Configuration → Approvals): rules by statement type, entity and period type;
+  most specific wins. Seeded: Quarterly / Annual SFS 2 levels, CFS for the top parent (US, Level 4)
+  2 levels. Edit-access requests cannot be decided by the requester, the preparer or the last
+  editor of that entity / level ("Why not" shown on the Edit access page).
+- **Acquisitions** (Configuration → Acquisitions): NCI measurement column; "Download template"
+  (the register as Excel, one row per acquisition, one "Rate <CCY>" column per currency, with an
+  Instructions sheet) and "Upload filled template" (preview: new / update / unchanged / errors;
+  Save only when there are no errors; rows not in the file are kept).
+- **Due dates and holidays**: holidays have a calendar (GROUP or a country); "Per-entity holiday
+  calendars" card (off by default).
+- **Entities → Statutory details** tab; **Signing details** card on the review step (approver) and
+  the Finalised step, SFS and CFS.
+- **Upload data**: "P&L basis of the trial balance" per entity (Period movement / Year-to-date).
+- **Review** (quarterly / annual): months not finalised (warning), the period against its months
+  (blocking until explained), explanation box.
+- **Seed**: one-time `seed-decisions-round1.ts` (marker decisions-round1) patches the existing
+  data (format lines, the IC check, approval rules, illustrative NCI fair value, setting
+  PER_ENTITY_HOLIDAYS).
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
@@ -801,11 +822,61 @@ MinIO for S3). Local development does not need it. To use its PostgreSQL, run
 6. **Local infrastructure.** Embedded PostgreSQL 16 (`embedded-postgres`) and a local
    uploads folder. No Docker. See [How local infrastructure works](#how-local-infrastructure-works).
 
+**Decisions round 1** (answers to the ten platform questions):
+
+7. **Sample data.** No verified sample files yet: the demo data stays, and the expected-figure
+   tests stay skipped.
+8. **Exchange-rate source.** Default (shown wherever rates are used while the RATE_SOURCE setting is blank): "FBIL reference
+   rate (INR); other pairs via USD cross rates; closing = last working day of the month;
+   average = mean of daily rates in the month". Rates stay manual entry / upload; no website
+   integration. _To be confirmed_ (preferably the same source as Zoho's month-end revaluation).
+9. **Acquisitions register.** The seeded rows stay illustrative (TBC). The register has
+   "Download template" and "Upload filled template" (Excel, one row per acquisition, validated,
+   previewed before anything is saved).
+10. **Holidays.** One group calendar (India) drives all due dates. Per-entity country calendars
+    are optional (Configuration → Due dates and holidays), off by default; switched on, entities
+    with a country calendar also show their own SFS due date on the periods list. Historical
+    rates stay TBC.
+11. **Veracity currencies** stay SGD / LKR, TBC, and never block anything.
+12. **Approvals.** Defaults: Monthly SFS 1 level; Quarterly and Annual SFS 2 levels; CFS
+    Levels 1–3 1 level; CFS Level 4 (parent US) 2 levels. Rules can be set per entity and per
+    period type (most specific wins). Demo users act as reviewers/approvers for now.
+    EDIT_ACCESS_APPROVE stays a separate permission, held by the master admin only by default.
+    Nobody decides their own edit-access request, nor one for an entity / level they prepared
+    (submitted) or last edited in that task — enforced by the API.
+13. **IC difference above threshold** (CFS check) is BLOCKING while unexplained and becomes a
+    WARNING (acknowledged at submission) once an explanation of at least 20 characters is
+    recorded on that elimination entry. The explanation shows in the review pack and the
+    intercompany eliminations note.
+14. **NCI and goodwill.** Per acquisition "NCI measurement": Proportionate, or Fair value (full
+    goodwill) with the "NCI fair value at acquisition date" (subsidiary's currency).
+    Total goodwill = (cost + NCI fair value) − 100% × (share capital + premium + pre-acquisition
+    reserves) × acquisition rate; parent's share = cost − parent % × net assets; the NCI's share
+    is the rest and is added to NCI. Default when not set: Fair value where the consolidating
+    level parent reports under US GAAP (Level 4), Proportionate under Ind AS (Level 3) — TBC.
+    Balance-sheet IC differences stay in IC_DIFF; P&L differences go to the new FSLI
+    **IC_DIFF_PL "Unreconciled intercompany differences"** (P&L, expense, consolidation only),
+    placed under Other expenses in every format.
+15. **Statutory details** are a separate record per entity (Configuration → Entities → entity →
+    Statutory details): registered office, registration number, directors and officers with
+    effective-from / to dates. The board approval date and place of signing are entered on the
+    task at finalisation (review step for the approver, and the Finalised step); the Word / PDF
+    exports sign with the officers in office on the board approval date.
+16. **TB basis.** Upload profile "P&L basis": Period movement (default) or Year-to-date. YTD:
+    period P&L = this TB's YTD P&L − the previous month's YTD P&L; that TB is required (the
+    upload is an error with a clear message without it); April = YTD as is. Balance-sheet lines
+    are always closing balances; the earlier months' profit is carried on one line YTD-PRIOR,
+    mapped automatically to retained earnings, so the TB still nets to zero.
+17. **Quarterly / annual SFS.** WARNING if any month of the period is not finalised. Once all are
+    finalised, a BLOCKING check: Σ monthly P&L by FSLI = the period's P&L and the period-end
+    balance sheet = the last month's (tolerance 0.50), unless an explanation (20+ characters) is
+    recorded on the review step.
+
 ## Open questions
 
 These need confirmation from the process owners before the related features are built.
 
-1. **Exchange-rate source.** Which website and which rate (As-Is Open Question 2)?
+1. **Exchange-rate source.** Default set by Decision 8; still _to be confirmed_ (see 43).
 2. **FCTR.** The current workbooks show no FCTR account (As-Is Open Question 1). Confirm that
    FCTR is to be introduced as the translation balancing figure, as CLAUDE.md specifies.
 3. **Eliminations.** Which reports are extracted and how (As-Is Open Question 3)?
@@ -820,13 +891,13 @@ These need confirmation from the process owners before the related features are 
    actual rates at which share capital and premium were issued, per entity and currency.
 8. **Which historical rates are required.** Currently: every translated currency, the parent's
    functional currency, and every consolidation-level currency the entity belongs to. Confirm.
-9. **Holiday calendars.** One group-wide list, or a list per country (India, UAE, UK, US,
-   Singapore, Sri Lanka)? Should holidays affect CFS and SFS due dates in the same way?
+9. **Holiday calendars.** Resolved by Decision 10 (group calendar; optional per-entity country
+   calendars). The country holiday lists themselves still need to be entered and confirmed.
 10. **Closing periods.** Should closing a quarter or year require its months to be closed
     first? Should anyone other than CONFIG_MANAGE users be allowed to close periods?
 11. **Level currency.** Levels default to the parent's reporting currency. Is a per-level
     override needed (e.g. present L3 India in USD)?
-12. **Monthly TB basis.** Are monthly trial balances exported for the month only
+12. **Monthly TB basis** (now selectable per entity, Decision 16). Are monthly trial balances exported for the month only
     ("From 01/08/2026 To 31/08/2026") or year to date ("From 01/04/2026 …")? Today only an
     exact match with the task period passes without a warning.
 13. **Re-uploading in review.** Uploading a new TB for an entity that is In review is allowed
@@ -870,10 +941,10 @@ These need confirmation from the process owners before the related features are 
     are 2 letters. Confirm that digits are never needed.
 28. **Control-check defaults (C3).** The register's severities and thresholds (e.g. retained
     earnings roll-forward tolerance 1.00) are proposals flagged "To be confirmed".
-29. **Approval levels.** Default is one review level for SFS and CFS. Confirm per entity whether
-    two levels are needed, and who the named reviewers/approvers are.
-30. **Reviewers and EDIT_ACCESS_APPROVE.** Should the Reviewer template include edit-access
-    approval? Today only the master (and users given the permission) can approve.
+29. **Approval levels.** Defaults set by Decision 12. The named reviewers / approvers per entity
+    are still to be confirmed (demo users meanwhile).
+30. **Reviewers and EDIT_ACCESS_APPROVE.** Resolved by Decision 12: a separate permission, master
+    admin only by default.
 31. **Downloads of earlier versions.** The Excel/Word/PDF downloads show the current finalised
     version; earlier versions offer the review record and key figures. Confirm whether full
     statements of earlier versions are needed.
@@ -885,29 +956,49 @@ These need confirmation from the process owners before the related features are 
     the acquisition documents.
 34. **NCI presentation.** The NCI entry debits each equity component (share capital, premium,
     retained earnings, other reserves, FCTR) and posts the NCI share of profit to PL_NCI, crediting
-    NCI. Confirm, and whether goodwill should be attributed to NCI (full goodwill method) — today
-    it is not (proportionate share).
-35. **Intercompany differences in P&L.** Revenue / charges differences above the tolerance go to
-    IC_DIFF (a balance-sheet suspense line), as for balances. Confirm.
+    NCI. Goodwill and NCI measurement: Decision 14.
+35. **Intercompany differences in P&L.** Resolved by Decision 14: they go to IC_DIFF_PL.
 36. **Level currency changes.** Allowed until the level is submitted; it clears the generated
     eliminations and is refused while the level has manual adjustments. Confirm.
 37. **Computed translations.** A member whose finalised SFS has no translation into the level
     currency is translated here from its snapshot; its retained earnings roll forward only from a
     finalised SFS translation into that currency, otherwise at the opening rate (warning). Confirm,
     or should the previous period's CFS level figures be used?
-38. **Signature block.** No statutory details (directors, CFO, registered office) are configured;
-    the consolidated Word/PDF show a blank signature block for the level parent. Add the
-    statutory details to the entity master?
+38. **Signature block.** Resolved by Decision 15 (statutory details record; signing details on
+    the task). The actual directors and officers still need to be entered.
 39. **Comparative of a level.** When the comparative period's level is finalised without a stored
     snapshot in the same currency (the demo Jul-2026 levels), the comparative is recomputed from
     that period's finalised SFS snapshots (labelled). Confirm.
 40. **CFS check register.** The 14 CFS checks and their severities are proposals ("to be
-    confirmed"); e.g. unexplained IC differences are a warning, not blocking.
+    confirmed"); "IC difference above threshold" follows Decision 13.
 41. **CFS note templates.** "Basis of preparation" now applies to SFS only (CFS uses "Basis of
     consolidation"); the NCI and goodwill line notes of formats with those lines carry the
     generated tables in consolidation. Confirm the wording of the basis of consolidation.
 42. **FCTR memo sign.** The memo shows the movement as a gain (positive) when the reserve's credit
     balance grows. Confirm the presentation (OCI-style).
+
+To be confirmed after decisions round 1:
+
+43. **Rate source.** The default text (FBIL reference rate for INR, other pairs via USD cross
+    rates, closing = last working day, average = mean of daily rates) — preferably the same source
+    as Zoho's month-end revaluation.
+44. **Zoho date-range TB export.** What exactly does a Zoho TB exported for a date range contain
+    (period movement or year-to-date P&L; opening retained earnings)? This decides each entity's
+    P&L basis setting and whether quarterly / annual TBs tie to their months.
+45. **Veracity currencies** SGD / LKR (Decision 11).
+46. **NCI measurement default** by GAAP (US GAAP fair value, Ind AS proportionate), and each
+    acquisition's actual setting.
+47. **Illustrative acquisitions and NCI fair value.** The seeded acquisitions are illustrative;
+    the seeded NCI fair value of IN equals NCI % × net assets at acquisition, so fair-value
+    measurement shows no NCI goodwill until the real fair value is entered.
+48. **Historical rates** (seeded values illustrative; see 7 and 8).
+49. **Country holiday calendars.** Which countries, and their holiday lists, if per-entity
+    calendars are switched on. Task due dates stay on the group calendar today.
+50. **Signing details after Done.** Board approval date and place can be entered until the task is
+    Done (then locked). Confirm, or should they stay editable after the close?
+51. **Existing formats.** IC_DIFF_PL was added in place to every stored format version (including
+    versions used by finalised reports, whose figures it cannot change: it is consolidation-only
+    and finalised levels are read from snapshots). Confirm.
 
 ## Known dependency warnings (clean-up later)
 

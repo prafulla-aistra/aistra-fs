@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, type OnModuleInit } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { PeriodType, Prisma } from '@prisma/client';
+import { approvalRuleFor } from '../configuration/approval-rules';
 import {
   checkKey,
   type CheckResult,
@@ -13,7 +14,10 @@ import {
   intercompanyNote,
   keyFigures,
   monthsBetween,
+  type FormatFsli,
+  periodTiesToMonths,
   type RegisterEntry,
+  type StatementAccount,
   runSfsChecks,
   segregationOfDuties,
   statementTitle,
@@ -52,6 +56,7 @@ import { loadFormatLines, loadFslis } from './format-lines';
 import { NotesService } from './notes.service';
 import { NotificationsService } from './notifications.service';
 import { type EntityFigures, StatementFiguresService } from './statement-figures';
+import { SubmissionGuard } from './submission-guard.service';
 import { StatementsService } from './statements.service';
 import {
   assertEditable,
@@ -113,6 +118,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly editAccess: EditAccessService,
     private readonly storage: StorageService,
+    private readonly guard: SubmissionGuard,
   ) {}
 
   onModuleInit() {
@@ -168,17 +174,8 @@ export class ReviewService implements ReopenHook, OnModuleInit {
     }));
   }
 
-  private async rule(entityCode: string) {
-    return (
-      (await this.prisma.approvalRule.findFirst({ where: { statementType: 'SFS', entityCode } })) ??
-      (await this.prisma.approvalRule.findFirst({
-        where: { statementType: 'SFS', entityCode: null },
-      })) ?? {
-        reviewLevels: 1,
-        reviewerIds: [] as string[],
-        approverIds: [] as string[],
-      }
-    );
+  private rule(entityCode: string, periodType: PeriodType) {
+    return approvalRuleFor(this.prisma, 'SFS', entityCode, periodType);
   }
 
   private async preparerIds(taskId: string, entityCode: string): Promise<string[]> {
@@ -207,7 +204,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       return 'You do not have the review permission (SFS_REVIEW).';
     if (!inScope(user.entityScope, te.entityCode))
       return `${te.entityCode} is outside your entity scope.`;
-    const rule = await this.rule(te.entityCode);
+    const rule = await this.rule(te.entityCode, task.period.type);
     const stage = sub.stage === 2 ? 2 : 1;
     const listed = stage === 1 ? rule.reviewerIds : rule.approverIds;
     if (listed.length > 0 && !listed.includes(user.id) && !user.isMaster)
@@ -362,7 +359,10 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       )
       .map((h) => h.targetCurrency);
 
+    const register = await this.register();
+    const period = await this.periodTies(task, te, functional ?? null, fslis, register);
     const data: EntityCheckData = {
+      period,
       tb: version ? { debits: debits.toFixed(2), credits: credits.toFixed(2) } : null,
       unmappedAccounts: (functional?.accounts ?? []).filter((a) => !a.fsliCode).map((a) => a.code),
       icWithoutCounterparty: (functional?.accounts ?? [])
@@ -382,7 +382,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       comparativePresent: (figures?.comparative.kind ?? 'NONE') !== 'NONE',
       historicalRatesToBeConfirmed: historicalTbc,
     };
-    const results = runSfsChecks(data, await this.register());
+    const results = runSfsChecks(data, register);
 
     const files = await this.prisma.uploadedFile.findMany({
       where: { taskId: task.id, entityCode: te.entityCode },
@@ -417,6 +417,17 @@ export class ReviewService implements ReopenHook, OnModuleInit {
           '',
         ),
       ),
+      periodCheck:
+        period.type === 'MONTHLY'
+          ? null
+          : {
+              monthsNotFinalised: period.monthsNotFinalised,
+              differences: period.ties
+                ? period.ties.plDiffs.length + period.ties.bsDiffs.length
+                : 0,
+              explanation: period.explanation,
+              canExplain: reason === null,
+            },
       checks: results.map((r) => ({ ...r, key: checkKey(r) })),
       warningsToAcknowledge: checkSummary(results).warnings.map(checkKey),
       keyFigures: keyFigs,
@@ -469,6 +480,109 @@ export class ReviewService implements ReopenHook, OnModuleInit {
       },
     };
     return { pack, results, figures, version, reason };
+  }
+
+  /**
+   * Quarterly / annual SFS (decision round 1, Q10b): which months of the period are not
+   * finalised and, once all are, the period against them — Σ monthly P&L by FSLI = the period's
+   * P&L and the period-end balance sheet = the last month's (functional currency).
+   */
+  private async periodTies(
+    task: StepTask,
+    te: TaskEntityRow,
+    functional: { accounts: StatementAccount[]; fctr?: string | null } | null,
+    fslis: FormatFsli[],
+    register: RegisterEntry[],
+  ): Promise<NonNullable<EntityCheckData['period']>> {
+    const type = task.period.type;
+    if (type === 'MONTHLY') return { type, monthsNotFinalised: [], ties: null, explanation: null };
+    const months = await this.prisma.period.findMany({
+      where: {
+        type: 'MONTHLY',
+        startDate: { gte: task.period.startDate },
+        endDate: { lte: task.period.endDate },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+    const finals = await this.prisma.taskEntity.findMany({
+      where: {
+        entityCode: te.entityCode,
+        status: 'FINALISED',
+        task: { type: 'SFS', periodId: { in: months.map((m) => m.id) } },
+      },
+      include: { task: { select: { id: true, periodId: true } } },
+    });
+    const notFinal = months
+      .filter((m) => !finals.some((x) => x.task.periodId === m.id))
+      .map((m) => m.label);
+    const explanation = te.periodTieExplanation ?? null;
+    if (notFinal.length || !functional || months.length === 0)
+      return { type, monthsNotFinalised: notFinal, ties: null, explanation };
+    const statement = new Map(fslis.map((x) => [x.code, x.statement]));
+    const split = (amounts: Record<string, string>) => {
+      const pl: Record<string, string> = {};
+      const bs: Record<string, string> = {};
+      for (const [k, v] of Object.entries(amounts)) (statement.get(k) === 'PL' ? pl : bs)[k] = v;
+      return { pl, bs };
+    };
+    const monthly: { pl: Record<string, string>; bs: Record<string, string> }[] = [];
+    for (const m of months) {
+      const fin = finals.find((x) => x.task.periodId === m.id)!;
+      const snap = await this.prisma.statementSnapshot.findUnique({
+        where: { taskId_entityCode: { taskId: fin.task.id, entityCode: te.entityCode } },
+      });
+      const figs = snap?.figures as unknown as EntityFigures | undefined;
+      const cur = figs?.currencies.find((c) => c.currency === figs.functionalCurrency)?.current;
+      if (!cur || cur.status !== 'OK')
+        return { type, monthsNotFinalised: [m.label], ties: null, explanation };
+      monthly.push(split(fsliAmounts(cur.accounts, fslis).amounts));
+    }
+    const period = split(fsliAmounts(functional.accounts, fslis).amounts);
+    const tolerance = register.find((r) => r.code === 'PERIOD_TIES_TO_MONTHS')?.threshold ?? '0.50';
+    const ties = periodTiesToMonths({
+      monthsPl: monthly.map((m) => m.pl),
+      periodPl: period.pl,
+      lastMonthBs: monthly.at(-1)!.bs,
+      periodBs: period.bs,
+      tolerance,
+    });
+    return { type, monthsNotFinalised: [], ties, explanation };
+  }
+
+  /** Why a quarter / year does not tie to its months (20+ characters). Audited. */
+  async explainPeriodTies(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    text: string,
+    ip: string | null,
+  ) {
+    const task = await loadStepTask(this.prisma, user, taskId);
+    const te = assertEditable(user, task, entityCode);
+    if (task.period.type === 'MONTHLY')
+      throw ApiError.validation(
+        'Only quarterly and annual tasks are checked against their months.',
+      );
+    await this.prisma.$transaction(async (tx) => {
+      await tx.taskEntity.update({
+        where: { taskId_entityCode: { taskId, entityCode } },
+        data: { periodTieExplanation: text },
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.PeriodTieExplain,
+          entityType: 'TASK_ENTITY',
+          entityId: `${taskId}:${entityCode}`,
+          oldValue: te.periodTieExplanation ? { explanation: te.periodTieExplanation } : null,
+          newValue: { task: task.number, explanation: text },
+          ip,
+        },
+        tx,
+      );
+    });
+    await this.guard.changed(user, taskId, entityCode, 'Period-to-months explanation recorded', ip);
+    return this.pack(user, taskId, entityCode);
   }
 
   private async queries(user: AuthUser, task: StepTask, te: TaskEntityRow): Promise<QueryDto[]> {
@@ -668,7 +782,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
         };
     }
     const g = await this.gather(user, task, te);
-    const rule = await this.rule(entityCode);
+    const rule = await this.rule(entityCode, task.period.type);
     const active = await this.activeSubmission(taskId, entityCode);
     const levels = active?.reviewLevels ?? rule.reviewLevels;
     const queries = await this.queries(user, task, te);
@@ -787,8 +901,13 @@ export class ReviewService implements ReopenHook, OnModuleInit {
   // Submit, queries, return, approve
   // ---------------------------------------------------------------------------------------
 
-  private async reviewersFor(entityCode: string, stage: 1 | 2, exclude: string[]) {
-    const rule = await this.rule(entityCode);
+  private async reviewersFor(
+    entityCode: string,
+    periodType: PeriodType,
+    stage: 1 | 2,
+    exclude: string[],
+  ) {
+    const rule = await this.rule(entityCode, periodType);
     const listed = stage === 1 ? rule.reviewerIds : rule.approverIds;
     const ids = listed.length
       ? listed
@@ -831,10 +950,10 @@ export class ReviewService implements ReopenHook, OnModuleInit {
         { warnings: missing.map(checkKey) },
       );
     if (!input.declaration) throw ApiError.validation('Tick the declaration to submit.');
-    const rule = await this.rule(entityCode);
+    const rule = await this.rule(entityCode, task.period.type);
     const number =
       (await this.prisma.reviewSubmission.count({ where: { taskId, entityCode } })) + 1;
-    const reviewers = await this.reviewersFor(entityCode, 1, [user.id]);
+    const reviewers = await this.reviewersFor(entityCode, task.period.type, 1, [user.id]);
     await this.prisma.$transaction(async (tx) => {
       await tx.reviewSubmission.create({
         data: {
@@ -1138,7 +1257,7 @@ export class ReviewService implements ReopenHook, OnModuleInit {
         `Cannot approve: ${outstanding} review quer${outstanding === 1 ? 'y is' : 'ies are'} still open or answered. Close ${outstanding === 1 ? 'it' : 'them'} first.`,
       );
     if (sub.stage < sub.reviewLevels) {
-      const approvers = await this.reviewersFor(entityCode, 2, [
+      const approvers = await this.reviewersFor(entityCode, task.period.type, 2, [
         ...(await this.preparerIds(taskId, entityCode)),
         user.id,
       ]);

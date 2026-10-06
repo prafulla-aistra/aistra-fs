@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { HttpStatus, Injectable, type OnModuleInit } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { PeriodType, Prisma } from '@prisma/client';
+import { approvalRuleFor } from '../configuration/approval-rules';
 import {
   buildStatement,
   checkKey,
@@ -49,6 +50,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { inScope } from '../tasks/tasks.service';
 import { EditAccessService, type ReopenHook } from '../uploads/edit-access.service';
+import { StatutoryService } from '../configuration/statutory.service';
 import { fullSetDocx, fullSetPdf } from '../uploads/notes-export';
 import { NotesService, type NotesScope, type NotesTask } from '../uploads/notes.service';
 import { NotificationsService } from '../uploads/notifications.service';
@@ -86,6 +88,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly editAccess: EditAccessService,
     private readonly storage: StorageService,
+    private readonly statutory: StatutoryService,
   ) {}
 
   onModuleInit() {
@@ -368,15 +371,8 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
     }));
   }
 
-  private async rule(parentCode: string) {
-    return (
-      (await this.prisma.approvalRule.findFirst({
-        where: { statementType: 'CFS', entityCode: parentCode },
-      })) ??
-      (await this.prisma.approvalRule.findFirst({
-        where: { statementType: 'CFS', entityCode: null },
-      })) ?? { reviewLevels: 1, reviewerIds: [] as string[], approverIds: [] as string[] }
-    );
+  private rule(parentCode: string, periodType: PeriodType) {
+    return approvalRuleFor(this.prisma, 'CFS', parentCode, periodType);
   }
 
   private activeSubmission(taskId: string, level: number) {
@@ -403,7 +399,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
       return 'You do not have the consolidation review permission (CFS_REVIEW).';
     if (d.level.members.some((m) => !inScope(user.entityScope, m)))
       return 'The level covers entities outside your scope.';
-    const rule = await this.rule(d.level.parentEntityCode);
+    const rule = await this.rule(d.level.parentEntityCode, d.task.period.type);
     const stage = sub.stage === 2 ? 2 : 1;
     const listed = stage === 1 ? rule.reviewerIds : rule.approverIds;
     if (listed.length > 0 && !listed.includes(user.id) && !user.isMaster)
@@ -439,7 +435,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
         entryId: e.id,
         title: e.title,
         amount: e.lines
-          .filter((l) => l.fsliCode === 'IC_DIFF')
+          .filter((l) => l.fsliCode === 'IC_DIFF' || l.fsliCode === 'IC_DIFF_PL')
           .reduce((s, l) => s.plus(l.amount), new Decimal(0))
           .toFixed(2),
         explanation: d.explanations.find((x) => x.entryId === e.id)?.text ?? null,
@@ -523,6 +519,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
       periodLabel: d.task.period.label,
       periodEnd: end,
       comparativeLabel: d.comparative.kind === 'NONE' ? '' : d.comparative.periodLabel,
+      periodCheck: null,
       declaration: `I confirm the consolidation of Level ${d.level.level} ${d.level.name} as at ${end} uses the finalised standalone statements of every member, and that every elimination and adjustment is reviewed.`,
       checks: results.map((r) => ({ ...r, key: checkKey(r) })) as CheckResultDto[],
       warningsToAcknowledge: checkSummary(results).warnings.map(checkKey),
@@ -766,7 +763,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
         };
     }
     const g = await this.gather(user, d);
-    const rule = await this.rule(d.level.parentEntityCode);
+    const rule = await this.rule(d.level.parentEntityCode, d.task.period.type);
     const active = await this.activeSubmission(taskId, level);
     const levels = active?.reviewLevels ?? rule.reviewLevels;
     const queries = await this.queries(user, d);
@@ -845,8 +842,13 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
     }));
   }
 
-  private async reviewersFor(parentCode: string, stage: 1 | 2, exclude: string[]) {
-    const rule = await this.rule(parentCode);
+  private async reviewersFor(
+    parentCode: string,
+    periodType: PeriodType,
+    stage: 1 | 2,
+    exclude: string[],
+  ) {
+    const rule = await this.rule(parentCode, periodType);
     const listed = stage === 1 ? rule.reviewerIds : rule.approverIds;
     const ids = listed.length
       ? listed
@@ -907,10 +909,12 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
         `Acknowledge each failing warning with a comment of at least 10 characters: ${missing.map((w) => w.name).join('; ')}.`,
       );
     if (!input.declaration) throw ApiError.validation('Tick the declaration to submit.');
-    const rule = await this.rule(d.level.parentEntityCode);
+    const rule = await this.rule(d.level.parentEntityCode, d.task.period.type);
     const number =
       (await this.prisma.reviewSubmission.count({ where: { taskId, entityCode: key(level) } })) + 1;
-    const reviewers = await this.reviewersFor(d.level.parentEntityCode, 1, [user.id]);
+    const reviewers = await this.reviewersFor(d.level.parentEntityCode, d.task.period.type, 1, [
+      user.id,
+    ]);
     await this.prisma.$transaction(async (tx) => {
       await tx.reviewSubmission.create({
         data: {
@@ -1220,7 +1224,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
         `Cannot approve: ${outstanding} review quer${outstanding === 1 ? 'y is' : 'ies are'} still open or answered. Close ${outstanding === 1 ? 'it' : 'them'} first.`,
       );
     if (sub.stage < sub.reviewLevels) {
-      const approvers = await this.reviewersFor(d.level.parentEntityCode, 2, [
+      const approvers = await this.reviewersFor(d.level.parentEntityCode, d.task.period.type, 2, [
         ...(await this.preparerIds(taskId, level)),
         user.id,
       ]);
@@ -1644,10 +1648,7 @@ export class CfsLevelService implements ReopenHook, OnModuleInit {
       exportedBy: `${user.name} (${user.email})`,
       exportedAt: new Date(),
       subtitle: `Consolidated financial statements — Level ${level} ${d.level.name}`,
-      signature: {
-        entityName: parent.legalName,
-        lines: ['Director', 'Director', 'Chief Financial Officer'],
-      },
+      signature: await this.statutory.signature(taskId, `L${level}`),
     };
     return {
       name: `${d.task.number}-L${level}-consolidated-financial-statements.${type}`,

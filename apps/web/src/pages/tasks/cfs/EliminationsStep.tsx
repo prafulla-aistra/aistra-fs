@@ -273,7 +273,7 @@ function EntryCard({
                 />
                 <Button
                   size="sm"
-                  disabled={text.trim().length < 10 || explaining}
+                  disabled={text.trim().length < 20 || explaining}
                   onClick={() => onExplain(text)}
                 >
                   Save

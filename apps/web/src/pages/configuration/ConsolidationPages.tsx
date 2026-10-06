@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Download, Plus, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
 import type {
   AcquisitionDto,
   AcquisitionInput,
   AcquisitionsDto,
+  AcquisitionUploadPreviewDto,
   IntercompanyPairDto,
   IntercompanyPairsDto,
 } from '@finance-close/shared';
@@ -12,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, Checkbox, Field, Input, Select } from '@/components/ui/form';
 import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
-import { api, errorMessage } from '@/lib/api';
+import { api, downloadPath, errorMessage } from '@/lib/api';
 import { amountText, formatDate } from '@/lib/format';
 import { TbcBadge } from './common';
 import { ConfigPage, EditButton } from './ConfigPage';
@@ -235,6 +236,9 @@ export function AcquisitionsPage() {
     queryFn: () => api.get<AcquisitionsDto>('/config/acquisitions'),
   });
   const [editing, setEditing] = useState<Partial<AcquisitionDto> | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/config/acquisitions/${id}`),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['config', 'acquisitions'] }),
@@ -246,23 +250,54 @@ export function AcquisitionsPage() {
       purpose="Each acquisition (step) of a subsidiary: cost, % acquired, share capital, premium and pre-acquisition reserves at acquisition, and the acquisition-date rate into the parent's currency and every consolidation-level currency the subsidiary is in."
       count={d ? `${d.acquisitions.length} acquisitions` : null}
       action={
-        <EditButton
-          size="sm"
-          onClick={() =>
-            setEditing({
-              pctAcquired: '100',
-              premium: '0.00',
-              preAcquisitionReserves: '0.00',
-              toBeConfirmed: false,
-              rates: [],
-            })
-          }
-        >
-          <Plus /> Add acquisition
-        </EditButton>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDownloadError(null);
+              downloadPath('/config/acquisitions/template', 'acquisitions-template.xlsx').catch(
+                (e: unknown) => setDownloadError(errorMessage(e)),
+              );
+            }}
+          >
+            <Download /> Download template
+          </Button>
+          <EditButton size="sm" variant="outline" onClick={() => fileInput.current?.click()}>
+            <Upload /> Upload filled template
+          </EditButton>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            aria-label="Filled acquisitions template"
+            onChange={(e) => {
+              setUploadFile(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+          <EditButton
+            size="sm"
+            onClick={() =>
+              setEditing({
+                pctAcquired: '100',
+                premium: '0.00',
+                preAcquisitionReserves: '0.00',
+                nciMeasurement: null,
+                nciFairValue: null,
+                toBeConfirmed: false,
+                rates: [],
+              })
+            }
+          >
+            <Plus /> Add acquisition
+          </EditButton>
+        </div>
       }
     >
       {(q.error || remove.error) && <Alert>{errorMessage(q.error ?? remove.error)}</Alert>}
+      {downloadError && <Alert>{downloadError}</Alert>}
       {d && d.missing.length > 0 && (
         <Alert>
           Subsidiaries without an acquisitions register row (their investment cannot be eliminated):{' '}
@@ -280,6 +315,7 @@ export function AcquisitionsPage() {
                 <Th className="text-right">Cost</Th>
                 <Th className="text-right">Share capital + premium</Th>
                 <Th className="text-right">Pre-acq. reserves</Th>
+                <Th>NCI measurement</Th>
                 <Th>Acquisition-date rates</Th>
                 <Th className="text-right">Actions</Th>
               </tr>
@@ -304,6 +340,33 @@ export function AcquisitionsPage() {
                   </Td>
                   <Td className="text-right tabular-nums">
                     {amountText(a.preAcquisitionReserves)}
+                  </Td>
+                  <Td className="text-xs">
+                    {Number(a.pctAcquired) >= 100 ? (
+                      '–'
+                    ) : a.nciMeasurement === 'FAIR_VALUE' ? (
+                      <>
+                        Fair value
+                        {a.nciFairValue !== null ? (
+                          <div className="tabular-nums">
+                            {amountText(a.nciFairValue)} {a.subsidiaryCurrency}
+                          </div>
+                        ) : (
+                          <div className="text-destructive">fair value missing</div>
+                        )}
+                      </>
+                    ) : a.nciMeasurement === 'PROPORTIONATE' ? (
+                      'Proportionate'
+                    ) : (
+                      <span title="By the consolidating parent's GAAP: US GAAP fair value, otherwise proportionate (to be confirmed)">
+                        Default by GAAP
+                        {a.nciFairValue !== null && (
+                          <div className="tabular-nums">
+                            FV {amountText(a.nciFairValue)} {a.subsidiaryCurrency}
+                          </div>
+                        )}
+                      </span>
+                    )}
                   </Td>
                   <Td className="text-xs tabular-nums">
                     {a.ratesNeeded.map((n) => {
@@ -351,7 +414,128 @@ export function AcquisitionsPage() {
       {editing && d && (
         <AcquisitionDialog acq={editing} data={d} onClose={() => setEditing(null)} />
       )}
+      {uploadFile && <UploadDialog file={uploadFile} onClose={() => setUploadFile(null)} />}
     </ConfigPage>
+  );
+}
+
+/** Preview of a filled acquisitions template; nothing is saved until "Save" (and no errors). */
+function UploadDialog({ file, onClose }: { file: File; onClose: () => void }) {
+  const qc = useQueryClient();
+  const preview = useQuery({
+    queryKey: ['config', 'acquisitions', 'upload', file.name, file.size, file.lastModified],
+    queryFn: () => api.upload<AcquisitionUploadPreviewDto>('/config/acquisitions/upload', file),
+    retry: false,
+  });
+  const save = useMutation({
+    mutationFn: () =>
+      api.upload<AcquisitionUploadPreviewDto>('/config/acquisitions/upload?confirm=true', file),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['config', 'acquisitions'] });
+      onClose();
+    },
+  });
+  const p = preview.data;
+  const count = (a: string) => p?.rows.filter((r) => r.action === a).length ?? 0;
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Upload acquisitions: ${file.name}`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!p?.canSave || save.isPending} onClick={() => save.mutate()}>
+            Save {count('CREATE') + count('UPDATE')} change(s)
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {(preview.error || save.error) && (
+          <Alert>{errorMessage(preview.error ?? save.error)}</Alert>
+        )}
+        {preview.isLoading && <p className="text-sm text-muted-foreground">Checking the file…</p>}
+        {p && (
+          <>
+            {p.problems.map((x) => (
+              <Alert key={x}>{x}</Alert>
+            ))}
+            <p className="text-sm">
+              {count('CREATE')} new · {count('UPDATE')} updated · {count('UNCHANGED')} unchanged ·{' '}
+              <span className={count('ERROR') ? 'font-medium text-destructive' : undefined}>
+                {count('ERROR')} with errors
+              </span>
+              . Register rows not in the file are kept.
+            </p>
+            <div className="max-h-96 overflow-auto">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Row</Th>
+                    <Th>Result</Th>
+                    <Th>Subsidiary</Th>
+                    <Th>Acquired</Th>
+                    <Th className="text-right">%</Th>
+                    <Th className="text-right">Cost</Th>
+                    <Th>NCI</Th>
+                    <Th>Rates / problems</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.rows.map((r) => (
+                    <tr key={r.row} className="align-top">
+                      <Td className="tabular-nums">{r.row}</Td>
+                      <Td
+                        className={
+                          r.action === 'ERROR' ? 'font-medium text-destructive' : undefined
+                        }
+                      >
+                        {
+                          {
+                            CREATE: 'New',
+                            UPDATE: 'Update',
+                            UNCHANGED: 'Unchanged',
+                            ERROR: 'Error',
+                          }[r.action]
+                        }
+                      </Td>
+                      <Td>
+                        {r.subsidiaryCode}{' '}
+                        <span className="text-xs text-muted-foreground">by {r.parentCode}</span>
+                      </Td>
+                      <Td>{r.acquiredOn}</Td>
+                      <Td className="text-right tabular-nums">{r.pctAcquired}</Td>
+                      <Td className="text-right tabular-nums">{amountText(r.cost)}</Td>
+                      <Td className="text-xs">
+                        {r.nciMeasurement === 'FAIR_VALUE'
+                          ? `Fair value ${r.nciFairValue ?? ''}`
+                          : r.nciMeasurement === 'PROPORTIONATE'
+                            ? 'Proportionate'
+                            : 'Default'}
+                      </Td>
+                      <Td className="text-xs">
+                        {r.problems.length ? (
+                          <ul className="list-disc pl-4 text-destructive">
+                            {r.problems.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          r.rates.join(' · ') || '–'
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          </>
+        )}
+      </div>
+    </Dialog>
   );
 }
 
@@ -374,6 +558,8 @@ function AcquisitionDialog({
     shareCapital: acq.shareCapital ?? '',
     premium: acq.premium ?? '0.00',
     preAcquisitionReserves: acq.preAcquisitionReserves ?? '0.00',
+    nciMeasurement: acq.nciMeasurement ?? null,
+    nciFairValue: acq.nciFairValue ?? null,
     toBeConfirmed: acq.toBeConfirmed ?? false,
     note: acq.note ?? null,
     rates: acq.rates ?? [],
@@ -503,6 +689,39 @@ function AcquisitionDialog({
             sub ? ` (${sub.functionalCurrency})` : '',
           )}
         </div>
+        {Number(f.pctAcquired || '100') < 100 && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="NCI measurement" htmlFor="acq-nci">
+              <Select
+                id="acq-nci"
+                value={f.nciMeasurement ?? ''}
+                onChange={(e) =>
+                  setF({
+                    ...f,
+                    nciMeasurement: (e.target.value || null) as AcquisitionInput['nciMeasurement'],
+                  })
+                }
+              >
+                <option value="">
+                  Default by GAAP (US GAAP: fair value; else proportionate) – TBC
+                </option>
+                <option value="PROPORTIONATE">Proportionate share of net assets</option>
+                <option value="FAIR_VALUE">Fair value (full goodwill)</option>
+              </Select>
+            </Field>
+            <Field
+              label={`NCI fair value at acquisition date${sub ? ` (${sub.functionalCurrency})` : ''}`}
+              htmlFor="acq-nci-fv"
+            >
+              <Input
+                id="acq-nci-fv"
+                inputMode="decimal"
+                value={f.nciFairValue ?? ''}
+                onChange={(e) => setF({ ...f, nciFairValue: e.target.value.trim() || null })}
+              />
+            </Field>
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">

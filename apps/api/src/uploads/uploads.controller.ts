@@ -75,6 +75,7 @@ const settingsSchema = z
     { message: 'Choose the balance column, or the debit and credit columns' },
   );
 const previewSchema = z.object({ fileId: z.string().uuid(), settings: settingsSchema });
+const plBasisSchema = z.object({ plBasis: z.enum(['PERIOD', 'YTD']) });
 const confirmSchema = previewSchema.extend({
   acknowledged: z.array(z.string().max(40)).max(10).default([]),
 });
@@ -144,6 +145,18 @@ export class UploadsController {
     @ClientIp() ip: string | null,
   ): Promise<TbVersionDto> {
     return this.step.confirmTb(user, id, code, body, ip);
+  }
+
+  @Put('tasks/:id/entities/:code/upload-profile')
+  @Prepare()
+  setPlBasis(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @Body(new ZodPipe(plBasisSchema)) body: z.output<typeof plBasisSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<UploadStepDto> {
+    return this.step.setPlBasis(user, id, code, body.plBasis, ip);
   }
 
   @Get('tasks/:id/entities/:code/tb/versions')

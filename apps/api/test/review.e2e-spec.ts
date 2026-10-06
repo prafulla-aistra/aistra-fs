@@ -79,7 +79,9 @@ async function resetReviewState() {
     },
   });
   await ctx.prisma.task.update({ where: { id: taskId }, data: { completedAt: null } });
-  await ctx.prisma.approvalRule.deleteMany({ where: { entityCode: { not: null } } });
+  await ctx.prisma.approvalRule.deleteMany({
+    where: { statementType: 'SFS', entityCode: { not: null } },
+  });
 }
 
 beforeAll(async () => {
@@ -244,17 +246,13 @@ describe('submit for review', () => {
   it('two review levels: configured for India before submitting', async () => {
     const users = await ctx.prisma.user.findMany({ select: { id: true } });
     expect(users.length).toBeGreaterThan(0);
-    const res = await ctx
-      .http()
-      .put('/api/config/approvals')
-      .set(as(master))
-      .send({
-        statementType: 'SFS',
-        entityCode: 'IN',
-        reviewLevels: 2,
-        reviewerIds: [],
-        approverIds: [],
-      });
+    const res = await ctx.http().put('/api/config/approvals').set(as(master)).send({
+      statementType: 'SFS',
+      entityCode: 'IN',
+      reviewLevels: 2,
+      reviewerIds: [],
+      approverIds: [],
+    });
     expect(res.status).toBe(200);
   });
 
@@ -480,17 +478,13 @@ describe('finalise', () => {
       });
       expect(snap.hash).toBe(hash);
     } finally {
-      await ctx
-        .http()
-        .patch('/api/config/entities/IN/accounts/1455')
-        .set(as(master))
-        .send({
-          accountType: acc.accountType,
-          fsliCode: acc.fsliCode,
-          counterpartyCode: null,
-          rateBasisOverride: null,
-          reason: 'Test: restore mapping',
-        });
+      await ctx.http().patch('/api/config/entities/IN/accounts/1455').set(as(master)).send({
+        accountType: acc.accountType,
+        fsliCode: acc.fsliCode,
+        counterpartyCode: null,
+        rateBasisOverride: null,
+        reason: 'Test: restore mapping',
+      });
     }
   });
 

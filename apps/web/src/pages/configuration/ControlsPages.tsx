@@ -206,7 +206,7 @@ export function ApprovalsPage() {
   return (
     <ConfigPage
       title="Approvals"
-      purpose="How many people must sign off a statement before it is finalised, and who may."
+      purpose="How many people must sign off a statement before it is finalised, and who may. The most specific rule applies: entity and period type, then entity, then period type, then the default. For consolidated statements the entity is the level's parent."
       count={data.data ? `${rules.length} rule${rules.length === 1 ? '' : 's'}` : null}
       action={
         <EditButton
@@ -215,13 +215,14 @@ export function ApprovalsPage() {
             setEditing({
               statementType: 'SFS',
               entityCode: null,
+              periodType: null,
               reviewLevels: 1,
               reviewers: [],
               approvers: [],
             })
           }
         >
-          <Plus /> Add entity override
+          <Plus /> Add override
         </EditButton>
       }
     >
@@ -233,6 +234,7 @@ export function ApprovalsPage() {
               <tr>
                 <Th>Statement</Th>
                 <Th>Applies to</Th>
+                <Th>Period type</Th>
                 <Th>Review levels</Th>
                 <Th>Reviewers</Th>
                 <Th>Approvers</Th>
@@ -246,8 +248,11 @@ export function ApprovalsPage() {
                   <Td>
                     {r.entityCode
                       ? `${r.entityCode} · ${r.entityName ?? ''}`
-                      : 'All entities (default)'}
+                      : r.periodType
+                        ? 'All entities'
+                        : 'All entities (default)'}
                   </Td>
+                  <Td>{r.periodType ? PERIOD_LABEL[r.periodType] : 'Any'}</Td>
                   <Td>{r.reviewLevels === 2 ? '2 (reviewer, then approver)' : '1 (reviewer)'}</Td>
                   <Td>
                     {r.reviewers.length
@@ -266,7 +271,7 @@ export function ApprovalsPage() {
                       <EditButton variant="ghost" size="sm" onClick={() => setEditing(r)}>
                         Edit
                       </EditButton>
-                      {r.entityCode && (
+                      {(r.entityCode || r.periodType) && (
                         <EditButton
                           variant="ghost"
                           size="sm"
@@ -310,6 +315,8 @@ export function ApprovalsPage() {
   );
 }
 
+const PERIOD_LABEL = { MONTHLY: 'Monthly', QUARTERLY: 'Quarterly', ANNUAL: 'Annual' } as const;
+
 function RuleDialog({
   rule,
   data,
@@ -325,6 +332,9 @@ function RuleDialog({
   const entities = useEntities();
   const [statementType, setType] = useState<'SFS' | 'CFS'>(rule.statementType ?? 'SFS');
   const [entityCode, setEntity] = useState<string | null>(rule.entityCode ?? null);
+  const [periodType, setPeriodType] = useState<ApprovalRuleDto['periodType']>(
+    rule.periodType ?? null,
+  );
   const [levels, setLevels] = useState<1 | 2>(rule.reviewLevels ?? 1);
   const [reviewerIds, setReviewers] = useState<string[]>(rule.reviewers?.map((u) => u.id) ?? []);
   const [approverIds, setApprovers] = useState<string[]>(rule.approvers?.map((u) => u.id) ?? []);
@@ -341,6 +351,7 @@ function RuleDialog({
       api.put('/config/approvals', {
         statementType,
         entityCode,
+        periodType,
         reviewLevels: levels,
         reviewerIds,
         approverIds: levels === 2 ? approverIds : [],
@@ -380,9 +391,9 @@ function RuleDialog({
       onClose={onClose}
       title={
         isNew
-          ? 'Add entity override'
-          : rule.entityCode
-            ? `Approvals for ${rule.entityCode}`
+          ? 'Add override'
+          : rule.entityCode || rule.periodType
+            ? `Approvals for ${rule.entityCode ?? 'all entities'}${rule.periodType ? `, ${PERIOD_LABEL[rule.periodType].toLowerCase()} periods` : ''}`
             : 'Default approvals'
       }
       footer={
@@ -391,7 +402,9 @@ function RuleDialog({
             Cancel
           </Button>
           <Button
-            disabled={!canEdit || save.isPending || overlap || (isNew && !entityCode)}
+            disabled={
+              !canEdit || save.isPending || overlap || (isNew && !entityCode && !periodType)
+            }
             title={canEdit ? undefined : NO_CONFIG_ACCESS}
             onClick={() => save.mutate()}
           >
@@ -403,7 +416,7 @@ function RuleDialog({
       <div className="space-y-4">
         {save.error && <Alert>{errorMessage(save.error)}</Alert>}
         {isNew && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Statement" htmlFor="r-type">
               <Select
                 id="r-type"
@@ -420,12 +433,26 @@ function RuleDialog({
                 value={entityCode ?? ''}
                 onChange={(e) => setEntity(e.target.value || null)}
               >
-                <option value="">Choose…</option>
+                <option value="">All entities</option>
                 {entities.data?.map((e) => (
                   <option key={e.code} value={e.code}>
                     {e.code} · {e.shortName}
                   </option>
                 ))}
+              </Select>
+            </Field>
+            <Field label="Period type" htmlFor="r-period">
+              <Select
+                id="r-period"
+                value={periodType ?? ''}
+                onChange={(e) =>
+                  setPeriodType((e.target.value || null) as ApprovalRuleDto['periodType'])
+                }
+              >
+                <option value="">Any</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="QUARTERLY">Quarterly</option>
+                <option value="ANNUAL">Annual</option>
               </Select>
             </Field>
           </div>

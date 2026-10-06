@@ -80,7 +80,7 @@ describe('approvals', () => {
     const d = (await ctx.http().get('/api/config/approvals').set(as(viewer))).body as ApprovalsDto;
     expect(
       d.rules
-        .filter((r) => r.entityCode === null)
+        .filter((r) => r.entityCode === null && r.periodType === null)
         .map((r) => r.statementType)
         .sort(),
     ).toEqual(['CFS', 'SFS']);
@@ -121,7 +121,7 @@ describe('approvals', () => {
     expect(
       (await ctx.http().delete(`/api/config/approvals/${rule.id}`).set(as(master))).status,
     ).toBe(204);
-    const def = d.rules.find((r) => r.entityCode === null)!;
+    const def = d.rules.find((r) => r.entityCode === null && r.periodType === null)!;
     expect(
       (await ctx.http().delete(`/api/config/approvals/${def.id}`).set(as(master))).status,
     ).toBe(400);

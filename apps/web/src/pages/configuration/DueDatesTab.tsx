@@ -5,11 +5,13 @@ import {
   PERIOD_TYPE_LABELS,
   STATEMENT_LABELS,
   type DueDateRuleDto,
+  GROUP_CALENDAR,
+  type HolidayCalendarsDto,
   type HolidayDto,
 } from '@finance-close/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, Field, Input } from '@/components/ui/form';
+import { Alert, Checkbox, Field, Input, Select } from '@/components/ui/form';
 import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
@@ -21,11 +23,12 @@ export function DueDatesTab() {
   return (
     <ConfigPage
       title="Due dates and holidays"
-      purpose="How many working days after the period end each task is due, and the holidays that are not working days."
+      purpose="How many working days after the period end each task is due, and the holidays that are not working days. One group calendar (India) drives every due date; per-entity country calendars are optional and off by default."
     >
       <div className="grid gap-6 xl:grid-cols-2">
         <RulesCard />
         <HolidaysCard />
+        <CalendarsCard />
       </div>
     </ConfigPage>
   );
@@ -136,7 +139,10 @@ function HolidaysCard() {
     mutationFn: (h: HolidayDto) => api.delete(`/config/holidays/${h.id}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['config'] }),
   });
-  const rows = (holidays.data ?? []).filter((h) => matches(query, h.description, h.date));
+  const rows = (holidays.data ?? []).filter((h) =>
+    matches(query, h.description, h.date, h.calendar),
+  );
+  const calLabel = (c: string) => (c === GROUP_CALENDAR ? 'Group (India)' : c);
 
   return (
     <Card>
@@ -161,6 +167,7 @@ function HolidaysCard() {
             <tr>
               <Th>Date</Th>
               <Th>Description</Th>
+              <Th>Calendar</Th>
               <Th className="text-right">Actions</Th>
             </tr>
           </thead>
@@ -169,6 +176,7 @@ function HolidaysCard() {
               <tr key={h.id}>
                 <Td className="whitespace-nowrap">{formatDate(h.date)}</Td>
                 <Td>{h.description}</Td>
+                <Td>{calLabel(h.calendar)}</Td>
                 {
                   <Td>
                     <div className="flex justify-end gap-1">
@@ -195,7 +203,7 @@ function HolidaysCard() {
             ))}
             {holidays.data && rows.length === 0 && (
               <tr>
-                <Td colSpan={3} className="text-muted-foreground">
+                <Td colSpan={4} className="text-muted-foreground">
                   No holidays.
                 </Td>
               </tr>
@@ -212,11 +220,12 @@ function HolidayDialog({ holiday, onClose }: { holiday?: HolidayDto; onClose: ()
   const queryClient = useQueryClient();
   const [date, setDate] = useState(holiday?.date ?? '');
   const [description, setDescription] = useState(holiday?.description ?? '');
+  const [calendar, setCalendar] = useState(holiday?.calendar ?? GROUP_CALENDAR);
   const save = useMutation({
     mutationFn: () =>
       holiday
-        ? api.patch(`/config/holidays/${holiday.id}`, { date, description })
-        : api.post('/config/holidays', { date, description }),
+        ? api.patch(`/config/holidays/${holiday.id}`, { date, description, calendar })
+        : api.post('/config/holidays', { date, description, calendar }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['config'] });
       onClose();
@@ -254,7 +263,114 @@ function HolidayDialog({ holiday, onClose }: { holiday?: HolidayDto; onClose: ()
         <Field label="Description" htmlFor="h-desc">
           <Input id="h-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
+        <Field
+          label="Calendar (GROUP = the group calendar; else a country, e.g. UK)"
+          htmlFor="h-cal"
+        >
+          <Input id="h-cal" value={calendar} onChange={(e) => setCalendar(e.target.value)} />
+        </Field>
       </form>
     </Dialog>
+  );
+}
+
+/** Decision round 1 (Q4): optional per-entity country calendars, off by default. */
+function CalendarsCard() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ['config', 'holiday-calendars'],
+    queryFn: () => api.get<HolidayCalendarsDto>('/config/holiday-calendars'),
+  });
+  const [draft, setDraft] = useState<{ perEntity: boolean; cals: Record<string, string> } | null>(
+    null,
+  );
+  const d = q.data;
+  const cur = draft ?? {
+    perEntity: d?.perEntity ?? false,
+    cals: Object.fromEntries((d?.entities ?? []).map((e) => [e.code, e.holidayCalendar ?? ''])),
+  };
+  const save = useMutation({
+    mutationFn: () =>
+      api.put<HolidayCalendarsDto>('/config/holiday-calendars', {
+        perEntity: cur.perEntity,
+        entities: Object.entries(cur.cals).map(([code, c]) => ({
+          code,
+          holidayCalendar: c.trim() || null,
+        })),
+      }),
+    onSuccess: () => {
+      setDraft(null);
+      void qc.invalidateQueries({ queryKey: ['config'] });
+    },
+  });
+  const canEdit = d?.canEdit ?? false;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Per-entity holiday calendars</CardTitle>
+        <CardDescription>
+          Off by default: the group calendar decides every due date. Switched on, entities with a
+          country calendar also show their own SFS due date on the periods list (task due dates stay
+          on the group calendar).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {(q.error || save.error) && <Alert>{errorMessage(q.error ?? save.error)}</Alert>}
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            disabled={!canEdit}
+            checked={cur.perEntity}
+            onChange={(e) => setDraft({ ...cur, perEntity: e.target.checked })}
+          />
+          Use per-entity country calendars
+        </label>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Entity</Th>
+              <Th>Calendar</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {d?.entities.map((e) => (
+              <tr key={e.code}>
+                <Td>
+                  {e.code} · {e.shortName}
+                </Td>
+                <Td>
+                  <Select
+                    aria-label={`Holiday calendar for ${e.code}`}
+                    disabled={!canEdit}
+                    value={cur.cals[e.code] ?? ''}
+                    onChange={(x) =>
+                      setDraft({ ...cur, cals: { ...cur.cals, [e.code]: x.target.value } })
+                    }
+                  >
+                    <option value="">Group (India)</option>
+                    {d.calendars
+                      .filter((c) => c !== GROUP_CALENDAR)
+                      .map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                  </Select>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        {d && d.calendars.length === 1 && (
+          <p className="text-xs text-muted-foreground">
+            Add holidays with a country calendar name (e.g. UK) to choose it here.
+          </p>
+        )}
+        <div className="flex justify-end">
+          <EditButton size="sm" disabled={!draft || save.isPending} onClick={() => save.mutate()}>
+            Save calendars
+          </EditButton>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

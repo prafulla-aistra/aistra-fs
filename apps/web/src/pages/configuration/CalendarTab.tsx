@@ -139,6 +139,16 @@ export function CalendarTab() {
                         {p.dueDates.map((d) => (
                           <Td key={d.statementType} className="whitespace-nowrap">
                             <DueDateCell due={d} onEdit={() => setDueDate({ period: p, due: d })} />
+                            {d.statementType === 'SFS' && p.entityDueDates.length > 0 && (
+                              <div
+                                className="mt-1 text-xs text-muted-foreground"
+                                title="Per-entity country calendars (informational; the task uses the group date)"
+                              >
+                                {p.entityDueDates
+                                  .map((x) => `${x.entityCode} ${formatDate(x.calculated)}`)
+                                  .join(' · ')}
+                              </div>
+                            )}
                           </Td>
                         ))}
                         {

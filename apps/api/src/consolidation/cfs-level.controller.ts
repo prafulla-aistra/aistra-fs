@@ -76,7 +76,7 @@ const exportQuery = z.object({
   unit: z.enum(['ACTUAL', 'THOUSANDS', 'LAKHS', 'CRORES', 'MILLIONS']).optional(),
 });
 const explainSchema = z.object({
-  text: z.string().trim().min(10, 'Explain the difference (at least 10 characters)').max(1000),
+  text: z.string().trim().min(20, 'Explain the difference (at least 20 characters)').max(1000),
 });
 
 const TYPES = {

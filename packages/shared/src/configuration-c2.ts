@@ -12,7 +12,7 @@ import type { IsoDate } from './configuration';
 export interface AppSettingsDto {
   /** Where rates come from; '' until decided. */
   rateSource: string;
-  /** rateSource, or "To be confirmed – Open question 2". */
+  /** rateSource, or the default RATE_SOURCE_LABEL (to be confirmed). */
   rateSourceLabel: string;
   /** IC differences above this go to suspense (level currency), e.g. "1.00". */
   icDiffThreshold: string;
