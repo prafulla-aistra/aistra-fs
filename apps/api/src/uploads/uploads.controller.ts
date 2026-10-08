@@ -18,6 +18,7 @@ import {
   Permission,
   type CoaMergeSummaryDto,
   type FileRefDto,
+  type RateFetchPreviewDto,
   type RateSaveResultDto,
   type TbPreviewDto,
   type TbVersionDto,
@@ -76,6 +77,16 @@ const settingsSchema = z
   );
 const previewSchema = z.object({ fileId: z.string().uuid(), settings: settingsSchema });
 const plBasisSchema = z.object({ plBasis: z.enum(['PERIOD', 'YTD']) });
+const fetchSchema = z.object({
+  months: z
+    .array(z.string().regex(/^\d{4}-\d{2}-01$/, 'Months are the first day of the month'))
+    .min(1)
+    .max(13),
+  currencies: z
+    .array(z.string().regex(/^[A-Za-z]{3}$/))
+    .min(1)
+    .max(30),
+});
 const confirmSchema = previewSchema.extend({
   acknowledged: z.array(z.string().max(40)).max(10).default([]),
 });
@@ -246,6 +257,26 @@ export class UploadsController {
     if (!/\.(xlsx|xls|csv)$/i.test(file.originalname))
       throw ApiError.validation('Rate files must be .xlsx, .xls or .csv.');
     return this.rates.upload(user, file, ip);
+  }
+
+  /** Free API: preview the fetched rates of months (YYYY-MM-01) and currencies. */
+  @Post('exchange-rates/fetch')
+  @EditRates()
+  fetchRates(
+    @Body(new ZodPipe(fetchSchema)) body: z.output<typeof fetchSchema>,
+  ): Promise<RateFetchPreviewDto> {
+    return this.rates.fetchPreview(body.months, body.currencies);
+  }
+
+  /** Free API: fetch again and save the new / changed months. */
+  @Post('exchange-rates/fetch/confirm')
+  @EditRates()
+  confirmFetchedRates(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(fetchSchema)) body: z.output<typeof fetchSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<RateSaveResultDto> {
+    return this.rates.fetchSave(user, body.months, body.currencies, ip);
   }
 
   @Put('exchange-rates')

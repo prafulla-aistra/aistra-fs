@@ -12,6 +12,7 @@ export * from './money';
 export * from './notes';
 export * from './periods';
 export * from './rates';
+export * from './rate-feed';
 export * from './statements';
 export * from './task-numbers';
 export * from './tb-checks';

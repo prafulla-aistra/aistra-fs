@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Download, Lock, Plus, Settings2, Upload } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  CloudDownload,
+  Download,
+  Lock,
+  Plus,
+  Settings2,
+  Upload,
+} from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type {
   AppSettingsDto,
@@ -21,6 +29,13 @@ import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { WarningText } from './common';
 import { ConfigPage, EditButton, EmptyState } from './ConfigPage';
+import { FetchRatesDialog } from '@/pages/tasks/upload/FetchRatesDialog';
+
+/** The latest month that has ended (YYYY-MM), for the free-API month picker. */
+function lastEndedMonth(): string {
+  const d = new Date();
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth() - 1, 1)).toISOString().slice(0, 7);
+}
 
 const KINDS = ['opening', 'closing', 'average'] as const;
 type Kind = (typeof KINDS)[number];
@@ -52,6 +67,8 @@ export function ExchangeRatesPage() {
   });
   const [open, setOpen] = useState<{ month: string; label: string; isNew: boolean } | null>(null);
   const [preview, setPreview] = useState<{ file: File; result: RatePreviewDto } | null>(null);
+  const [pickMonth, setPickMonth] = useState<string | null>(null);
+  const [fetchMonth, setFetchMonth] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['config', 'rate-grid'] });
 
@@ -93,6 +110,9 @@ export function ExchangeRatesPage() {
           >
             <Download /> Download rates
           </Button>
+          <EditButton variant="outline" onClick={() => setPickMonth(lastEndedMonth())}>
+            <CloudDownload /> Fetch from free API
+          </EditButton>
           <input
             ref={file}
             type="file"
@@ -231,6 +251,51 @@ export function ExchangeRatesPage() {
           onSaved={async () => {
             setPreview(null);
             await refresh();
+          }}
+        />
+      )}
+      {pickMonth !== null && (
+        <Dialog
+          open
+          onClose={() => setPickMonth(null)}
+          title="Fetch rates from the free API"
+          description="Choose a month that has ended. Every currency the group uses is fetched."
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setPickMonth(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!/^\d{4}-\d{2}$/.test(pickMonth)}
+                onClick={() => {
+                  setFetchMonth(`${pickMonth}-01`);
+                  setPickMonth(null);
+                }}
+              >
+                Fetch
+              </Button>
+            </>
+          }
+        >
+          <Field label="Month" htmlFor="fetch-month">
+            <Input
+              id="fetch-month"
+              type="month"
+              max={lastEndedMonth()}
+              value={pickMonth}
+              onChange={(e) => setPickMonth(e.target.value)}
+            />
+          </Field>
+        </Dialog>
+      )}
+      {fetchMonth && data && (
+        <FetchRatesDialog
+          months={[fetchMonth]}
+          currencies={data.currencies}
+          onClose={() => setFetchMonth(null)}
+          onSaved={(r) => {
+            toast(`Rates fetched: ${r.changed} saved, ${r.unchanged} unchanged.`);
+            void refresh();
           }}
         />
       )}

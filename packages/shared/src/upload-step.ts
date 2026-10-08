@@ -218,6 +218,35 @@ export interface RateSaveResultDto {
   warnings: { month: string; currency: string; code: string; message: string }[];
 }
 
+/** Rates fetched from the free API for months of a period, before saving. */
+export interface RateFetchRowDto {
+  month: string;
+  currency: string;
+  /** Feed the figures came from. */
+  source: string;
+  opening: string | null;
+  closing: string | null;
+  average: string | null;
+  /** The previous month's last working day (opening) and this month's (closing). */
+  openingDate: string | null;
+  closingDate: string | null;
+  /** Working days averaged. */
+  days: number;
+  /** Rates stored today for the month, if any. */
+  current: { opening: string | null; closing: string | null; average: string | null } | null;
+  /** NEW / CHANGED / UNCHANGED / LOCKED / ERROR. */
+  status: 'NEW' | 'CHANGED' | 'UNCHANGED' | 'LOCKED' | 'ERROR';
+  problems: string[];
+}
+
+export interface RateFetchPreviewDto {
+  rows: RateFetchRowDto[];
+  /** How the figures are worked out. */
+  method: string;
+  /** At least one NEW or CHANGED row and no feed failure. */
+  canSave: boolean;
+}
+
 export interface RateInputDto {
   month: string;
   currency: string;
@@ -227,10 +256,10 @@ export interface RateInputDto {
 }
 
 /**
- * Shown when no rate source is set (Configuration → Settings): the decision round 1 default,
- * to be confirmed (preferably the same source as Zoho's month-end revaluation).
+ * Shown when no rate source is set (Configuration → Settings): the free-API default (rates can also be
+ * entered or uploaded; FBIL is not mandatory for now).
  */
 export const RATE_SOURCE_LABEL =
-  'FBIL reference rate (INR); other pairs via USD cross rates; closing = last working day of the month; average = mean of daily rates in the month (to be confirmed)';
+  'Free API: ECB reference rates (Frankfurter) for the currencies the ECB publishes, currency-api for the others (e.g. AED, LKR); closing = last working day of the month; average = mean of working-day rates; opening = previous month closing';
 export const PERIOD_AVERAGE_ASSUMPTION =
   'Assumption: for a quarter or year, opening = first month’s opening, closing = last month’s closing, average = simple mean of the monthly averages.';

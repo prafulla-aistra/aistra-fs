@@ -8,6 +8,7 @@ import { ComparativesService } from './comparatives.service';
 import { MappingController } from './mapping.controller';
 import { MappingStepService } from './mapping-step.service';
 import { RateConfigService } from './rate-config.service';
+import { RateFeedService } from './rate-feed.service';
 import { RatesService } from './rates.service';
 import { EditAccessController } from './edit-access.controller';
 import { EditAccessService } from './edit-access.service';
@@ -44,6 +45,7 @@ import { UploadsController } from './uploads.controller';
   providers: [
     UploadStepService,
     RatesService,
+    RateFeedService,
     RateConfigService,
     MappingStepService,
     ChartOfAccountsService,

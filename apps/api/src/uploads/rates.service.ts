@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import {
   checkRates,
   type IsoDate,
+  monthFromDaily,
   monthLabel,
   monthsBetween,
   type MonthlyRate,
@@ -16,6 +17,8 @@ import {
   AuditAction,
   PERIOD_AVERAGE_ASSUMPTION,
   Permission,
+  type RateFetchPreviewDto,
+  type RateFetchRowDto,
   type RateInputDto,
   type RateSaveResultDto,
   type RatesPanelDto,
@@ -26,6 +29,8 @@ import { ApiError } from '../common/api-error';
 import { fromDbDate, toDbDate } from '../common/db-dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmissionGuard } from './submission-guard.service';
+import { ClockService } from '../common/clock';
+import { FEED_SOURCES, RateFeedService } from './rate-feed.service';
 import { rateSourceLabel } from '../common/settings';
 import { StorageService } from '../storage/storage.service';
 import { fileRef } from './file-ref';
@@ -58,7 +63,131 @@ export class RatesService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     @Optional() private readonly guard?: SubmissionGuard,
+    @Optional() private readonly feed?: RateFeedService,
+    @Optional() private readonly clock?: ClockService,
   ) {}
+
+  // ---------------------------------------------------------------- free API (rate feed)
+
+  /**
+   * Opening / closing / average of each month and currency from the free daily feeds
+   * (engine monthFromDaily): closing = last working day, average = mean of the month's
+   * working-day rates, opening = previous month's last working day. Only months that have
+   * ended can be fetched.
+   */
+  async fetchPreview(months: IsoDate[], currencies: string[]): Promise<RateFetchPreviewDto> {
+    if (!this.feed || !this.clock) throw new Error('Rate feed not available');
+    const today = this.clock.today();
+    const wanted = [...new Set(currencies.map((c) => c.toUpperCase()))].filter((c) => c !== 'USD');
+    const known = new Set(
+      (await this.prisma.currency.findMany({ select: { code: true } })).map((c) => c.code),
+    );
+    for (const c of wanted)
+      if (!known.has(c))
+        throw ApiError.validation(`Unknown currency ${c}. Add it in Configuration first.`);
+    const sorted = [...new Set(months)].sort();
+    const [stored, locked] = await Promise.all([
+      this.prisma.exchangeRate.findMany({
+        where: { month: { in: sorted.map(toDbDate) }, currencyCode: { in: wanted } },
+      }),
+      this.lockedMonths(),
+    ]);
+    const rows: RateFetchRowDto[] = [];
+    for (const month of sorted) {
+      const end = lastDay(month);
+      if (end >= today) {
+        for (const currency of wanted)
+          rows.push(
+            emptyRow(month, currency, this.feed.sourceOf(currency), [
+              `${monthLabel(month)} has not ended yet (it ends ${end}); rates can be fetched from the next day.`,
+            ]),
+          );
+        continue;
+      }
+      // From the 20th of the previous month: enough working days for the opening.
+      const from = `${priorMonth(month).slice(0, 8)}20`;
+      const { rates, problems } = await this.feed.daily(wanted, from, end);
+      for (const currency of wanted) {
+        const source = FEED_SOURCES[this.feed.sourceOf(currency)];
+        const feedProblem = problems.get(currency);
+        if (feedProblem) {
+          rows.push(emptyRow(month, currency, this.feed.sourceOf(currency), [feedProblem]));
+          continue;
+        }
+        const m = monthFromDaily(month, rates.get(currency)!);
+        const e = stored.find((r) => r.currencyCode === currency && fromDbDate(r.month) === month);
+        const current = e
+          ? {
+              opening: e.opening?.toString() ?? null,
+              closing: e.closing?.toString() ?? null,
+              average: e.average?.toString() ?? null,
+            }
+          : null;
+        const same = (a: string | null, b: string | null) =>
+          a !== null && b !== null && toDecimal(a).equals(toDecimal(b));
+        const unchanged = current && FIELDS.every((k) => same(current[k], m[k]));
+        rows.push({
+          month,
+          currency,
+          source,
+          opening: m.opening,
+          closing: m.closing,
+          average: m.average,
+          openingDate: m.openingDate,
+          closingDate: m.closingDate,
+          days: m.days,
+          current,
+          status:
+            m.problems.length && (!m.closing || !m.average)
+              ? 'ERROR'
+              : unchanged
+                ? 'UNCHANGED'
+                : locked.has(month)
+                  ? 'LOCKED'
+                  : current
+                    ? 'CHANGED'
+                    : 'NEW',
+          problems: [
+            ...m.problems,
+            ...(locked.has(month) && !unchanged ? [`Locked: ${locked.get(month)!}`] : []),
+          ],
+        });
+      }
+    }
+    return {
+      rows,
+      method:
+        "Closing = rate of the last working day of the month; average = simple mean of the working-day rates in the month; opening = the previous month's closing. Units per 1 USD, 10 decimals.",
+      canSave: rows.some((r) => r.status === 'NEW' || r.status === 'CHANGED'),
+    };
+  }
+
+  /** Fetches again and saves the NEW / CHANGED rows (locked months are left out). Audited. */
+  async fetchSave(
+    user: AuthUser,
+    months: IsoDate[],
+    currencies: string[],
+    ip: string | null,
+  ): Promise<RateSaveResultDto> {
+    const p = await this.fetchPreview(months, currencies);
+    const rows = p.rows.filter((r) => r.status === 'NEW' || r.status === 'CHANGED');
+    if (rows.length === 0)
+      throw ApiError.validation(
+        'Nothing to save: the fetched rates are already stored, locked or unavailable.',
+      );
+    return this.apply(
+      user,
+      rows.map((r) => ({
+        month: r.month,
+        currency: r.currency,
+        opening: r.opening,
+        closing: r.closing,
+        average: r.average,
+        source: `${r.source} – ${r.days} working days, close ${r.closingDate}`.slice(0, 200),
+      })),
+      { source: 'Free API', file: null, ip, skipLocked: true },
+    );
+  }
 
   /** Month → why it is locked (the finalised reports that use it). */
   async lockedMonths(db: Db = this.prisma): Promise<Map<IsoDate, string>> {
@@ -215,7 +344,7 @@ export class RatesService {
 
   private async apply(
     user: AuthUser,
-    rows: MonthlyRate[],
+    rows: (MonthlyRate & { source?: string })[],
     how: {
       source: string;
       file: { body: Buffer; name: string; type: string } | null;
@@ -245,6 +374,7 @@ export class RatesService {
       const changes: {
         month: string;
         currency: string;
+        source?: string;
         before: Record<Field, string | null> | null;
         after: Record<Field, string | null>;
       }[] = [];
@@ -275,7 +405,7 @@ export class RatesService {
             `${r.currency} ${monthLabel(r.month)}: ${locked.get(r.month)!} Its rates cannot be changed.`,
           );
         }
-        changes.push({ month: r.month, currency: r.currency, before, after });
+        changes.push({ month: r.month, currency: r.currency, source: r.source, before, after });
       }
 
       const stored = how.file
@@ -290,7 +420,7 @@ export class RatesService {
       for (const c of changes) {
         const data = {
           ...c.after,
-          source: how.source,
+          source: c.source ?? how.source,
           enteredById: user.id,
           enteredAt: new Date(),
         };
@@ -316,7 +446,12 @@ export class RatesService {
             newValue: {
               ...(stored ? { file: stored.originalName, sha256: stored.sha256 } : {}),
               source: how.source,
-              rates: changes.map((c) => ({ month: c.month, currency: c.currency, ...c.after })),
+              rates: changes.map((c) => ({
+                month: c.month,
+                currency: c.currency,
+                ...c.after,
+                ...(c.source ? { source: c.source } : {}),
+              })),
             },
             ip: how.ip,
           },
@@ -354,7 +489,39 @@ export class RatesService {
     });
     const { changedRows, ...out } = result;
     if (changedRows.length > 0)
-      await this.guard?.ratesChanged(user, [...new Set(changedRows.map((c) => c.month))], [...new Set(changedRows.map((c) => c.currency))], how.ip);
+      await this.guard?.ratesChanged(
+        user,
+        [...new Set(changedRows.map((c) => c.month))],
+        [...new Set(changedRows.map((c) => c.currency))],
+        how.ip,
+      );
     return out;
   }
+}
+
+function lastDay(month: IsoDate): IsoDate {
+  const d = new Date(`${month}T00:00:00Z`);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+}
+
+function emptyRow(
+  month: IsoDate,
+  currency: string,
+  source: keyof typeof FEED_SOURCES,
+  problems: string[],
+): RateFetchRowDto {
+  return {
+    month,
+    currency,
+    source: FEED_SOURCES[source],
+    opening: null,
+    closing: null,
+    average: null,
+    openingDate: null,
+    closingDate: null,
+    days: 0,
+    current: null,
+    status: 'ERROR',
+    problems,
+  };
 }

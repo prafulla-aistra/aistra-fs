@@ -841,7 +841,13 @@ MinIO for S3). Local development does not need it. To use its PostgreSQL, run
 
 7. **Sample data.** No verified sample files yet: the demo data stays, and the expected-figure
    tests stay skipped.
-8. **Exchange-rate source.** Default (shown wherever rates are used while the RATE_SOURCE setting is blank): "FBIL reference
+8. **Exchange-rate source** (revised: FBIL is not mandatory for now). "Fetch from free API" on the task's
+   rates panel (every month of the task period) and on Configuration → Exchange rates (any
+   ended month): ECB reference rates through Frankfurter (INR, GBP, SGD, …; cross rate via EUR)
+   and currency-api for currencies the ECB does not publish (AED, LKR). Closing = the last
+   working day's rate, average = mean of the month's working-day rates, opening = the previous
+   month's closing; 10 decimals; preview before saving; locked months are never changed; the
+   source is stored on each month. Manual entry and upload stay available. Earlier default: "FBIL reference
    rate (INR); other pairs via USD cross rates; closing = last working day of the month;
    average = mean of daily rates in the month". Rates stay manual entry / upload; no website
    integration. _To be confirmed_ (preferably the same source as Zoho's month-end revaluation).
@@ -994,9 +1000,10 @@ These need confirmation from the process owners before the related features are 
 
 To be confirmed after decisions round 1:
 
-43. **Rate source.** The default text (FBIL reference rate for INR, other pairs via USD cross
-    rates, closing = last working day, average = mean of daily rates) — preferably the same source
-    as Zoho's month-end revaluation.
+43. **Rate source.** Free API now (ECB via Frankfurter + currency-api). ECB / market rates can
+    differ slightly from FBIL or Zoho's month-end revaluation rates; confirm before go-live whether
+    the auditors accept them, and whether the free services' availability is acceptable (manual
+    entry / upload remain the fallback).
 44. **Zoho date-range TB export.** What exactly does a Zoho TB exported for a date range contain
     (period movement or year-to-date P&L; opening retained earnings)? This decides each entity's
     P&L basis setting and whether quarterly / annual TBs tie to their months.

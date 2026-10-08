@@ -130,9 +130,13 @@
 
 - Decisions round 1 (seed marker decisions-round1, prisma/seed-decisions-round1.ts):
   1. No verified samples: keep the demo data; expected-figure tests stay skipped.
-  2. RATE_SOURCE default (RATE_SOURCE_LABEL, shown while the setting is blank) "FBIL reference rate (INR); other pairs via USD cross rates; closing =
-     last working day of the month; average = mean of daily rates in the month" (TBC; prefer the
-     Zoho month-end revaluation source). Manual entry / upload only; no website integration.
+  2. Rates come from a FREE API (FBIL not mandatory for now): "Fetch from free API" on the task
+     rates panel (the task period's months) and Configuration → Exchange rates (a month). ECB
+     reference rates via Frankfurter (cross through EUR) for ECB currencies, currency-api
+     (fawazahmed0) for the rest (AED, LKR); RateFeedService fetches, engine monthFromDaily computes:
+     closing = last working day, average = mean of working-day rates, opening = previous month's
+     closing, 10 dp. Preview first; only ended months; locked months skipped; audited with the
+     source. Manual entry / upload stay.
   3. Acquisitions stay illustrative (TBC); the register has an Excel template download and a
      filled-template upload (engine parseAcquisitionTemplate; preview, then confirm; nothing saves
      with an error; matched on subsidiary + parent + date; rows not in the file are kept).

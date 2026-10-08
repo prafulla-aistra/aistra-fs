@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Lock, Pencil, Upload } from 'lucide-react';
+import { AlertTriangle, CloudDownload, Lock, Pencil, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { RateInputDto, RateSaveResultDto, RatesPanelDto } from '@finance-close/shared';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { Table, Td, Th } from '@/components/ui/overlay';
 import { api, errorMessage } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { FetchRatesDialog } from './FetchRatesDialog';
 
 const FIELDS = [
   ['opening', 'Opening'],
@@ -26,6 +27,7 @@ export function RatesPanel({ taskId, rates }: { taskId: string; rates: RatesPane
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, Record<Field, string>>>({});
   const [lastWarnings, setLastWarnings] = useState<RateSaveResultDto['warnings'] | null>(null);
+  const [fetching, setFetching] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['upload-step', taskId] });
   const done = async (r: RateSaveResultDto, what: string) => {
@@ -108,6 +110,9 @@ export function RatesPanel({ taskId, rates }: { taskId: string; rates: RatesPane
                 if (f) upload.mutate(f);
               }}
             />
+            <Button variant="outline" size="sm" onClick={() => setFetching(true)}>
+              <CloudDownload /> Fetch from free API
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -125,6 +130,14 @@ export function RatesPanel({ taskId, rates }: { taskId: string; rates: RatesPane
         )}
       </CardHeader>
       <CardContent className="space-y-3">
+        {fetching && (
+          <FetchRatesDialog
+            months={rates.months.filter((m) => !m.locked).map((m) => m.month)}
+            currencies={rates.currencies}
+            onClose={() => setFetching(false)}
+            onSaved={(r) => void done(r, 'Rates fetched')}
+          />
+        )}
         {rates.currencies.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             This task needs no exchange rates (USD only).
