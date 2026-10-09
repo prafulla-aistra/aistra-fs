@@ -361,14 +361,17 @@ export function tbPeriodMatches(
   return detected.from === period.startDate && detected.to === period.endDate;
 }
 
+/** Organisation name without punctuation and legal-form words (Pvt, Ltd, Inc …). */
+export function organisationKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(private|pvt|limited|ltd|llc|inc|pte|the)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
 /** Loose comparison of an organisation name in the file with the entity's legal name. */
 export function sameOrganisation(fileName: string, legalName: string): boolean {
-  const n = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/\b(private|pvt|limited|ltd|llc|inc|pte|the)\b/g, '')
-      .replace(/[^a-z0-9]/g, '');
-  const a = n(fileName);
-  const b = n(legalName);
+  const a = organisationKey(fileName);
+  const b = organisationKey(legalName);
   return a === b || (a.length > 3 && (a.includes(b) || b.includes(a)));
 }

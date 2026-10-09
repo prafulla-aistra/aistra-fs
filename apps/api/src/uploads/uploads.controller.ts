@@ -135,6 +135,18 @@ export class UploadsController {
     return this.step.uploadTb(user, id, code, file);
   }
 
+  /** Zoho entities: fetch the TB for the task period from Zoho Books → the same preview. */
+  @Post('tasks/:id/entities/:code/tb/zoho')
+  @Prepare()
+  fetchZohoTb(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @ClientIp() ip: string | null,
+  ): Promise<TbPreviewDto> {
+    return this.step.fetchZohoTb(user, id, code, ip);
+  }
+
   @Post('tasks/:id/entities/:code/tb/preview')
   @Prepare()
   previewTb(

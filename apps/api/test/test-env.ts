@@ -11,4 +11,6 @@ export const TEST_ENV = {
   STORAGE_LOCAL_DIR: './data/uploads-test', // test uploads never mix with development files
   MAIL_DRIVER: 'outbox',
   MAIL_OUTBOX_DIR: './data/outbox-test', // emails written by the tests
+  ZOHO_CLIENT_ID: 'test-zoho-client', // Zoho itself is stubbed in zoho.e2e-spec
+  ZOHO_CLIENT_SECRET: 'test-zoho-secret',
 };

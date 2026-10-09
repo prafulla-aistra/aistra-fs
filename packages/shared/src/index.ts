@@ -14,3 +14,4 @@ export * from './notes-step';
 export * from './configuration-c3';
 export * from './review-step';
 export * from './consolidation';
+export * from './integrations';

@@ -23,3 +23,4 @@ export * from './consolidation';
 export * from './cfs-checks';
 export * from './tb-basis';
 export * from './acquisitions-template';
+export * from './zoho-tb';

@@ -710,6 +710,33 @@ is refused (400).
 - Tasks: the description search is removed; a **Period** button sorts newest → oldest
   (default) or oldest → newest.
 
+### Zoho Books integration
+
+Zoho entities (US, IN, AE, UK, UC) can fetch their trial balance from Zoho Books instead of
+uploading a file. One Zoho account holds all their organisations; Veracity (Xero) still uploads.
+
+1. **Set up once (server).** In the Zoho API Console (https://api-console.zoho.com, signed in to
+   the Zoho account) add a _Server-based Applications_ client with the redirect URI
+   `http://localhost:5173/api/integrations/zoho/callback` (deployed: `APP_URL` +
+   `/api/integrations/zoho/callback`). Put its `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` in
+   apps/api/.env and restart. (`ZOHO_ACCOUNTS_URL` can stay `https://accounts.zoho.com`: Zoho
+   sends the account's own data centre — .in, .eu … — back with the sign-in.)
+2. **Connect (CONFIG_MANAGE).** Configuration → Integrations → Zoho Books → _Connect Zoho Books_,
+   sign in to Zoho and accept the read-only access (reports, settings, chart of accounts).
+3. **Link entities.** _Match by name_ proposes each entity's organisation (legal name vs Zoho
+   organisation name); check the dropdowns and _Save links_. Audited.
+4. **Fetch (SFS_PREPARE).** On a task's Upload data step the trial balance row of a linked Zoho
+   entity shows _Fetch from Zoho_. It asks Zoho's trial balance report for the task period (from
+   1 April when the entity's P&L basis is year-to-date), builds a GL-wise file
+   _Account Code | Account Name | Account Type | Amount (Dr−Cr)_ and opens the usual preview:
+   same checks (balance to the cent, organisation, period, new accounts), then _Confirm_. The file
+   appears as "Zoho TB IN 2026-08-01 to 2026-08-31.csv (fetched from Zoho Books)"; the raw Zoho
+   response is kept beside it in storage.
+
+Security: the OAuth refresh token is stored encrypted (AES-256-GCM, key derived from
+`JWT_SECRET` — changing `JWT_SECRET` means connecting again); access tokens stay in memory;
+tokens never reach the audit log. _Disconnect_ revokes the token at Zoho.
+
 ### Browser tests
 
 `npm run test:browser` runs Playwright journeys in Chromium against a separate instance
@@ -1021,6 +1048,15 @@ To be confirmed after decisions round 1:
 51. **Existing formats.** IC_DIFF_PL was added in place to every stored format version (including
     versions used by finalised reports, whose figures it cannot change: it is consolidation-only
     and finalised levels are read from snapshots). Confirm.
+52. **Zoho trial balance report.** Zoho does not formally document the report API's JSON: the
+    reader takes account rows with net / closing debit and credit (named in the preview), checked
+    against a real response only once Zoho is connected. Confirm with the first real fetch that the
+    figures equal the TB exported from the Zoho UI for the same dates (and whether BS lines are
+    closing balances for a date range — question 44). Accounts without an account code in Zoho
+    get the code ZOHO-<account id>.
+53. **Zoho connection on AWS.** The OAuth sign-in state is held in the API's memory (10 minutes),
+    so with several API instances the callback must reach the instance that started it (sticky
+    sessions), or the state moves to the database.
 
 ## Known dependency warnings (clean-up later)
 

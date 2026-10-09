@@ -1,5 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileSpreadsheet, FileText, History, Lock, RefreshCw, Upload } from 'lucide-react';
+import {
+  CloudDownload,
+  FileSpreadsheet,
+  FileText,
+  History,
+  Lock,
+  RefreshCw,
+  Upload,
+} from 'lucide-react';
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
   DOCUMENT_FILE_EXTENSIONS,
@@ -52,6 +60,11 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
     mutationFn: (f: File) => api.upload<TbPreviewDto>(`${base}/tb`, f),
     onSuccess: setPreview,
   });
+  // Zoho entities: fetch the TB for the task period → the same preview as an uploaded file.
+  const zoho = useMutation({
+    mutationFn: () => api.post<TbPreviewDto>(`${base}/tb/zoho`),
+    onSuccess: setPreview,
+  });
   const coa = useMutation({
     mutationFn: (f: File) => api.upload<CoaMergeSummaryDto>(`${base}/coa`, f),
     onSuccess: async (s) => {
@@ -79,8 +92,8 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
   });
   const error =
     localError ??
-    ((tb.error ?? coa.error ?? docs.error ?? basis.error)
-      ? errorMessage(tb.error ?? coa.error ?? docs.error ?? basis.error)
+    ((tb.error ?? zoho.error ?? coa.error ?? docs.error ?? basis.error)
+      ? errorMessage(tb.error ?? zoho.error ?? coa.error ?? docs.error ?? basis.error)
       : null);
   const pick = (files: File[], run: (files: File[]) => void) => {
     setLocalError(null);
@@ -135,10 +148,31 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
           tag="Mandatory"
           accept={TB_FILE_EXTENSIONS.join(',')}
           canEdit={card.canEdit}
-          busy={tb.isPending}
+          busy={tb.isPending || zoho.isPending}
           last={latest ? latest.file : null}
           onFiles={(f) => pick(f.slice(0, 1), ([file]) => tb.mutate(file!))}
           onVersions={card.tb.versionCount > 0 ? () => setVersions('TB') : undefined}
+          extra={
+            card.erpFetch &&
+            card.canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!card.erpFetch.available || tb.isPending || zoho.isPending}
+                title={
+                  card.erpFetch.available
+                    ? `GL-wise trial balance of "${card.erpFetch.organizationName}" for the task period, from Zoho Books`
+                    : (card.erpFetch.reason ?? undefined)
+                }
+                onClick={() => {
+                  setLocalError(null);
+                  zoho.mutate();
+                }}
+              >
+                <CloudDownload /> {zoho.isPending ? 'Fetching from Zoho…' : 'Fetch from Zoho'}
+              </Button>
+            )
+          }
         >
           {latest && <TbResult version={latest} compact />}
         </UploadRow>
@@ -241,6 +275,7 @@ function UploadRow({
   last,
   onFiles,
   onVersions,
+  extra,
   children,
 }: {
   icon: ReactNode;
@@ -253,6 +288,8 @@ function UploadRow({
   last: FileRefDto | null;
   onFiles?: (files: File[]) => void;
   onVersions?: () => void;
+  /** Another way to provide it (e.g. "Fetch from Zoho"), next to the file button. */
+  extra?: ReactNode;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -283,7 +320,8 @@ function UploadRow({
           {title}
           <span className="text-xs font-normal text-muted-foreground">{tag}</span>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
+          {extra}
           <input
             ref={input}
             type="file"
@@ -318,7 +356,9 @@ function UploadRow({
       <p className="mt-1 text-xs text-muted-foreground">
         {last ? (
           <>
-            Last: <FileLink file={last} /> · {last.uploadedBy}, {formatDateTime(last.uploadedAt)}
+            Last: <FileLink file={last} />
+            {last.source === 'ZOHO' && ' (fetched from Zoho Books)'} · {last.uploadedBy},{' '}
+            {formatDateTime(last.uploadedAt)}
           </>
         ) : canEdit ? (
           `Drop a file here or choose one (${accept.replaceAll(',', ', ')}; up to 10 MB).`

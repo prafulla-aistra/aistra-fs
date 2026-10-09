@@ -26,8 +26,19 @@ describe('validateEnv', () => {
       SMTP_SECURE: false,
       SMTP_USER: '',
       SMTP_PASSWORD: '',
+      ZOHO_CLIENT_ID: '',
+      ZOHO_CLIENT_SECRET: '',
+      ZOHO_ACCOUNTS_URL: 'https://accounts.zoho.com',
+      ZOHO_REDIRECT_URI: 'http://localhost:5173/api/integrations/zoho/callback',
+      ZOHO_SCOPE: 'ZohoBooks.reports.READ,ZohoBooks.settings.READ,ZohoBooks.accountants.READ',
     });
     expect(() => validateEnv({ ...BASE, MAIL_DRIVER: 'smtp' })).toThrow(/SMTP_HOST must be set/);
+    expect(() => validateEnv({ ...BASE, ZOHO_ACCOUNTS_URL: 'https://evil.example' })).toThrow(
+      /ZOHO_ACCOUNTS_URL/,
+    );
+    expect(validateEnv({ ...BASE, ZOHO_ACCOUNTS_URL: 'https://accounts.zoho.in/' })).toMatchObject({
+      ZOHO_ACCOUNTS_URL: 'https://accounts.zoho.in',
+    });
     expect(
       validateEnv({
         ...BASE,

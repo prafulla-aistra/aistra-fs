@@ -9,6 +9,7 @@ import { validateEnv } from './config/env';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { DemoModule, demoModeEnabled } from './demo/demo.module';
 import { HealthModule } from './health/health.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './mail/mail.module';
 import { StorageModule } from './storage/storage.module';
@@ -30,6 +31,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     ConfigurationModule,
     TasksModule,
+    IntegrationsModule,
     UploadsModule,
     ConsolidationModule,
     // Demo accounts + quick login exist only when DEMO_MODE=true (never in production).

@@ -95,6 +95,7 @@ model Entity {
   ownership            EntityOwnership[]          @relation("OwnershipEntity")
   ownedEntities        EntityOwnership[]          @relation("OwnershipParent")
   levelCurrency        LevelCurrencyOverride?
+  erpLink              ErpOrganisationLink?
 
   @@map("entity")
 }
@@ -290,15 +291,15 @@ model User {
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy     User?               @relation("UserCreatedBy", fields: [createdById], references: [id])
-  createdUsers  User[]              @relation("UserCreatedBy")
-  template      PermissionTemplate? @relation(fields: [templateCode], references: [code])
-  lastFormat    Format?             @relation(fields: [lastFormatCode], references: [code])
-  permissions   UserPermission[]
-  entityScopes  UserEntityScope[]
-  refreshTokens RefreshToken[]
+  createdBy           User?                @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers        User[]               @relation("UserCreatedBy")
+  template            PermissionTemplate?  @relation(fields: [templateCode], references: [code])
+  lastFormat          Format?              @relation(fields: [lastFormatCode], references: [code])
+  permissions         UserPermission[]
+  entityScopes        UserEntityScope[]
+  refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
-  auditLogs     AuditLog[]
+  auditLogs           AuditLog[]
 
   financialYearsCreated FinancialYear[]         @relation("FinancialYearCreatedBy")
   periodStatusChanges   Period[]                @relation("PeriodStatusChangedBy")
@@ -478,23 +479,23 @@ model Task {
   /// Comparatives step: which period the task is compared with.
   comparativeBasis ComparativeBasis @default(PREVIOUS_PERIOD) @map("comparative_basis")
 
-  period               Period                @relation(fields: [periodId], references: [id])
-  format               Format?               @relation(fields: [formatCode], references: [code])
-  createdBy            User                  @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  entities             TaskEntity[]
-  levels               TaskLevel[]
-  files                UploadedFile[]
-  varianceExplanations VarianceExplanation[]
-  translationSnapshots TranslationSnapshot[]
-  statementSnapshots   StatementSnapshot[]
-  notes                EntityNote[]
-  editAccessRequests   EditAccessRequest[]
-  submissions          ReviewSubmission[]
-  queries              ReviewQuery[]
-  finalSnapshots       FinalSnapshot[]
-  mappedAccounts       EntityAccount[]
-  tbVersions           TbVersion[]
-  consolidationRuns    ConsolidationRun[]
+  period                   Period                    @relation(fields: [periodId], references: [id])
+  format                   Format?                   @relation(fields: [formatCode], references: [code])
+  createdBy                User                      @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  entities                 TaskEntity[]
+  levels                   TaskLevel[]
+  files                    UploadedFile[]
+  varianceExplanations     VarianceExplanation[]
+  translationSnapshots     TranslationSnapshot[]
+  statementSnapshots       StatementSnapshot[]
+  notes                    EntityNote[]
+  editAccessRequests       EditAccessRequest[]
+  submissions              ReviewSubmission[]
+  queries                  ReviewQuery[]
+  finalSnapshots           FinalSnapshot[]
+  mappedAccounts           EntityAccount[]
+  tbVersions               TbVersion[]
+  consolidationRuns        ConsolidationRun[]
   consolidationAdjustments ConsolidationAdjustment[]
   eliminationExplanations  EliminationExplanation[]
   signingDetails           SigningDetails[]
@@ -504,19 +505,19 @@ model Task {
 }
 
 model TaskEntity {
-  taskId         String         @map("task_id") @db.Uuid
-  entityCode     String         @map("entity_code") @db.VarChar(10)
-  status         TaskItemStatus @default(NOT_STARTED)
-  currentStep    String         @map("current_step") @db.VarChar(40)
-  finalisedById  String?        @map("finalised_by_id") @db.Uuid
-  finalisedAt    DateTime?      @map("finalised_at") @db.Timestamptz(3)
+  taskId               String         @map("task_id") @db.Uuid
+  entityCode           String         @map("entity_code") @db.VarChar(10)
+  status               TaskItemStatus @default(NOT_STARTED)
+  currentStep          String         @map("current_step") @db.VarChar(40)
+  finalisedById        String?        @map("finalised_by_id") @db.Uuid
+  finalisedAt          DateTime?      @map("finalised_at") @db.Timestamptz(3)
   /// Retained-earnings roll-forward check, stored when the comparatives step is completed
   /// (read by the translation step).
-  rollForward    Json?          @map("roll_forward")
+  rollForward          Json?          @map("roll_forward")
   /// The last user who changed the entity's data in this task (segregation of duties).
-  lastEditedById String?        @map("last_edited_by_id") @db.Uuid
+  lastEditedById       String?        @map("last_edited_by_id") @db.Uuid
   /// Quarterly / annual: why the period does not tie to its months (decision round 1, Q10b).
-  periodTieExplanation String?  @map("period_tie_explanation") @db.VarChar(1000)
+  periodTieExplanation String?        @map("period_tie_explanation") @db.VarChar(1000)
 
   task        Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   entity      Entity @relation(fields: [entityCode], references: [code])
@@ -698,6 +699,10 @@ model UploadedFile {
   entityCode   String?    @map("entity_code") @db.VarChar(10)
   uploadedById String     @map("uploaded_by_id") @db.Uuid
   uploadedAt   DateTime   @default(now()) @map("uploaded_at") @db.Timestamptz(3)
+  /// UPLOAD (a user's file) or ZOHO (built from the Zoho Books API).
+  source       String     @default("UPLOAD") @db.VarChar(20)
+  /// For ERP files: organisation, dates, amount fields and the raw response's storage key.
+  sourceMeta   Json?      @map("source_meta")
 
   task       Task?       @relation(fields: [taskId], references: [id], onDelete: Cascade)
   entity     Entity?     @relation("UploadedFileEntity", fields: [entityCode], references: [code])
@@ -790,17 +795,17 @@ model AppSetting {
 }
 
 model TbLine {
-  id          BigInt  @id @default(autoincrement())
-  tbVersionId String  @map("tb_version_id") @db.Uuid
-  accountCode String  @map("account_code") @db.VarChar(40)
-  accountName String  @map("account_name") @db.VarChar(200)
+  id          BigInt   @id @default(autoincrement())
+  tbVersionId String   @map("tb_version_id") @db.Uuid
+  accountCode String   @map("account_code") @db.VarChar(40)
+  accountName String   @map("account_name") @db.VarChar(200)
   /// Debit positive, credit negative.
-  amount      Decimal @db.Decimal(20, 4)
+  amount      Decimal  @db.Decimal(20, 4)
   /// 1-based spreadsheet rows (several when duplicate codes were combined).
-  sourceRows  Int[]   @map("source_rows")
-  zero        Boolean @default(false)
+  sourceRows  Int[]    @map("source_rows")
+  zero        Boolean  @default(false)
   /// From the TB file's account type column, when it has one.
-  accountType String? @map("account_type") @db.VarChar(60)
+  accountType String?  @map("account_type") @db.VarChar(60)
   /// YTD TBs: the P&L amount as uploaded (amount holds the period movement).
   ytdAmount   Decimal? @map("ytd_amount") @db.Decimal(20, 4)
 
@@ -1399,4 +1404,38 @@ model SigningDetails {
 
   @@id([taskId, key])
   @@map("signing_details")
+}
+
+// ---------------------------------------------------------------------------
+// ERP integrations (Zoho Books API)
+// ---------------------------------------------------------------------------
+
+/// One connection per ERP (one Zoho account holds the organisations of every Zoho entity).
+/// The OAuth refresh token is stored encrypted (AES-256-GCM); access tokens are never stored.
+model ErpConnection {
+  provider        ErpSystem @id
+  /// Zoho accounts server of the account's data centre, e.g. https://accounts.zoho.in.
+  accountsServer  String    @map("accounts_server") @db.VarChar(200)
+  /// API host returned with the token, e.g. https://www.zohoapis.in.
+  apiDomain       String    @map("api_domain") @db.VarChar(200)
+  refreshTokenEnc String    @map("refresh_token_enc") @db.Text
+  scope           String    @db.VarChar(500)
+  connectedById   String    @map("connected_by_id") @db.Uuid
+  connectedAt     DateTime  @map("connected_at") @db.Timestamptz(3)
+
+  @@map("erp_connection")
+}
+
+/// Entity → its organisation in the ERP (Zoho organization_id). Edited in Configuration.
+model ErpOrganisationLink {
+  entityCode       String    @id @map("entity_code") @db.VarChar(10)
+  provider         ErpSystem
+  organizationId   String    @map("organization_id") @db.VarChar(40)
+  organizationName String    @map("organization_name") @db.VarChar(200)
+  updatedById      String    @map("updated_by_id") @db.Uuid
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entity Entity @relation(fields: [entityCode], references: [code])
+
+  @@map("erp_organisation_link")
 }

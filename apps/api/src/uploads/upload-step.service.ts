@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma, TbVersion, UploadKind } from '@prisma/client';
 import {
@@ -14,6 +15,9 @@ import {
   type TbCheckResult,
   type TbColumnSettings,
   type TbLayout,
+  ZOHO_TB_SETTINGS,
+  zohoFetchRange,
+  zohoTbCsv,
 } from '@finance-close/engine';
 import {
   ApiErrorCode,
@@ -51,6 +55,7 @@ import { ChartOfAccountsService } from './chart-of-accounts.service';
 import { toFileRef } from './file-ref';
 import { RatesService } from './rates.service';
 import { columnLetter, readSheetRows } from './sheets';
+import { ZohoService } from '../integrations/zoho.service';
 import { storeUpload } from './stored-files';
 import { saveTbVersion } from './tb-versions';
 
@@ -130,6 +135,7 @@ export class UploadStepService {
     private readonly rates: RatesService,
     private readonly coa: ChartOfAccountsService,
     private readonly guard: SubmissionGuard,
+    private readonly zoho: ZohoService,
   ) {}
 
   // ---------------------------------------------------------------------------------------
@@ -219,6 +225,9 @@ export class UploadStepService {
       }),
     ]);
 
+    const erpFetch = await this.zoho.fetchState(
+      entities.map((te) => ({ code: te.entityCode, erp: te.entity.erp })),
+    );
     const cards: UploadEntityCardDto[] = entities.map((te) => {
       const latest = versions.find((v) => v.entityCode === te.entityCode);
       const coa = files.filter((f) => f.entityCode === te.entityCode && f.kind === 'COA');
@@ -233,6 +242,7 @@ export class UploadStepService {
         shortName: te.entity.shortName,
         functionalCurrency: te.entity.functionalCurrency,
         erp: te.entity.erp,
+        erpFetch: erpFetch.get(te.entityCode) ?? null,
         itemStatus: te.status,
         currentStep: te.currentStep,
         uploadStatus: uploadStatus(latest),
@@ -355,6 +365,104 @@ export class UploadStepService {
     );
   }
 
+  /**
+   * Fetches the entity's TB from Zoho Books for the task period (from 1 April when the P&L
+   * basis is YTD) and stores it as a CSV in the shape of a Zoho export, so it is previewed,
+   * checked and confirmed exactly like an uploaded file. The raw response is kept beside it.
+   */
+  async fetchZohoTb(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    ip: string | null,
+  ): Promise<TbPreviewDto> {
+    const { task, te } = await this.editable(user, taskId, entityCode);
+    if (te.entity.erp !== 'ZOHO')
+      throw ApiError.validation(`${entityCode} does not use Zoho; upload its trial balance file.`);
+    const profile = await this.prisma.uploadProfile.findUnique({ where: { entityCode } });
+    const ytd = profile?.plBasis === 'YTD';
+    const { from, to } = zohoFetchRange(
+      { startDate: fromDbDate(task.period.startDate), endDate: fromDbDate(task.period.endDate) },
+      ytd ? 'YTD' : 'PERIOD',
+    );
+    const tb = await this.zoho.trialBalance(entityCode, from, to);
+    if (tb.problems.length > 0 || !tb.amountFields)
+      throw new ApiError(
+        HttpStatus.BAD_GATEWAY,
+        ApiErrorCode.ErpUnavailable,
+        `The Zoho trial balance could not be read: ${tb.problems.slice(0, 5).join(' ')}${tb.problems.length > 5 ? ` (and ${tb.problems.length - 5} more)` : ''}`,
+      );
+
+    const name = `Zoho TB ${entityCode} ${from} to ${to}.csv`;
+    const csv = Buffer.from(
+      zohoTbCsv({
+        organisation: tb.organizationName,
+        from,
+        to,
+        ytd,
+        amountFields: tb.amountFields,
+        lines: tb.lines,
+      }),
+      'utf8',
+    );
+    const rawKey = `tasks/${taskId}/${entityCode}/zoho/${randomUUID()}-trialbalance.json`;
+    await this.storage.put(rawKey, Buffer.from(JSON.stringify(tb.raw, null, 1), 'utf8'));
+    const meta = {
+      provider: 'ZOHO',
+      organizationId: tb.organizationId,
+      organizationName: tb.organizationName,
+      from,
+      to,
+      plBasis: ytd ? 'YTD' : 'PERIOD',
+      amountFields: tb.amountFields,
+      warnings: tb.warnings,
+      rawStorageKey: rawKey,
+    };
+    const stored = await this.prisma.$transaction(async (tx) => {
+      const f = await storeUpload(tx, this.storage, {
+        kind: 'TB',
+        body: csv,
+        originalName: name,
+        contentType: 'text/csv',
+        taskId,
+        entityCode,
+        uploadedById: user.id,
+        source: 'ZOHO',
+        sourceMeta: meta,
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.ErpTbFetch,
+          entityType: 'UPLOADED_FILE',
+          entityId: f.id,
+          newValue: {
+            task: task.number,
+            entity: entityCode,
+            file: name,
+            sha256: f.sha256,
+            lines: tb.lines.length,
+            ...meta,
+          },
+          ip,
+        },
+        tx,
+      );
+      return f;
+    });
+    const rows = this.readRows({ buffer: csv, originalname: name });
+    return this.preview(
+      task,
+      te.entity,
+      stored.id,
+      name,
+      rows,
+      detectTbLayout(rows),
+      ZOHO_TB_SETTINGS,
+      'ERP',
+    );
+  }
+
   async previewTb(
     user: AuthUser,
     taskId: string,
@@ -416,11 +524,13 @@ export class UploadStepService {
         purpose: target?.purpose ?? 'CURRENT',
         periodId: target?.period.id ?? null,
       });
-      await tx.uploadProfile.upsert({
-        where: { entityCode },
-        create: { entityCode, settings: { ...body.settings }, updatedById: user.id },
-        update: { settings: { ...body.settings }, updatedById: user.id },
-      });
+      // The column profile remembers users' files only, not files built from the ERP.
+      if (file.source === 'UPLOAD')
+        await tx.uploadProfile.upsert({
+          where: { entityCode },
+          create: { entityCode, settings: { ...body.settings }, updatedById: user.id },
+          update: { settings: { ...body.settings }, updatedById: user.id },
+        });
       if (check.lines.some((l) => l.accountCode === YTD_PRIOR_PROFIT_CODE))
         await tx.entityAccount.upsert({
           where: { entityCode_accountCode: { entityCode, accountCode: YTD_PRIOR_PROFIT_CODE } },
@@ -457,6 +567,7 @@ export class UploadStepService {
             version: v.version,
             file: file.originalName,
             sha256: file.sha256,
+            ...(file.source !== 'UPLOAD' ? { source: file.source } : {}),
             status: check.status,
             debits: check.totals.debits,
             credits: check.totals.credits,
@@ -620,12 +731,33 @@ export class UploadStepService {
       knownAccounts: new Set(accounts.map((a) => a.accountCode)),
       sameFileElsewhere: elsewhere,
     });
+    if (file.source === 'ZOHO') this.addErpNotes(result, file.sourceMeta);
     const profile = await this.prisma.uploadProfile.findUnique({
       where: { entityCode: entity.code },
     });
     return profile?.plBasis === 'YTD' && result.errors.length === 0
       ? this.toPeriodBasis(result, entity.code, period)
       : result;
+  }
+
+  /** Where a TB built from Zoho came from, and what the reader noticed (no account codes). */
+  private addErpNotes(result: TbCheckResult, meta: Prisma.JsonValue): void {
+    const m = (meta ?? {}) as {
+      organizationName?: string;
+      from?: string;
+      to?: string;
+      amountFields?: string;
+      warnings?: string[];
+    };
+    const dmy = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '?');
+    result.info.push({
+      code: 'ERP_SOURCE',
+      message: `Fetched from Zoho Books (organisation "${m.organizationName ?? '?'}", ${dmy(m.from)} to ${dmy(m.to)}); amount = ${m.amountFields ?? '?'}.`,
+    });
+    for (const w of m.warnings ?? [])
+      result.warnings.push({ code: 'ERP_NO_ACCOUNT_CODE', message: w });
+    if (result.status === 'VALIDATED' && result.warnings.length > 0)
+      result.status = 'VALIDATED_WITH_WARNINGS';
   }
 
   /**

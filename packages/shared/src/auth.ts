@@ -115,6 +115,8 @@ export const ApiErrorCode = {
   ApiUnavailable: 'API_UNAVAILABLE',
   /** The API is up but cannot reach its database. */
   DatabaseUnavailable: 'DATABASE_UNAVAILABLE',
+  /** The ERP (Zoho Books) refused the request or could not be reached. */
+  ErpUnavailable: 'ERP_UNAVAILABLE',
 } as const;
 export type ApiErrorCode = (typeof ApiErrorCode)[keyof typeof ApiErrorCode];
 
@@ -284,6 +286,11 @@ export const AuditAction = {
   SigningDetailsUpdate: 'SIGNING_DETAILS_UPDATE',
   UploadProfileUpdate: 'UPLOAD_PROFILE_UPDATE',
   PeriodTieExplain: 'PERIOD_TIE_EXPLAIN',
+  // ERP integrations (Zoho Books)
+  ErpConnect: 'ERP_CONNECT',
+  ErpDisconnect: 'ERP_DISCONNECT',
+  ErpLinkChange: 'ERP_LINK_CHANGE',
+  ErpTbFetch: 'ERP_TB_FETCH',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

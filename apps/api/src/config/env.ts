@@ -43,7 +43,21 @@ export interface Env {
   SMTP_SECURE: boolean;
   SMTP_USER: string;
   SMTP_PASSWORD: string;
+  /** Zoho Books API client (Zoho API Console, "Server-based Applications"). Empty = not set up. */
+  ZOHO_CLIENT_ID: string;
+  ZOHO_CLIENT_SECRET: string;
+  /** Where sign-in starts; Zoho sends the account's own data centre back with the code. */
+  ZOHO_ACCOUNTS_URL: string;
+  /** Registered redirect URI; default APP_URL + /api/integrations/zoho/callback. */
+  ZOHO_REDIRECT_URI: string;
+  ZOHO_SCOPE: string;
 }
+
+/** Zoho accounts servers (one per data centre). */
+export const ZOHO_ACCOUNTS_SERVER =
+  /^https:\/\/accounts\.zoho\.(com|in|eu|com\.au|jp|ca|sa|uk|com\.cn)$/;
+export const ZOHO_DEFAULT_SCOPE =
+  'ZohoBooks.reports.READ,ZohoBooks.settings.READ,ZohoBooks.accountants.READ';
 
 export function validateEnv(raw: Record<string, unknown>): Env {
   const errors: string[] = [];
@@ -110,6 +124,16 @@ export function validateEnv(raw: Record<string, unknown>): Env {
   const smtpSecureRaw = (str(raw.SMTP_SECURE) || 'false').toLowerCase();
   if (!['true', 'false'].includes(smtpSecureRaw)) errors.push('SMTP_SECURE must be true or false');
 
+  const zohoAccountsUrl = (str(raw.ZOHO_ACCOUNTS_URL) || 'https://accounts.zoho.com').replace(
+    /\/+$/,
+    '',
+  );
+  if (!ZOHO_ACCOUNTS_SERVER.test(zohoAccountsUrl))
+    errors.push('ZOHO_ACCOUNTS_URL must be a Zoho accounts server, e.g. https://accounts.zoho.in');
+  const zohoRedirect = str(raw.ZOHO_REDIRECT_URI) || `${appUrl}/api/integrations/zoho/callback`;
+  if (!/^https?:\/\//.test(zohoRedirect))
+    errors.push('ZOHO_REDIRECT_URI must start with http:// or https://');
+
   if (errors.length > 0) {
     throw new Error(`Invalid API configuration:\n  - ${errors.join('\n  - ')}`);
   }
@@ -134,6 +158,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     SMTP_SECURE: smtpSecureRaw === 'true',
     SMTP_USER: str(raw.SMTP_USER),
     SMTP_PASSWORD: str(raw.SMTP_PASSWORD),
+    ZOHO_CLIENT_ID: str(raw.ZOHO_CLIENT_ID),
+    ZOHO_CLIENT_SECRET: str(raw.ZOHO_CLIENT_SECRET),
+    ZOHO_ACCOUNTS_URL: zohoAccountsUrl,
+    ZOHO_REDIRECT_URI: zohoRedirect,
+    ZOHO_SCOPE: str(raw.ZOHO_SCOPE) || ZOHO_DEFAULT_SCOPE,
   };
 }
 

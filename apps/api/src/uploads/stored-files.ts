@@ -30,6 +30,9 @@ export async function storeUpload(
     entityCode?: string | null;
     uploadedById: string;
     uploadedAt?: Date;
+    /** ZOHO for files built from the ERP (default UPLOAD). */
+    source?: string;
+    sourceMeta?: Prisma.InputJsonValue;
   },
 ): Promise<UploadedFile> {
   const id = randomUUID();
@@ -52,6 +55,7 @@ export async function storeUpload(
       entityCode: f.entityCode ?? null,
       uploadedById: f.uploadedById,
       ...(f.uploadedAt ? { uploadedAt: f.uploadedAt } : {}),
+      ...(f.source ? { source: f.source, sourceMeta: f.sourceMeta } : {}),
     },
   });
 }

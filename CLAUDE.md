@@ -177,6 +177,8 @@
   when an existing mapping changes (source CONFIGURATION).
 
 ## Open questions (do not guess)
+- Zoho: the trial balance report JSON is undocumented; confirm the first real fetch equals the
+  Zoho UI TB for the same dates. OAuth state is in memory (sticky sessions or DB on AWS).
 - Exchange-rate source: the round-1 default (FBIL / USD cross rates) is TBC; what a Zoho
   date-range TB export contains; NCI default by GAAP; illustrative acquisitions and NCI fair
   value; country holiday lists; signing details after a task is Done.
@@ -218,6 +220,19 @@
 - Statements (page 7): draft comparatives are translated with retained earnings at the opening
   rate; the demo UK Aug-2026 is finalised, so its 6390 is mapped by the demo seed (the rebuild from
   verified files asked for it unmapped: a finalised entity cannot have unmapped accounts); Excel exports actual amounts whatever units are shown.
+
+## Zoho Books integration conventions
+- One Zoho connection (erp_connection, provider ZOHO; refresh token AES-256-GCM encrypted with a
+  key derived from JWT_SECRET; access tokens in memory only) holds every Zoho entity's
+  organisation; erp_organisation_link maps entity → organization_id (Configuration →
+  Integrations, CONFIG_MANAGE, audited). Xero (Veracity) is not connected yet.
+- ZohoClient (src/integrations) is the only code that talks to Zoho (tests stub its http());
+  ZohoService loads organisations, the chart of accounts and reports/trialbalance.
+- Engine zoho-tb.ts: parseZohoTrialBalance (tolerant reader; net / closing amounts first),
+  zohoTbCsv, zohoFetchRange (PERIOD = task period; YTD = from 1 April), suggestOrganisationLinks.
+- "Fetch from Zoho" stores a CSV (uploaded_file.source ZOHO, sourceMeta with the raw response's
+  storage key) and goes through the same preview → checks → confirm as an uploaded TB; it never
+  changes the entity's column profile.
 
 ## Review and finalise (page 8) conventions
 - Checks: engine runSfsChecks(data, register) over the control_check register (C3, editable);

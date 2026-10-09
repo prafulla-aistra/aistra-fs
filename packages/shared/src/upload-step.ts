@@ -3,6 +3,7 @@
  * warning; the web app only displays them.
  */
 import type { ErpSystem, StatementType } from './enums';
+import type { ErpFetchDto } from './integrations';
 import type { ItemStatus, TaskStatus } from './tasks';
 
 export const SIGN_CONVENTIONS = [
@@ -65,6 +66,8 @@ export interface FileRefDto {
   size: number;
   uploadedBy: string;
   uploadedAt: string;
+  /** UPLOAD (a user's file) or ZOHO (built from the Zoho Books API). */
+  source?: string;
 }
 
 export interface TbTotalsDto {
@@ -109,6 +112,8 @@ export interface UploadEntityCardDto {
   shortName: string;
   functionalCurrency: string;
   erp: ErpSystem;
+  /** Fetching the TB from the ERP (Zoho entities only; null otherwise). */
+  erpFetch: ErpFetchDto | null;
   itemStatus: ItemStatus;
   /** Workflow step this entity is at (UPLOAD_DATA, MAPPING, ...). */
   currentStep: string;
@@ -190,7 +195,7 @@ export interface TbPreviewDto {
   /** Headers of the header row, for the column dropdowns ("Column D · Closing Balance"). */
   columns: { index: number; label: string }[];
   settings: TbColumnSettingsDto | null;
-  settingsSource: 'PROFILE' | 'DETECTED' | 'EDITED' | 'NONE';
+  settingsSource: 'PROFILE' | 'DETECTED' | 'EDITED' | 'NONE' | 'ERP';
   detectedPeriod: { from: string; to: string } | { asOf: string } | null;
   detectedOrganisation: string | null;
   /** First 10 lines under the header, with the amount as it will be saved. */

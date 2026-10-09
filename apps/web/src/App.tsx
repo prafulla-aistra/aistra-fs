@@ -19,6 +19,7 @@ import { CurrenciesTab } from '@/pages/configuration/CurrenciesTab';
 import { DueDatesTab } from '@/pages/configuration/DueDatesTab';
 import { EntitiesTab } from '@/pages/configuration/EntitiesTab';
 import { GroupStructureTab } from '@/pages/configuration/GroupStructureTab';
+import { IntegrationsPage } from '@/pages/configuration/IntegrationsPage';
 import { ApprovalsPage, ControlChecksPage } from '@/pages/configuration/ControlsPages';
 import { AcquisitionsPage, IntercompanyPairsPage } from '@/pages/configuration/ConsolidationPages';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
@@ -74,6 +75,7 @@ export function App() {
               <Route path="control-checks" element={<ControlChecksPage />} />
               <Route path="intercompany-pairs" element={<IntercompanyPairsPage />} />
               <Route path="acquisitions" element={<AcquisitionsPage />} />
+              <Route path="integrations" element={<IntegrationsPage />} />
             </Route>
           </Route>
           <Route element={<RequirePermission anyOf={navItem('/users').anyOf} />}>

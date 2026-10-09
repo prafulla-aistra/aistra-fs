@@ -21,6 +21,7 @@ const SOURCE_TEXT: Record<TbPreviewDto['settingsSource'], string> = {
   DETECTED: 'Detected from the file. Check each column.',
   EDITED: 'Your settings.',
   NONE: 'No "Account Code" header found in the first 40 rows — choose the header row and columns.',
+  ERP: 'Fetched from Zoho Books for the task period: Account Code | Account Name | Amount (Dr−Cr).',
 };
 
 const EMPTY: TbColumnSettingsDto = {

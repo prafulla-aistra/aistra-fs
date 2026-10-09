@@ -10,6 +10,7 @@ export function toFileRef(f: UploadedFile & { uploadedBy: { name: string } }): F
     size: f.size,
     uploadedBy: f.uploadedBy.name,
     uploadedAt: f.uploadedAt.toISOString(),
+    ...(f.source !== 'UPLOAD' ? { source: f.source } : {}),
   };
 }
 

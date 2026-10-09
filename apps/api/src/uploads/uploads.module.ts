@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigurationModule } from '../configuration/configuration.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 import { ChartOfAccountsService } from './chart-of-accounts.service';
 import { ComparativeSourceService } from './comparative-source.service';
 import { ComparativesController } from './comparatives.controller';
@@ -29,7 +30,7 @@ import { UploadsController } from './uploads.controller';
 /** SFS workspace: step 1 "Upload data" (page 3), step 2 "Review and map" (page 4),
  * step 3 "Comparatives" (page 5), and rates. */
 @Module({
-  imports: [ConfigurationModule],
+  imports: [ConfigurationModule, IntegrationsModule],
   controllers: [
     UploadsController,
     MappingController,

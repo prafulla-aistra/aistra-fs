@@ -43,6 +43,10 @@ export const CONFIG_SECTIONS = [
     ],
   },
   {
+    title: 'Integrations',
+    items: [{ to: '/configuration/integrations', label: 'Zoho Books' }],
+  },
+  {
     title: 'Controls',
     items: [
       { to: '/configuration/approvals', label: 'Approvals' },
