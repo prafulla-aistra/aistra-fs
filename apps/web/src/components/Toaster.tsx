@@ -8,13 +8,13 @@ export function Toaster() {
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed right-4 bottom-4 z-[60] flex flex-col gap-2"
+      className="pointer-events-none fixed top-20 right-4 z-[60] flex flex-col gap-2"
     >
       {items.map((t) => (
         <div
           key={t.id}
           role="status"
-          className="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-lg animate-in slide-in-from-bottom-2"
+          className="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-lg animate-in slide-in-from-top-2"
         >
           <CheckCircle2 className="size-4 text-teal-light" />
           {t.text}
