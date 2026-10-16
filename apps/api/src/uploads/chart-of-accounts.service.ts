@@ -6,6 +6,10 @@ import {
   Decimal,
   parseChartOfAccounts,
   planCoaMerge,
+  mappingStatus,
+  planGroupingImport,
+  readGroupingSheet,
+  type GroupingPlanItem,
   validateMapping,
 } from '@finance-close/engine';
 import {
@@ -16,6 +20,8 @@ import {
   type CoaAccountInput,
   type CoaPreviewDto,
   type EntityCoaDto,
+  type GroupingImportPreviewDto,
+  type GroupingImportResultDto,
 } from '@finance-close/shared';
 import * as XLSX from 'xlsx';
 import { AuditService } from '../audit/audit.service';
@@ -25,7 +31,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SubmissionGuard } from './submission-guard.service';
 import { StorageService } from '../storage/storage.service';
 import { toMappingFsli } from './mapping-step.service';
-import { readSheetRows } from './sheets';
+import { readSheetRows, readWorkbookSheets } from './sheets';
 import { storeUpload } from './stored-files';
 
 type Tx = Prisma.TransactionClient;
@@ -53,6 +59,9 @@ export interface CoaFile {
   buffer: Buffer;
   originalname: string;
   mimetype: string;
+  /** ZOHO when built from the Zoho Books API (default: a user's file). */
+  source?: 'ZOHO';
+  sourceMeta?: Prisma.InputJsonValue;
 }
 
 /**
@@ -106,6 +115,15 @@ export class ChartOfAccountsService {
       include,
       orderBy: { accountCode: 'asc' },
     });
+    const used = new Set(
+      (
+        await this.prisma.tbLine.findMany({
+          where: { tbVersion: { entityCode } },
+          select: { accountCode: true },
+          distinct: ['accountCode'],
+        })
+      ).map((l) => l.accountCode),
+    );
     const mapped = rows.filter((a) => a.fsliCode !== null).length;
     return {
       entity: { code: e.code, name: e.shortName, erp: e.erp, currency: e.functionalCurrency },
@@ -138,10 +156,32 @@ export class ChartOfAccountsService {
         source: a.source,
         sourceLabel: sourceLabel(a),
         suggested: a.suggested,
+        grouping: a.grouping,
+        inTrialBalance: used.has(a.accountCode),
+        mappingStatus: mappingStatus({
+          code: a.accountCode,
+          fsliCode: a.fsliCode,
+          needsCounterparty: a.fsli?.needsCounterparty ?? false,
+          counterpartyCode: a.counterpartyCode,
+          suggested: a.suggested,
+          grouping: a.grouping,
+        }),
         updatedBy: a.updatedBy?.name ?? null,
         updatedAt: a.updatedAt.toISOString(),
       })),
       canEdit: user.permissions.has(Permission.ConfigManage),
+      mapping: {
+        frozen: e.mappingFrozen,
+        frozenAt: e.mappingFrozenAt?.toISOString() ?? null,
+        frozenBy: e.mappingFrozenById
+          ? ((
+              await this.prisma.user.findUnique({
+                where: { id: e.mappingFrozenById },
+                select: { name: true },
+              })
+            )?.name ?? null)
+          : null,
+      },
     };
   }
 
@@ -225,6 +265,8 @@ export class ChartOfAccountsService {
             rateBasisOverride: override as Prisma.EntityAccountUpdateInput['rateBasisOverride'],
             source: 'CONFIGURATION',
             suggested: false,
+            // Changed by hand: no longer what the client's grouping says.
+            ...(before.fsliCode !== input.fsliCode ? { grouping: null } : {}),
             mappedInTaskId: null,
             updatedById: user.id,
           },
@@ -259,7 +301,13 @@ export class ChartOfAccountsService {
         );
       });
     }
-    if (!unchanged) await this.guard?.accountsChanged(user, entityCode, `Mapping of ${accountCode} changed in configuration`, ip);
+    if (!unchanged)
+      await this.guard?.accountsChanged(
+        user,
+        entityCode,
+        `Mapping of ${accountCode} changed in configuration`,
+        ip,
+      );
     return this.coa(user, entityCode);
   }
 
@@ -370,6 +418,7 @@ export class ChartOfAccountsService {
       taskId: task?.id ?? null,
       entityCode,
       uploadedById: user.id,
+      ...(file.source ? { source: file.source, sourceMeta: file.sourceMeta } : {}),
     });
     await tx.entityAccount.createMany({
       data: plan.added.map((a) => ({
@@ -444,6 +493,287 @@ export class ChartOfAccountsService {
     const parsed = this.parse(file);
     await this.prisma.$transaction((tx) => this.merge(tx, user, e, file, parsed, ip, null));
     await this.guard?.accountsChanged(user, entityCode, 'Chart of accounts uploaded', ip);
+    return this.coa(user, entityCode);
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Client groupings: "Account Code → Grouping" import, and freezing the mapping
+  // ---------------------------------------------------------------------------------------
+
+  /** The sheet to use: the one asked for, else the candidate whose name fits the entity best. */
+  private groupingSheets(
+    e: { code: string; legalName: string; shortName: string },
+    file: CoaFile,
+    sheet: string | null,
+  ) {
+    const all = readWorkbookSheets(file.buffer, file.originalname)
+      .map((s) => ({ name: s.name, rows: readGroupingSheet(s.rows) }))
+      .filter((s): s is { name: string; rows: NonNullable<typeof s.rows> } => s.rows !== null);
+    if (all.length === 0)
+      throw ApiError.validation(
+        'No sheet in this file has an "Account Code" and a "Grouping" column header.',
+      );
+    if (sheet) {
+      const chosen = all.find((s) => s.name === sheet);
+      if (!chosen)
+        throw ApiError.validation(`Sheet "${sheet}" has no Account Code / Grouping table.`);
+      return { all, chosen };
+    }
+    if (all.length === 1) return { all, chosen: all[0]! };
+    // Words that tell the entities apart (not "Aistra", "Labs", "TB" …).
+    const generic = new Set([
+      'aistra',
+      'labs',
+      'tb',
+      'pvt',
+      'ltd',
+      'llc',
+      'inc',
+      'private',
+      'limited',
+      'the',
+    ]);
+    const words = (t: string) =>
+      t
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 2 && !generic.has(w));
+    const mine = new Set([...words(e.legalName), ...words(e.shortName), e.code.toLowerCase()]);
+    if (e.code === 'AE') mine.add('uae');
+    const pick = (score: (name: string) => number) => {
+      const ranked = all.map((s) => ({ s, n: score(s.name) })).sort((a, b) => b.n - a.n);
+      const best = ranked[0]!;
+      return best.n > 0 && !(ranked[1] && ranked[1].n === best.n) ? best.s : null;
+    };
+    // Distinctive words first ("UAE", "India"); else the whole name ("Aistra Labs Inc TB").
+    const allWords = (t: string) =>
+      t
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean);
+    const full = new Set([...allWords(e.legalName), ...allWords(e.shortName)]);
+    const chosen =
+      pick((n) => words(n).filter((w) => mine.has(w)).length) ??
+      (all.every((s) => words(s.name).every((w) => !mine.has(w)))
+        ? pick((n) => allWords(n).filter((w) => full.has(w)).length)
+        : null);
+    return { all, chosen };
+  }
+
+  private async groupingPlan(
+    entityCode: string,
+    rows: Parameters<typeof planGroupingImport>[0]['rows'],
+  ) {
+    const [coa, fslis] = await Promise.all([
+      this.prisma.entityAccount.findMany({ where: { entityCode } }),
+      this.prisma.fsli.findMany({ where: { isActive: true } }),
+    ]);
+    const plan = planGroupingImport({
+      entityCode,
+      rows,
+      coa: coa.map((a) => ({
+        code: a.accountCode,
+        name: a.accountName,
+        fsliCode: a.fsliCode,
+        counterpartyCode: a.counterpartyCode,
+      })),
+      fslis,
+    });
+    return { plan, coa, fslis };
+  }
+
+  async groupingPreview(
+    entityCode: string,
+    file: CoaFile,
+    sheet: string | null,
+  ): Promise<GroupingImportPreviewDto> {
+    const e = await this.entity(entityCode);
+    const { all, chosen } = this.groupingSheets(e, file, sheet);
+    const sheets = all.map((s) => s.name);
+    if (!chosen) return { fileName: file.originalname, sheets, sheet: null, items: [], counts: {} };
+    const { plan, fslis } = await this.groupingPlan(entityCode, chosen.rows);
+    const fsliName = new Map(fslis.map((f) => [f.code, f.name]));
+    const counts: GroupingImportPreviewDto['counts'] = {};
+    for (const i of plan) counts[i.status] = (counts[i.status] ?? 0) + 1;
+    return {
+      fileName: file.originalname,
+      sheets,
+      sheet: chosen.name,
+      counts,
+      items: plan.map((i) => ({
+        ...i,
+        fsliName: i.fsliCode ? (fsliName.get(i.fsliCode) ?? null) : null,
+        before: i.before
+          ? {
+              ...i.before,
+              fsliName: i.before.fsliCode ? (fsliName.get(i.before.fsliCode) ?? null) : null,
+            }
+          : null,
+      })),
+    };
+  }
+
+  /**
+   * Applies the grouping sheet: unmapped accounts are mapped, changed mappings need the reason;
+   * everything else is left as is. Every account change and the import itself are audited, the
+   * file is kept, and the mapping can be frozen in the same step.
+   */
+  async groupingImport(
+    user: AuthUser,
+    entityCode: string,
+    file: CoaFile,
+    input: { sheet: string; reason: string | null; freeze: boolean },
+    ip: string | null,
+  ): Promise<GroupingImportResultDto> {
+    const e = await this.entity(entityCode);
+    const { chosen } = this.groupingSheets(e, file, input.sheet);
+    const { plan } = await this.groupingPlan(entityCode, chosen!.rows);
+    const apply = plan.filter(
+      (i): i is GroupingPlanItem & { fsliCode: string } =>
+        (i.status === 'NEW' || i.status === 'CHANGE') && i.fsliCode !== null,
+    );
+    const reason = input.reason?.trim() ?? '';
+    if (apply.some((i) => i.status === 'CHANGE') && reason.length < 3)
+      throw ApiError.validation('Give a reason: this import changes existing mappings.');
+
+    await this.prisma.$transaction(async (tx) => {
+      const stored = await storeUpload(tx, this.storage, {
+        kind: 'COA',
+        body: file.buffer,
+        originalName: file.originalname,
+        contentType: file.mimetype,
+        taskId: null,
+        entityCode,
+        uploadedById: user.id,
+      });
+      for (const i of apply) {
+        await tx.entityAccount.update({
+          where: { entityCode_accountCode: { entityCode, accountCode: i.code } },
+          data: {
+            fsliCode: i.fsliCode,
+            counterpartyCode: i.counterpartyCode,
+            grouping: i.grouping.slice(0, 200),
+            source: 'CONFIGURATION',
+            suggested: false,
+            mappedInTaskId: null,
+            updatedById: user.id,
+          },
+        });
+        await this.audit.record(
+          {
+            userId: user.id,
+            action: AuditAction.AccountUpdate,
+            entityType: 'ENTITY_ACCOUNT',
+            entityId: `${entityCode}:${i.code}`,
+            oldValue: {
+              fsli: i.before?.fsliCode ?? null,
+              counterparty: i.before?.counterpartyCode ?? null,
+            },
+            newValue: {
+              account: `${i.code} ${i.name}`,
+              fsli: i.fsliCode,
+              counterparty: i.counterpartyCode,
+              grouping: i.grouping,
+              source: `Grouping import (${file.originalname} / ${chosen!.name})`,
+              ...(reason ? { reason } : {}),
+            },
+            ip,
+          },
+          tx,
+        );
+      }
+      // Accounts already mapped as the file says: remember the grouping they correspond to.
+      for (const i of plan.filter((x) => x.status === 'SAME'))
+        await tx.entityAccount.update({
+          where: { entityCode_accountCode: { entityCode, accountCode: i.code } },
+          data: { grouping: i.grouping.slice(0, 200), suggested: false },
+        });
+      const counts: Record<string, number> = {};
+      for (const i of plan) counts[i.status] = (counts[i.status] ?? 0) + 1;
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.MappingImport,
+          entityType: 'ENTITY',
+          entityId: entityCode,
+          newValue: {
+            file: file.originalname,
+            sheet: chosen!.name,
+            fileId: stored.id,
+            applied: apply.length,
+            counts,
+            ...(reason ? { reason } : {}),
+          },
+          ip,
+        },
+        tx,
+      );
+      if (input.freeze && !e.mappingFrozen)
+        await this.freezeIn(
+          tx,
+          user,
+          entityCode,
+          true,
+          reason || 'Frozen after the grouping import',
+          ip,
+        );
+    });
+    if (apply.length > 0)
+      await this.guard?.accountsChanged(
+        user,
+        entityCode,
+        'Mapping imported from the client groupings',
+        ip,
+      );
+    return {
+      applied: apply.length,
+      frozen: input.freeze || e.mappingFrozen,
+      coa: await this.coa(user, entityCode),
+    };
+  }
+
+  private async freezeIn(
+    tx: Tx,
+    user: AuthUser,
+    entityCode: string,
+    frozen: boolean,
+    reason: string,
+    ip: string | null,
+  ): Promise<void> {
+    await tx.entity.update({
+      where: { code: entityCode },
+      data: frozen
+        ? { mappingFrozen: true, mappingFrozenAt: new Date(), mappingFrozenById: user.id }
+        : { mappingFrozen: false, mappingFrozenAt: null, mappingFrozenById: null },
+    });
+    await this.audit.record(
+      {
+        userId: user.id,
+        action: frozen ? AuditAction.MappingFreeze : AuditAction.MappingUnfreeze,
+        entityType: 'ENTITY',
+        entityId: entityCode,
+        oldValue: { mappingFrozen: !frozen },
+        newValue: { mappingFrozen: frozen, reason },
+        ip,
+      },
+      tx,
+    );
+  }
+
+  /** Freeze or unfreeze an entity's mapping (reason required, audited). */
+  async setFreeze(
+    user: AuthUser,
+    entityCode: string,
+    frozen: boolean,
+    reason: string,
+    ip: string | null,
+  ): Promise<EntityCoaDto> {
+    const e = await this.entity(entityCode);
+    if (reason.trim().length < 3) throw ApiError.validation('Give a reason.');
+    if (e.mappingFrozen !== frozen)
+      await this.prisma.$transaction((tx) =>
+        this.freezeIn(tx, user, entityCode, frozen, reason.trim(), ip),
+      );
     return this.coa(user, entityCode);
   }
 

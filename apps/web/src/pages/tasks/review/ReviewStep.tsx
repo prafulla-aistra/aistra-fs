@@ -442,7 +442,7 @@ function SignOffStrip({ signOffs }: { signOffs: SignOffDto[] }) {
           className={cn(
             'rounded-md border px-3 py-1.5 text-xs',
             s.status === 'APPROVED' || s.status === 'SUBMITTED'
-              ? 'border-success/30 bg-mint'
+              ? 'border-success/30 bg-success-surface'
               : s.status === 'RETURNED'
                 ? 'border-destructive/30 bg-red-50'
                 : 'bg-card',

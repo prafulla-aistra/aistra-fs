@@ -13,4 +13,5 @@ export const TEST_ENV = {
   MAIL_OUTBOX_DIR: './data/outbox-test', // emails written by the tests
   ZOHO_CLIENT_ID: 'test-zoho-client', // Zoho itself is stubbed in zoho.e2e-spec
   ZOHO_CLIENT_SECRET: 'test-zoho-secret',
+  ZOHO_REFRESH_TOKEN: 'rt-server', // "Connect with server token" (stubbed)
 };

@@ -4,6 +4,7 @@ import {
   type IsoDate,
   parseZohoTrialBalance,
   suggestOrganisationLinks,
+  ZOHO_TB_COLUMNS,
   type ZohoChartAccount,
   type ZohoTbResult,
 } from '@finance-close/engine';
@@ -23,6 +24,34 @@ import { erpUnavailable, ZohoClient } from './zoho-client.service';
 
 const STATE_TTL_MS = 10 * 60_000;
 const COA_MAX_PAGES = 25;
+/** Accounts used in the trial balance but missing from the list, looked up one by one. */
+const COA_MAX_LOOKUPS = 50;
+
+type ChartAccount = ZohoChartAccount & { parent: string | null };
+
+function toChartAccount(v: unknown): ChartAccount | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const r = v as Record<string, unknown>;
+  if (!str(r.account_id)) return null;
+  return {
+    accountId: str(r.account_id),
+    code: str(r.account_code).trim() || null,
+    name: str(r.account_name),
+    type: str(r.account_type) || null,
+    parent: str(r.parent_account_name) || null,
+  };
+}
+
+/** Account ids of the rows of a Zoho report. */
+function accountIdsIn(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) for (const x of v) accountIdsIn(x, out);
+  else if (typeof v === 'object' && v !== null) {
+    const id = (v as Record<string, unknown>).account_id;
+    if (typeof id === 'string' && id) out.push(id);
+    for (const c of Object.values(v)) if (typeof c === 'object' && c !== null) accountIdsIn(c, out);
+  }
+  return out;
+}
 
 export interface ZohoTrialBalance extends ZohoTbResult {
   organizationId: string;
@@ -71,6 +100,7 @@ export class ZohoService {
       accountsServer: conn?.accountsServer ?? null,
       apiDomain: conn?.apiDomain ?? null,
       redirectUri: this.client.redirectUri,
+      serverTokenAvailable: this.client.configured && !!this.client.serverRefreshToken,
       canEdit: user.permissions.has(Permission.ConfigManage),
       links: entities
         .filter(
@@ -145,13 +175,51 @@ export class ZohoService {
     if (!tokens.refreshToken)
       return back({ zohoError: 'Zoho returned no refresh token (offline access). Connect again.' });
 
+    await this.saveConnection(
+      user.id,
+      accountsServer,
+      { ...tokens, refreshToken: tokens.refreshToken },
+      q.ip,
+    );
+    return back({ zoho: 'connected' });
+  }
+
+  /**
+   * Connect with ZOHO_REFRESH_TOKEN from apps/api/.env (a Self Client token from the Zoho API
+   * Console) instead of the OAuth sign-in. The token is checked with Zoho first; it must carry
+   * ZohoBooks.reports.READ, without which no trial balance can be fetched.
+   */
+  async connectServerToken(user: AuthUser, ip: string | null): Promise<ZohoStatusDto> {
+    const refreshToken = this.client.serverRefreshToken;
+    if (!this.client.configured || !refreshToken)
+      throw ApiError.conflict(
+        'No server token is set up: set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET and ZOHO_REFRESH_TOKEN in apps/api/.env and restart.',
+      );
+    const accountsServer = this.client.accountsServer(undefined);
+    const tokens = await this.client.exchangeRefreshToken(refreshToken, accountsServer);
+    const scopes = tokens.scope.split(/[\s,]+/);
+    if (!scopes.includes('ZohoBooks.reports.READ'))
+      throw ApiError.conflict(
+        'The Zoho token in ZOHO_REFRESH_TOKEN cannot read reports (scope ZohoBooks.reports.READ is missing), so trial balances cannot be fetched. Generate a new one with ZohoBooks.reports.READ,ZohoBooks.settings.READ,ZohoBooks.accountants.READ.',
+      );
+    await this.saveConnection(user.id, accountsServer, { ...tokens, refreshToken }, ip);
+    return this.status(user);
+  }
+
+  /** Stores the connection (refresh token encrypted, audited without it) and retires the old one. */
+  private async saveConnection(
+    userId: string,
+    accountsServer: string,
+    tokens: { refreshToken: string; apiDomain: string; scope: string },
+    ip: string | null,
+  ): Promise<void> {
     const before = await this.prisma.erpConnection.findUnique({ where: { provider: 'ZOHO' } });
     const data = {
       accountsServer,
       apiDomain: tokens.apiDomain,
       refreshTokenEnc: this.client.encrypt(tokens.refreshToken),
       scope: tokens.scope,
-      connectedById: user.id,
+      connectedById: userId,
       connectedAt: new Date(),
     };
     await this.prisma.$transaction(async (tx) => {
@@ -162,7 +230,7 @@ export class ZohoService {
       });
       await this.audit.record(
         {
-          userId: user.id,
+          userId,
           action: AuditAction.ErpConnect,
           entityType: 'ERP_CONNECTION',
           entityId: 'ZOHO',
@@ -173,24 +241,28 @@ export class ZohoService {
                 scope: before.scope,
               }
             : null,
-          newValue: { accountsServer, apiDomain: tokens.apiDomain, scope: tokens.scope },
-          ip: q.ip,
+          newValue: {
+            accountsServer,
+            apiDomain: tokens.apiDomain,
+            scope: tokens.scope,
+            source:
+              tokens.refreshToken === this.client.serverRefreshToken ? 'SERVER_TOKEN' : 'OAUTH',
+          },
+          ip,
         },
         tx,
       );
     });
-    // A previous connection's token is no longer needed.
+    // A previous connection's token is no longer needed (the server token is never revoked).
     if (before) {
+      let old: string | null = null;
       try {
-        await this.client.revoke(
-          before.accountsServer,
-          this.client.decrypt(before.refreshTokenEnc),
-        );
+        old = this.client.decrypt(before.refreshTokenEnc);
       } catch {
         /* unreadable old token: nothing to revoke */
       }
+      if (old && old !== tokens.refreshToken) await this.client.revoke(before.accountsServer, old);
     }
-    return back({ zoho: 'connected' });
   }
 
   async disconnect(user: AuthUser, ip: string | null): Promise<ZohoStatusDto> {
@@ -351,30 +423,78 @@ export class ZohoService {
     return out;
   }
 
-  private async chartOfAccounts(organizationId: string): Promise<ZohoChartAccount[]> {
-    const out: ZohoChartAccount[] = [];
-    for (let page = 1; page <= COA_MAX_PAGES; page++) {
-      const body = await this.client.books('chartofaccounts', {
-        organization_id: organizationId,
-        page: String(page),
-        per_page: '200',
-      });
-      const list = Array.isArray(body.chartofaccounts) ? body.chartofaccounts : [];
-      for (const a of list) {
-        if (typeof a !== 'object' || a === null) continue;
-        const r = a as Record<string, unknown>;
-        if (!str(r.account_id)) continue;
-        out.push({
-          accountId: str(r.account_id),
-          code: str(r.account_code).trim() || null,
-          name: str(r.account_name),
-          type: str(r.account_type) || null,
+  /**
+   * The entity's Zoho chart of accounts. With a date range, every account the trial balance of
+   * that range uses is included as well (looked up one by one when the list missed it).
+   */
+  async entityChartOfAccounts(entityCode: string, range?: { from: IsoDate; to: IsoDate }) {
+    const link = await this.prisma.erpOrganisationLink.findUnique({ where: { entityCode } });
+    if (!link)
+      throw ApiError.conflict(
+        `No Zoho organisation is linked to ${entityCode}. Link it in Configuration → Integrations.`,
+      );
+    const accounts = await this.chartOfAccounts(link.organizationId);
+    if (range) {
+      const known = new Set(accounts.map((a) => a.accountId));
+      const raw = await this.tbReport(link.organizationId, range.from, range.to);
+      const missing = [...new Set(accountIdsIn(raw))].filter((id) => !known.has(id));
+      for (const id of missing.slice(0, COA_MAX_LOOKUPS)) {
+        const body = await this.client.books(`chartofaccounts/${id}`, {
+          organization_id: link.organizationId,
         });
+        const a = toChartAccount(body.chart_of_account);
+        if (a) accounts.push(a);
       }
-      const ctx = body.page_context as { has_more_page?: unknown } | undefined;
-      if (ctx?.has_more_page !== true) break;
+      if (missing.length > COA_MAX_LOOKUPS)
+        this.logger.warn(
+          `${entityCode} COA: ${missing.length - COA_MAX_LOOKUPS} trial balance accounts not looked up.`,
+        );
     }
-    return out;
+    return {
+      organizationId: link.organizationId,
+      organizationName: link.organizationName,
+      accounts,
+    };
+  }
+
+  /**
+   * Zoho's account list pages are unreliable: has_more_page is often false too early and one
+   * listing can miss accounts another returns. So pages are read until an empty one, twice
+   * (plain and with balances), and merged by account id.
+   */
+  private async chartOfAccounts(organizationId: string): Promise<ChartAccount[]> {
+    const out = new Map<string, ChartAccount>();
+    for (const extra of [{}, { showbalance: 'true' }] as Record<string, string>[]) {
+      for (let page = 1; page <= COA_MAX_PAGES; page++) {
+        const body = await this.client.books('chartofaccounts', {
+          organization_id: organizationId,
+          page: String(page),
+          per_page: '200',
+          ...extra,
+        });
+        const list = Array.isArray(body.chartofaccounts) ? body.chartofaccounts : [];
+        for (const r of list) {
+          const a = toChartAccount(r);
+          if (a && !out.has(a.accountId)) out.set(a.accountId, a);
+        }
+        if (list.length === 0) break;
+      }
+    }
+    return [...out.values()];
+  }
+
+  /**
+   * Without filter_by Zoho ignores from_date (the report is "as of" to_date); the columns give
+   * each account's opening, movement and closing (accounts without movement included).
+   */
+  private tbReport(organizationId: string, from: IsoDate, to: IsoDate) {
+    return this.client.books('reports/trialbalance', {
+      organization_id: organizationId,
+      from_date: from,
+      to_date: to,
+      filter_by: 'TransactionDate.CustomDate',
+      select_columns: JSON.stringify(ZOHO_TB_COLUMNS.map((field) => ({ field, group: 'report' }))),
+    });
   }
 
   /** The entity's Zoho trial balance between two dates (inclusive). */
@@ -386,11 +506,7 @@ export class ZohoService {
       );
     const [chart, raw] = await Promise.all([
       this.chartOfAccounts(link.organizationId),
-      this.client.books('reports/trialbalance', {
-        organization_id: link.organizationId,
-        from_date: from,
-        to_date: to,
-      }),
+      this.tbReport(link.organizationId, from, to),
     ]);
     const parsed = parseZohoTrialBalance(raw, chart);
     if (parsed.period && (parsed.period.from !== from || parsed.period.to !== to))

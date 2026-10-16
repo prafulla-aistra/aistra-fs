@@ -51,6 +51,11 @@ export interface Env {
   /** Registered redirect URI; default APP_URL + /api/integrations/zoho/callback. */
   ZOHO_REDIRECT_URI: string;
   ZOHO_SCOPE: string;
+  /**
+   * Optional refresh token generated in the Zoho API Console (Self Client). "Connect with
+   * server token" stores it as the connection instead of the OAuth sign-in. Empty = not used.
+   */
+  ZOHO_REFRESH_TOKEN: string;
 }
 
 /** Zoho accounts servers (one per data centre). */
@@ -163,6 +168,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     ZOHO_ACCOUNTS_URL: zohoAccountsUrl,
     ZOHO_REDIRECT_URI: zohoRedirect,
     ZOHO_SCOPE: str(raw.ZOHO_SCOPE) || ZOHO_DEFAULT_SCOPE,
+    ZOHO_REFRESH_TOKEN: str(raw.ZOHO_REFRESH_TOKEN),
   };
 }
 

@@ -1,9 +1,10 @@
 import type { EntityMappingDto } from '@finance-close/shared';
 import { Select } from '@/components/ui/form';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 
 type Options = EntityMappingDto['options'];
 
-/** FSLI select grouped Balance sheet / Profit and loss (computed and consolidation-only excluded). */
+/** Searchable FSLI select, grouped Balance sheet / Profit and loss (computed and consolidation-only excluded). */
 export function FsliSelect({
   options,
   value,
@@ -18,25 +19,23 @@ export function FsliSelect({
   label: string;
 }) {
   return (
-    <Select
-      aria-label={label}
+    <SearchableSelect
+      label={label}
       value={value}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">Choose FSLI…</option>
-      {(['BS', 'PL'] as const).map((st) => (
-        <optgroup key={st} label={st === 'BS' ? 'Balance sheet' : 'Profit and loss'}>
-          {options.fslis
-            .filter((f) => f.statement === st)
-            .map((f) => (
-              <option key={f.code} value={f.code}>
-                {f.name} ({f.code})
-              </option>
-            ))}
-        </optgroup>
-      ))}
-    </Select>
+      onChange={onChange}
+      placeholder="Choose FSLI…"
+      options={(['BS', 'PL'] as const).flatMap((st) =>
+        options.fslis
+          .filter((f) => f.statement === st)
+          .map((f) => ({
+            value: f.code,
+            label: f.name,
+            hint: f.code,
+            group: st === 'BS' ? 'Balance sheet' : 'Profit and loss',
+          })),
+      )}
+    />
   );
 }
 

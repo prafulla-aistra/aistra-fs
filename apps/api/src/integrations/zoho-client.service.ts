@@ -45,6 +45,11 @@ export class ZohoClient {
     );
   }
 
+  /** ZOHO_REFRESH_TOKEN from apps/api/.env (Self Client), or null when not set. */
+  get serverRefreshToken(): string | null {
+    return this.config.get('ZOHO_REFRESH_TOKEN', { infer: true }) || null;
+  }
+
   get redirectUri(): string {
     return this.config.get('ZOHO_REDIRECT_URI', { infer: true });
   }
@@ -140,7 +145,25 @@ export class ZohoClient {
     return t;
   }
 
+  /** "Connect with server token": proves the refresh token works and returns its details. */
+  async exchangeRefreshToken(refreshToken: string, accountsServer: string): Promise<ZohoTokens> {
+    const t = await this.tokenRequest(accountsServer, {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+    this.access = { token: t.accessToken, expires: Date.now() + (t.expiresIn - 120) * 1000 };
+    return { ...t, refreshToken };
+  }
+
+  /**
+   * Revokes a refresh token, except ZOHO_REFRESH_TOKEN itself: that one belongs to the server
+   * configuration and revoking it would break the next "Connect with server token".
+   */
   async revoke(accountsServer: string, refreshToken: string): Promise<void> {
+    if (refreshToken === this.serverRefreshToken) {
+      this.access = null;
+      return;
+    }
     try {
       await this.http(`${accountsServer}/oauth/v2/token/revoke`, {
         method: 'POST',
@@ -199,7 +222,9 @@ export class ZohoClient {
           r.status === 401
             ? 'Zoho no longer accepts the connection. Connect Zoho Books again in Configuration → Integrations.'
             : r.status === 429
-              ? 'Zoho Books rate limit reached. Wait a minute and try again.'
+              ? b.code === 43
+                ? 'Zoho Books has blocked requests for up to an hour (too many requests in one minute). Try again later.'
+                : 'Zoho Books rate limit reached. Wait a minute and try again.'
               : `Zoho Books refused the request: ${msg}`,
         );
       }

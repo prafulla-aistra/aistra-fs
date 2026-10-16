@@ -30,6 +30,8 @@ const IN = SAMPLE_ENTITIES.find((e) => e.code === 'IN')!;
 const inLines = IN.accounts.filter((a) => a.aug !== '');
 
 const calls: { url: string; form?: string }[] = [];
+/** Scope Zoho reports when the server token is refreshed (changed by the server-token tests). */
+let serverScope = 'ZohoBooks.reports.READ ZohoBooks.settings.READ ZohoBooks.accountants.READ';
 const ORGS = [
   { organization_id: '60001', name: 'Aistra GenAI India Private Limited', currency_code: 'INR' },
   { organization_id: '60002', name: 'Some Other Company', currency_code: 'USD' },
@@ -76,6 +78,7 @@ beforeAll(async () => {
           body: {
             access_token: grant === 'authorization_code' ? 'at-1' : 'at-2',
             ...(grant === 'authorization_code' ? { refresh_token: 'rt-secret-1' } : {}),
+            ...(init.form?.get('refresh_token') === 'rt-server' ? { scope: serverScope } : {}),
             api_domain: 'https://www.zohoapis.in',
             expires_in: 3600,
           },
@@ -253,6 +256,18 @@ describe('trial balance from Zoho', () => {
       '2026-06-01',
       '2026-06-30',
     ]);
+    // A real date range (Zoho ignores from_date otherwise) with opening / movement / closing.
+    expect(q.get('filter_by')).toBe('TransactionDate.CustomDate');
+    expect(
+      (JSON.parse(q.get('select_columns')!) as { field: string }[]).map((c) => c.field),
+    ).toEqual([
+      'name',
+      'account_code',
+      'opening_balance',
+      'net_debit',
+      'net_credit',
+      'closing_balance',
+    ]);
     expect(p.settingsSource).toBe('ERP');
     expect(p.fileName).toBe('Zoho TB IN 2026-06-01 to 2026-06-30.csv');
     expect(p.detectedPeriod).toEqual({ from: '2026-06-01', to: '2026-06-30' });
@@ -313,5 +328,50 @@ describe('disconnect', () => {
     expect(calls.some((c) => c.url.endsWith('/oauth/v2/token/revoke'))).toBe(true);
     const fetch = await ctx.http().post(`/api/tasks/${task.id}/entities/IN/tb/zoho`).set(as(priya));
     expect(fetch.status).toBe(409);
+  });
+});
+
+describe('server refresh token (ZOHO_REFRESH_TOKEN)', () => {
+  it('is offered in the status; only CONFIG_MANAGE may use it', async () => {
+    expect((await status(master)).serverTokenAvailable).toBe(true);
+    const res = await ctx.http().post('/api/integrations/zoho/connect-server-token').set(as(priya));
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses a token without ZohoBooks.reports.READ', async () => {
+    serverScope = 'ZohoBooks.settings.READ ZohoBooks.accountants.READ';
+    const res = await ctx
+      .http()
+      .post('/api/integrations/zoho/connect-server-token')
+      .set(as(master));
+    serverScope = 'ZohoBooks.reports.READ ZohoBooks.settings.READ ZohoBooks.accountants.READ';
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/ZohoBooks\.reports\.READ/);
+    expect((await status(master)).connected).toBe(false);
+  });
+
+  it('connects with the server token (encrypted, audited without it)', async () => {
+    const res = await ctx
+      .http()
+      .post('/api/integrations/zoho/connect-server-token')
+      .set(as(master));
+    expect(res.status).toBe(201);
+    expect((res.body as ZohoStatusDto).connected).toBe(true);
+    const conn = await ctx.prisma.erpConnection.findUniqueOrThrow({ where: { provider: 'ZOHO' } });
+    expect(conn.refreshTokenEnc).not.toContain('rt-server');
+    const audit = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { entityType: 'ERP_CONNECTION', action: 'ERP_CONNECT' },
+      orderBy: { id: 'desc' },
+    });
+    expect(JSON.stringify([audit.oldValue, audit.newValue])).not.toContain('rt-server');
+    expect(audit.newValue).toMatchObject({ source: 'SERVER_TOKEN' });
+  });
+
+  it('disconnecting never revokes the server token', async () => {
+    calls.length = 0;
+    const res = await ctx.http().delete('/api/integrations/zoho').set(as(master));
+    expect(res.status).toBe(200);
+    expect((res.body as ZohoStatusDto).connected).toBe(false);
+    expect(calls.some((c) => c.url.endsWith('/oauth/v2/token/revoke'))).toBe(false);
   });
 });

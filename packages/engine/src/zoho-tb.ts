@@ -1,6 +1,7 @@
 import { parseAmountText } from './amounts';
 import { type IsoDate, parseIsoDate, toIsoDate } from './dates';
 import { Decimal, roundAmount } from './money';
+import { YTD_PRIOR_PROFIT_CODE } from './tb-basis';
 import { organisationKey, sameOrganisation, type TbColumnSettings } from './tb-parser';
 
 /**
@@ -13,6 +14,13 @@ import { organisationKey, sameOrganisation, type TbColumnSettings } from './tb-p
  * whole report, closing / net balances first, and named in the result so the user sees what was
  * used. Whatever goes wrong becomes a problem; the TB checks (balance to the cent) still run on
  * the result like on any uploaded file.
+ *
+ * A date-range report with opening, movement and closing columns (what ZohoService asks for,
+ * see ZOHO_TB_COLUMNS) is read as a period TB: balance-sheet accounts at their closing balance,
+ * P&L accounts at the period movement. Zoho moves profit into Retained Earnings only at its own
+ * financial-year end, so the profit from that year start to the period start is in neither; it
+ * is added as one equity line (YTD-PRIOR → retained earnings) equal to minus the opening
+ * balances, and the TB nets to zero exactly like the report's movements.
  */
 
 export interface ZohoChartAccount {
@@ -33,6 +41,8 @@ export interface ZohoTbLine {
 
 export interface ZohoTbResult {
   lines: ZohoTbLine[];
+  /** Period report: the profit of earlier months added as YTD-PRIOR ("0.00" when none). */
+  priorProfit: string | null;
   /** e.g. "net_debit − net_credit", or null when no account rows were found. */
   amountFields: string | null;
   /** Dates the report says it covers, when it says so. */
@@ -44,6 +54,28 @@ export interface ZohoTbResult {
 }
 
 type Json = Record<string, unknown>;
+
+/** Columns ZohoService requests (select_columns) for a period TB. */
+export const ZOHO_TB_COLUMNS = [
+  'name',
+  'account_code',
+  'opening_balance',
+  'net_debit',
+  'net_credit',
+  'closing_balance',
+] as const;
+
+export const ZOHO_PRIOR_PROFIT_NAME =
+  'Profit of earlier months this year (Zoho, not yet in retained earnings)';
+
+/** Zoho's account types (report groups and chart of accounts) that belong to the P&L. */
+const PL_TYPES = new Set([
+  'income',
+  'other_income',
+  'expense',
+  'other_expense',
+  'cost_of_goods_sold',
+]);
 type AmountRule =
   { kind: 'PAIR'; debit: string; credit: string } | { kind: 'SIGNED'; field: string };
 
@@ -102,16 +134,33 @@ function subtreeHasAccount(v: unknown): boolean {
 /** Group and total rows hold account rows; account rows do not. */
 const containsAccount = (o: Json) => Object.values(o).some(subtreeHasAccount);
 
-/** Account rows: objects that look like an account and hold no account rows themselves. */
-function accountRows(v: unknown, out: Json[] = []): Json[] {
+/**
+ * Account rows: objects that look like an account and hold no account rows themselves, each
+ * with the account type of the nearest group above it (Zoho groups rows by asset, income …).
+ */
+function accountRows(
+  v: unknown,
+  out: { row: Json; groupType: string }[] = [],
+  groupType = '',
+): { row: Json; groupType: string }[] {
   if (Array.isArray(v)) {
-    for (const x of v) accountRows(x, out);
+    for (const x of v) accountRows(x, out, groupType);
   } else if (isObject(v)) {
-    if (looksLikeAccount(v) && !containsAccount(v)) out.push(v);
-    else for (const c of Object.values(v)) if (Array.isArray(c) || isObject(c)) accountRows(c, out);
+    if (looksLikeAccount(v) && !containsAccount(v)) out.push({ row: v, groupType });
+    else {
+      const t = str(v.account_type).toLowerCase() || groupType;
+      for (const c of Object.values(v)) if (Array.isArray(c) || isObject(c)) accountRows(c, out, t);
+    }
   }
   return out;
 }
+
+const PERIOD_MOVEMENT: AmountRule = {
+  kind: 'PAIR',
+  debit: 'net_debit_total',
+  credit: 'net_credit_total',
+};
+const PERIOD_CLOSING: AmountRule = { kind: 'SIGNED', field: 'closing_balance' };
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 function reportPeriod(body: Json): ZohoTbResult['period'] {
@@ -129,6 +178,7 @@ export function parseZohoTrialBalance(
 ): ZohoTbResult {
   const empty = (problem: string): ZohoTbResult => ({
     lines: [],
+    priorProfit: null,
     amountFields: null,
     period: null,
     problems: [problem],
@@ -139,7 +189,8 @@ export function parseZohoTrialBalance(
   if (typeof code === 'number' && code !== 0)
     return empty(`Zoho refused the request: ${str(body.message) || `code ${code}`}.`);
 
-  const rows = accountRows(body);
+  const found = accountRows(body);
+  const rows = found.map((f) => f.row);
   const period = reportPeriod(body);
   if (rows.length === 0)
     return {
@@ -147,26 +198,43 @@ export function parseZohoTrialBalance(
       period,
     };
 
-  // One rule for the whole report: the first that every row has, else the first most rows have.
+  // A period report (movement and closing on every row; Zoho leaves the opening balance out
+  // where it is zero, e.g. on P&L rows): BS closing, P&L movement.
+  const periodReport =
+    !!period && rows.every((o) => ruleFits(o, PERIOD_MOVEMENT) && ruleFits(o, PERIOD_CLOSING));
+  // Otherwise one rule for the whole report: the first that every row has, else the first most
+  // rows have.
   const counts = RULES.map((r) => rows.filter((o) => ruleFits(o, r)).length);
   const allIdx = counts.findIndex((n) => n === rows.length);
   const best = Math.max(...counts);
-  const idx = allIdx >= 0 ? allIdx : best > 0 ? counts.indexOf(best) : -1;
+  const idx = periodReport ? 0 : allIdx >= 0 ? allIdx : best > 0 ? counts.indexOf(best) : -1;
   if (idx < 0)
     return {
       ...empty('The Zoho trial balance rows have no debit / credit or balance amounts.'),
       period,
     };
-  const rule = RULES[idx]!;
 
   const byId = new Map(chart.map((a) => [a.accountId, a]));
   const problems: string[] = [];
   const noCode: string[] = [];
   const lines: ZohoTbLine[] = [];
-  for (const o of rows) {
+  let opening = new Decimal(0);
+  for (const { row: o, groupType } of found) {
     const accountId = accountIdOf(o) || null;
     const coa = accountId ? byId.get(accountId) : undefined;
     const name = nameOf(o);
+    const type = str(o.account_type) || coa?.type || null;
+    let rule = RULES[idx]!;
+    if (periodReport) {
+      const kind = (groupType || type || '').toLowerCase();
+      rule = PL_TYPES.has(kind) ? PERIOD_MOVEMENT : PERIOD_CLOSING;
+      const open = amountOf(o.opening_balance);
+      if (typeof open === 'string') {
+        problems.push(`${str(o.account_code) || name}: opening balance ${open}.`);
+        continue;
+      }
+      opening = opening.plus(open);
+    }
     let accountCode = str(o.account_code) || coa?.code?.trim() || '';
     if (!accountCode) {
       if (!accountId) continue; // looksLikeAccount guarantees one of the two
@@ -198,18 +266,37 @@ export function parseZohoTrialBalance(
     lines.push({
       code: accountCode,
       name,
-      type: str(o.account_type) || coa?.type || null,
+      type,
       amount: roundAmount(amount).toFixed(2),
       accountId,
     });
   }
+  // Closing = opening + movement, so the TB is short by the opening balances: earlier profit.
+  const priorProfit = periodReport ? roundAmount(opening.negated()) : null;
+  if (priorProfit && !priorProfit.isZero())
+    lines.push({
+      code: YTD_PRIOR_PROFIT_CODE,
+      name: ZOHO_PRIOR_PROFIT_NAME,
+      type: 'Equity',
+      amount: priorProfit.toFixed(2),
+      accountId: null,
+    });
 
   const warnings: string[] = [];
   if (noCode.length)
     warnings.push(
       `${noCode.length} Zoho account${noCode.length === 1 ? ' has' : 's have'} no account code; the Zoho account id is used as the code (ZOHO-…): ${noCode.join(', ')}. Add account codes in Zoho to keep mappings readable.`,
     );
-  return { lines, amountFields: ruleLabel(rule), period, problems, warnings };
+  return {
+    lines,
+    priorProfit: priorProfit ? priorProfit.toFixed(2) : null,
+    amountFields: periodReport
+      ? `closing_balance for balance-sheet accounts, ${ruleLabel(PERIOD_MOVEMENT)} for P&L accounts`
+      : ruleLabel(RULES[idx]!),
+    period,
+    problems,
+    warnings,
+  };
 }
 
 /** Column layout of the CSV built by zohoTbCsv. */
@@ -266,6 +353,26 @@ export function zohoTbCsv(input: {
     [],
     ['Account Code', 'Account Name', 'Account Type', 'Amount (Dr-Cr)'],
     ...input.lines.map((l) => [l.code, l.name, l.type ?? '', l.amount]),
+  ];
+  return `${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+/**
+ * Zoho's chart of accounts as a CSV the chart-of-accounts upload reads (Account Code, Account
+ * Name, Account Type, Parent Account). An account without a code gets "ZOHO-<account id>",
+ * the code the fetched trial balance gives it, so both refer to the same account.
+ */
+export function zohoCoaCsv(
+  accounts: readonly (ZohoChartAccount & { parent?: string | null })[],
+): string {
+  const rows = [
+    ['Account Code', 'Account Name', 'Account Type', 'Parent Account'],
+    ...accounts.map((a) => [
+      a.code?.trim() || `ZOHO-${a.accountId}`,
+      a.name,
+      a.type ?? '',
+      a.parent ?? '',
+    ]),
   ];
   return `${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

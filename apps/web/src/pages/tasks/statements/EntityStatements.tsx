@@ -260,7 +260,7 @@ export function EntityStatements({
         <Info className="mt-0.5 size-3.5 shrink-0" /> {d.footer}
       </p>
 
-      <div className="no-print fixed inset-x-0 bottom-0 z-20 border-t bg-card/95 px-4 py-3 backdrop-blur md:left-64">
+      <div className="no-print fixed inset-x-0 bottom-0 md:left-(--shell-left) z-20 border-t bg-card/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-3">
           {next.error && (
             <span className="text-sm text-destructive">{errorMessage(next.error)}</span>

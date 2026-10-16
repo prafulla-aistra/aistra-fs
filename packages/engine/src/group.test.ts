@@ -222,3 +222,35 @@ describe('missingHistoricalRates', () => {
     expect(missingHistoricalRates(uc, entities, levels).map((m) => m.currency)).toEqual(['INR']);
   });
 });
+
+describe('deriveConsolidationLevels – parents that do not prepare a level', () => {
+  const g = (
+    code: string,
+    parentCode: string | null,
+    extra: Partial<GroupEntity> = {},
+  ): GroupEntity => ({
+    code,
+    name: code,
+    parentCode,
+    heldByParentPct: parentCode ? '100' : null,
+    reportingCurrency: 'USD',
+    ...extra,
+  });
+  it('consolidates such a parent and its subsidiaries in the next level up', () => {
+    const levels = deriveConsolidationLevels([
+      g('US', null),
+      g('IN', 'US'),
+      g('UC', 'IN', { preparesConsolidation: false }),
+      g('VS', 'UC'),
+    ]);
+    expect(levels.map((l) => [l.name, l.members])).toEqual([
+      ['IN', ['IN', 'UC', 'VS']],
+      ['US', ['US', 'IN', 'UC', 'VS']],
+    ]);
+  });
+  it('the ultimate parent always prepares the group consolidation', () => {
+    expect(
+      deriveConsolidationLevels([g('US', null, { preparesConsolidation: false }), g('IN', 'US')]),
+    ).toHaveLength(1);
+  });
+});

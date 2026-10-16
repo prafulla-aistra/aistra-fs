@@ -15,6 +15,11 @@ export interface GroupEntity {
   reportingCurrency: string;
   /** Inactive entities are ignored. Defaults to true. */
   isActive?: boolean;
+  /**
+   * A parent prepares its own consolidation level (default true). When false, its members are
+   * consolidated in the next level up that does; the ultimate parent always prepares one.
+   */
+  preparesConsolidation?: boolean;
 }
 
 export type GroupIssueCode =
@@ -204,7 +209,11 @@ export function deriveConsolidationLevels(entities: readonly GroupEntity[]): Con
 
   return order
     .map((o, position) => ({ ...o, position }))
-    .filter((o) => (children.get(o.entity.code) ?? []).length > 0)
+    .filter(
+      (o) =>
+        (children.get(o.entity.code) ?? []).length > 0 &&
+        (o.entity.parentCode === null || o.entity.preparesConsolidation !== false),
+    )
     .sort((a, b) => b.depth - a.depth || a.position - b.position)
     .map((o, i) => ({
       level: i + 1,

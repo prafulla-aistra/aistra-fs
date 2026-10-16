@@ -177,6 +177,13 @@ export const api = {
     form.append('file', file);
     return apiFetch<T>(path, { method: 'POST', body: form });
   },
+  /** Multipart upload of one file ("file") with extra text fields. */
+  uploadWith: <T>(path: string, file: File, fields: Record<string, string>) => {
+    const form = new FormData();
+    form.append('file', file);
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    return apiFetch<T>(path, { method: 'POST', body: form });
+  },
 };
 
 /** Downloads an uploaded file (authenticated) and hands it to the browser as a download. */

@@ -17,6 +17,7 @@ import {
   type TbLayout,
   ZOHO_TB_SETTINGS,
   zohoFetchRange,
+  zohoCoaCsv,
   zohoTbCsv,
 } from '@finance-close/engine';
 import {
@@ -366,9 +367,11 @@ export class UploadStepService {
   }
 
   /**
-   * Fetches the entity's TB from Zoho Books for the task period (from 1 April when the P&L
-   * basis is YTD) and stores it as a CSV in the shape of a Zoho export, so it is previewed,
-   * checked and confirmed exactly like an uploaded file. The raw response is kept beside it.
+   * Fetches the entity's TB from Zoho Books for the task period and stores it as a CSV in the
+   * shape of a Zoho export, so it is previewed, checked and confirmed exactly like an uploaded
+   * file. The raw response is kept beside it. A fetched TB is always on the period basis
+   * (balance sheet at closing, P&L for the period, earlier profit as YTD-PRIOR), whatever the
+   * entity's upload profile says: the profile's P&L basis describes uploaded files.
    */
   async fetchZohoTb(
     user: AuthUser,
@@ -379,11 +382,9 @@ export class UploadStepService {
     const { task, te } = await this.editable(user, taskId, entityCode);
     if (te.entity.erp !== 'ZOHO')
       throw ApiError.validation(`${entityCode} does not use Zoho; upload its trial balance file.`);
-    const profile = await this.prisma.uploadProfile.findUnique({ where: { entityCode } });
-    const ytd = profile?.plBasis === 'YTD';
     const { from, to } = zohoFetchRange(
       { startDate: fromDbDate(task.period.startDate), endDate: fromDbDate(task.period.endDate) },
-      ytd ? 'YTD' : 'PERIOD',
+      'PERIOD',
     );
     const tb = await this.zoho.trialBalance(entityCode, from, to);
     if (tb.problems.length > 0 || !tb.amountFields)
@@ -399,7 +400,7 @@ export class UploadStepService {
         organisation: tb.organizationName,
         from,
         to,
-        ytd,
+        ytd: false,
         amountFields: tb.amountFields,
         lines: tb.lines,
       }),
@@ -413,8 +414,9 @@ export class UploadStepService {
       organizationName: tb.organizationName,
       from,
       to,
-      plBasis: ytd ? 'YTD' : 'PERIOD',
+      plBasis: 'PERIOD',
       amountFields: tb.amountFields,
+      priorProfit: tb.priorProfit,
       warnings: tb.warnings,
       rawStorageKey: rawKey,
     };
@@ -735,7 +737,8 @@ export class UploadStepService {
     const profile = await this.prisma.uploadProfile.findUnique({
       where: { entityCode: entity.code },
     });
-    return profile?.plBasis === 'YTD' && result.errors.length === 0
+    // A TB fetched from Zoho is already on the period basis (fetchZohoTb).
+    return profile?.plBasis === 'YTD' && file.source !== 'ZOHO' && result.errors.length === 0
       ? this.toPeriodBasis(result, entity.code, period)
       : result;
   }
@@ -747,6 +750,7 @@ export class UploadStepService {
       from?: string;
       to?: string;
       amountFields?: string;
+      priorProfit?: string | null;
       warnings?: string[];
     };
     const dmy = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '?');
@@ -754,6 +758,11 @@ export class UploadStepService {
       code: 'ERP_SOURCE',
       message: `Fetched from Zoho Books (organisation "${m.organizationName ?? '?'}", ${dmy(m.from)} to ${dmy(m.to)}); amount = ${m.amountFields ?? '?'}.`,
     });
+    if (m.priorProfit && m.priorProfit !== '0.00')
+      result.info.push({
+        code: 'ERP_PRIOR_PROFIT',
+        message: `Profit of earlier months of the year not yet in Zoho's retained earnings (${m.priorProfit}, debit +) is added as line YTD-PRIOR, mapped to retained earnings.`,
+      });
     for (const w of m.warnings ?? [])
       result.warnings.push({ code: 'ERP_NO_ACCOUNT_CODE', message: w });
     if (result.status === 'VALIDATED' && result.warnings.length > 0)
@@ -949,8 +958,9 @@ export class UploadStepService {
     entityCode: string,
     blob: UploadedBlob | undefined,
     ip: string | null,
+    erp?: { source: 'ZOHO'; sourceMeta: Prisma.InputJsonValue },
   ): Promise<CoaMergeSummaryDto> {
-    const file = this.checkFile(blob, TB_FILE_EXTENSIONS);
+    const file = { ...this.checkFile(blob, TB_FILE_EXTENSIONS), ...erp };
     const { task, te } = await this.editable(user, taskId, entityCode);
     const parsed = parseChartOfAccounts(this.readRows(file));
     if (parsed.errors.length > 0) {
@@ -988,6 +998,55 @@ export class UploadStepService {
         warnings: parsed.warnings,
       };
     });
+  }
+
+  /**
+   * Zoho entities: the chart of accounts from Zoho Books, merged exactly like an uploaded
+   * chart-of-accounts file (new accounts added with a suggested FSLI, mappings never changed).
+   */
+  async fetchZohoCoa(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    ip: string | null,
+  ): Promise<CoaMergeSummaryDto> {
+    const { task, te } = await this.editable(user, taskId, entityCode);
+    if (te.entity.erp !== 'ZOHO')
+      throw ApiError.validation(`${entityCode} does not use Zoho; upload its chart of accounts.`);
+    // Every account the task period's trial balance uses is included.
+    const coa = await this.zoho.entityChartOfAccounts(
+      entityCode,
+      zohoFetchRange(
+        { startDate: fromDbDate(task.period.startDate), endDate: fromDbDate(task.period.endDate) },
+        'PERIOD',
+      ),
+    );
+    if (coa.accounts.length === 0)
+      throw ApiError.validation(
+        `Zoho returned no accounts for "${coa.organizationName}"; nothing was changed.`,
+      );
+    const buffer = Buffer.from(zohoCoaCsv(coa.accounts), 'utf8');
+    return this.uploadCoa(
+      user,
+      taskId,
+      entityCode,
+      {
+        buffer,
+        originalname: `Zoho COA ${entityCode} ${coa.organizationName.replace(/[^\w .-]/g, '')}.csv`,
+        mimetype: 'text/csv',
+        size: buffer.length,
+      },
+      ip,
+      {
+        source: 'ZOHO',
+        sourceMeta: {
+          provider: 'ZOHO',
+          organizationId: coa.organizationId,
+          organizationName: coa.organizationName,
+          accounts: coa.accounts.length,
+        },
+      },
+    );
   }
 
   async uploadDocument(

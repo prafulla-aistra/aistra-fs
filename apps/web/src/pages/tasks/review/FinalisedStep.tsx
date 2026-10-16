@@ -91,7 +91,7 @@ export function EntityFinalised({ taskId, entityCode }: { taskId: string; entity
       {v.finalised ? (
         <div
           role="status"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-mint px-4 py-3 text-sm"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success-surface px-4 py-3 text-sm"
         >
           <Lock className="size-4 text-success" />
           <span className="font-medium">{v.banner}</span>

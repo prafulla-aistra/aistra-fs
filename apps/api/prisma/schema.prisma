@@ -77,6 +77,15 @@ model Entity {
   /// Country holiday calendar for this entity's due dates (used only when per-entity calendars are
   /// switched on); null = the group calendar.
   holidayCalendar    String?   @map("holiday_calendar") @db.VarChar(60)
+  /// Account → FSLI mapping frozen: tasks may only map new accounts; changes go through
+  /// Configuration → Chart of accounts with a reason (audited).
+  /// This parent prepares its own consolidation level. Off: its subsidiaries are consolidated
+  /// directly in the next level up (e.g. Unconstrained + Veracity inside India). The top parent
+  /// always does.
+  preparesConsolidation Boolean @default(true) @map("prepares_consolidation")
+  mappingFrozen      Boolean   @default(false) @map("mapping_frozen")
+  mappingFrozenAt    DateTime? @map("mapping_frozen_at") @db.Timestamptz(3)
+  mappingFrozenById  String?   @map("mapping_frozen_by_id") @db.Uuid
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -634,6 +643,9 @@ model EntityAccount {
   source            AccountSource
   /// The FSLI was suggested automatically (from the name or account type), not yet confirmed.
   suggested         Boolean       @default(true)
+  /// The client grouping the mapping came from (Import groupings); null when it was mapped
+  /// any other way, i.e. the account is not (yet) in the client's groupings.
+  grouping          String?       @db.VarChar(200)
   /// Task in which the mapping was set (source TASK_MAPPING): "Mapped in task <number>".
   mappedInTaskId    String?       @map("mapped_in_task_id") @db.Uuid
   updatedById       String?       @map("updated_by_id") @db.Uuid

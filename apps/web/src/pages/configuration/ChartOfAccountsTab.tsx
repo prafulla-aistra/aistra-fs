@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Pencil, Upload } from 'lucide-react';
+import { Download, ListTree, Lock, LockOpen, Pencil, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import {
   ApiErrorCode,
@@ -8,6 +8,10 @@ import {
   type CoaPreviewDto,
   type EntityCoaDto,
   type FsliDto,
+  GROUPING_STATUS_LABELS,
+  type GroupingImportPreviewDto,
+  type GroupingImportResultDto,
+  type GroupingStatus,
 } from '@finance-close/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,9 +22,26 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, api, downloadPath, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { SearchBox, WarningText } from './common';
 import { ConfigPage, EditButton } from './ConfigPage';
 import { matches, useEntities } from './hooks';
+import { MappingStatusTag } from '@/components/MappingStatusTag';
+import { needsAttention } from '@/lib/mapping-status';
+
+/** FSLIs as searchable options, grouped by statement. */
+const fsliOptions = (list: readonly FsliDto[]) =>
+  (['BS', 'PL'] as const).flatMap((st) =>
+    list
+      .filter((f) => f.statement === st)
+      .map((f) => ({
+        value: f.code,
+        label: f.name,
+        hint: f.code,
+        group: st === 'BS' ? 'Balance sheet' : 'Profit and loss',
+      })),
+  );
 
 const RATE_LABEL: Record<string, string> = {
   CLOSING: 'Closing',
@@ -30,9 +51,12 @@ const RATE_LABEL: Record<string, string> = {
   ROLL_FORWARD: 'Roll forward',
   COMPUTED: 'Computed',
 };
-type Filter = 'ALL' | 'UNMAPPED' | 'SUGGESTED' | 'IC_NO_CP' | 'OVERRIDE';
+type Filter =
+  'ALL' | 'ATTENTION' | 'NOT_IN_GROUPINGS' | 'UNMAPPED' | 'SUGGESTED' | 'IC_NO_CP' | 'OVERRIDE';
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'ALL', label: 'All accounts' },
+  { value: 'ATTENTION', label: 'Needs attention (used in a trial balance)' },
+  { value: 'NOT_IN_GROUPINGS', label: 'Not in client groupings' },
   { value: 'UNMAPPED', label: 'Unmapped' },
   { value: 'SUGGESTED', label: 'Suggested, not confirmed' },
   { value: 'IC_NO_CP', label: 'Intercompany without counterparty' },
@@ -50,6 +74,11 @@ export function ChartOfAccountsTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ file: File; result: CoaPreviewDto } | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const groupingFile = useRef<HTMLInputElement>(null);
+  const [grouping, setGrouping] = useState<{
+    file: File;
+    result: GroupingImportPreviewDto;
+  } | null>(null);
   const q = useQuery({
     queryKey: ['config', 'coa', code],
     queryFn: () => api.get<EntityCoaDto>(`/config/entities/${code}/coa`),
@@ -65,6 +94,25 @@ export function ChartOfAccountsTab() {
         .then((result) => ({ file: f, result })),
     onSuccess: setPreview,
   });
+  const checkGrouping = useMutation({
+    mutationFn: (f: File) =>
+      api
+        .uploadWith<GroupingImportPreviewDto>(
+          `/config/entities/${code}/coa/grouping/preview`,
+          f,
+          {},
+        )
+        .then((result) => ({ file: f, result })),
+    onSuccess: setGrouping,
+  });
+  const freeze = useMutation({
+    mutationFn: (v: { frozen: boolean; reason: string }) =>
+      api.put<EntityCoaDto>(`/config/entities/${code}/coa/freeze`, v),
+    onSuccess: (saved) => {
+      qc.setQueryData(['config', 'coa', code], saved);
+      toast(saved.mapping.frozen ? 'Mapping frozen.' : 'Mapping unfrozen.');
+    },
+  });
   const exportFile = useMutation({
     mutationFn: () =>
       downloadPath(`/config/entities/${code}/coa/export`, `${code}-chart-of-accounts.xlsx`),
@@ -76,6 +124,8 @@ export function ChartOfAccountsTab() {
       matches(search, a.accountCode, a.accountName, a.accountType, a.fsliName, a.sourceLabel) &&
       (!fsliFilter || a.fsliCode === fsliFilter) &&
       (filter === 'ALL' ||
+        (filter === 'ATTENTION' && a.inTrialBalance && needsAttention(a.mappingStatus)) ||
+        (filter === 'NOT_IN_GROUPINGS' && a.mappingStatus === 'NOT_IN_GROUPINGS') ||
         (filter === 'UNMAPPED' && !a.fsliCode) ||
         (filter === 'SUGGESTED' && a.suggested && !!a.fsliCode) ||
         (filter === 'IC_NO_CP' && a.needsCounterparty && !a.counterpartyCode) ||
@@ -110,6 +160,26 @@ export function ChartOfAccountsTab() {
           />
           <EditButton disabled={check.isPending} onClick={() => file.current?.click()}>
             <Upload /> Upload Zoho COA
+          </EditButton>
+          <input
+            ref={groupingFile}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            aria-label="Choose a groupings file"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) checkGrouping.mutate(f);
+            }}
+          />
+          <EditButton
+            variant="outline"
+            disabled={checkGrouping.isPending}
+            title="Map accounts from a sheet with Account Code and Grouping columns (e.g. the entity TB sheet of the Financials workbook)"
+            onClick={() => groupingFile.current?.click()}
+          >
+            <ListTree /> {checkGrouping.isPending ? 'Reading…' : 'Import groupings'}
           </EditButton>
         </>
       }
@@ -150,23 +220,47 @@ export function ChartOfAccountsTab() {
             </option>
           ))}
         </Select>
-        <Select
-          aria-label="FSLI filter"
-          className="w-64"
-          value={fsliFilter}
-          onChange={(e) => setFsliFilter(e.target.value)}
-        >
-          <option value="">Any FSLI</option>
-          {(fslis.data ?? []).map((f) => (
-            <option key={f.code} value={f.code}>
-              {f.name}
-            </option>
-          ))}
-        </Select>
+        <div className="w-64">
+          <SearchableSelect
+            label="FSLI filter"
+            value={fsliFilter}
+            onChange={setFsliFilter}
+            options={[{ value: '', label: 'Any FSLI' }, ...fsliOptions(fslis.data ?? [])]}
+          />
+        </div>
       </div>
 
       {data && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-label="Chart of accounts stats">
+        <Alert variant={data.mapping.frozen ? 'success' : 'info'}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              {data.mapping.frozen ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+              {data.mapping.frozen
+                ? `Mapping frozen${data.mapping.frozenAt ? ` since ${formatDateTime(data.mapping.frozenAt)}` : ''}${data.mapping.frozenBy ? ` by ${data.mapping.frozenBy}` : ''}. Tasks can map new accounts only; change a mapping here (a reason is asked for, and every change is audited).`
+                : 'Mapping not frozen: preparers can change existing mappings in a task (with a reason).'}
+            </span>
+            <EditButton
+              size="sm"
+              variant="outline"
+              disabled={freeze.isPending}
+              onClick={() => {
+                const reason = window.prompt(
+                  data.mapping.frozen
+                    ? 'Reason for unfreezing the mapping:'
+                    : 'Reason for freezing the mapping:',
+                );
+                if (reason && reason.trim().length >= 3)
+                  freeze.mutate({ frozen: !data.mapping.frozen, reason: reason.trim() });
+              }}
+            >
+              {data.mapping.frozen ? <LockOpen /> : <Lock />}{' '}
+              {data.mapping.frozen ? 'Unfreeze' : 'Freeze mapping'}
+            </EditButton>
+          </div>
+        </Alert>
+      )}
+      {data && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5" aria-label="Chart of accounts stats">
           <Stat label="Accounts" value={String(data.stats.accounts)} />
           <Stat
             label="Mapped"
@@ -179,14 +273,44 @@ export function ChartOfAccountsTab() {
             tone={data.stats.unmapped > 0 ? 'warn' : undefined}
           />
           <Stat
+            label="Needs attention"
+            value={String(
+              data.accounts.filter((a) => a.inTrialBalance && needsAttention(a.mappingStatus))
+                .length,
+            )}
+            note="in a TB, not from groupings"
+            tone={
+              data.accounts.some((a) => a.inTrialBalance && needsAttention(a.mappingStatus))
+                ? 'warn'
+                : undefined
+            }
+          />
+          <Stat
             label="Intercompany without counterparty"
             value={String(data.stats.icWithoutCounterparty)}
             tone={data.stats.icWithoutCounterparty > 0 ? 'error' : undefined}
           />
         </div>
       )}
-      {(q.error || check.error || exportFile.error) && (
-        <Alert>{errorMessage(q.error ?? check.error ?? exportFile.error)}</Alert>
+      {(q.error || check.error || exportFile.error || checkGrouping.error || freeze.error) && (
+        <Alert>
+          {errorMessage(
+            q.error ?? check.error ?? exportFile.error ?? checkGrouping.error ?? freeze.error,
+          )}
+        </Alert>
+      )}
+      {grouping && (
+        <GroupingImportDialog
+          entity={code}
+          initial={grouping}
+          frozen={!!data?.mapping.frozen}
+          onClose={() => setGrouping(null)}
+          onSaved={async (r) => {
+            setGrouping(null);
+            qc.setQueryData(['config', 'coa', code], r.coa);
+            await qc.invalidateQueries({ queryKey: ['config', 'fslis'] });
+          }}
+        />
       )}
       {!data || !fslis.data ? (
         <Skeleton className="h-64 w-full" />
@@ -224,23 +348,27 @@ export function ChartOfAccountsTab() {
                   }}
                 />
               ) : (
-                <tr key={a.accountCode}>
+                <tr
+                  key={a.accountCode}
+                  className={cn(
+                    a.inTrialBalance &&
+                      needsAttention(a.mappingStatus) &&
+                      (a.mappingStatus === 'UNMAPPED' || a.mappingStatus === 'NO_COUNTERPARTY'
+                        ? 'bg-red-50'
+                        : 'bg-amber-50'),
+                  )}
+                >
                   <Td className="font-mono text-xs">{a.accountCode}</Td>
                   <Td>{a.accountName}</Td>
                   <Td className="text-xs">{a.accountType ?? '—'}</Td>
                   <Td className="text-xs">
                     {a.fsliName ? (
                       <>
-                        {a.fsliName} <span className="text-muted-foreground">({a.fsliCode})</span>
-                        {a.suggested && (
-                          <Badge variant="outline" className="ml-1">
-                            suggested
-                          </Badge>
-                        )}
+                        {a.fsliName}{' '}
+                        <span className="text-muted-foreground">({a.fsliCode})</span>{' '}
                       </>
-                    ) : (
-                      <span className="text-warning-foreground">Unmapped</span>
-                    )}
+                    ) : null}
+                    <MappingStatusTag status={a.mappingStatus} grouping={a.grouping} />
                   </Td>
                   <Td className="font-mono text-xs">
                     {a.counterpartyCode ??
@@ -395,21 +523,14 @@ function EditRow({
         />
       </Td>
       <Td className="align-top">
-        <Select
-          aria-label="FSLI"
-          className="h-8 text-xs"
+        <SearchableSelect
+          label="FSLI"
+          size="sm"
           value={form.fsliCode}
-          onChange={(e) => setForm({ ...form, fsliCode: e.target.value })}
-        >
-          <option value="">Choose an FSLI</option>
-          {fslis
-            .filter((f) => !f.computed && !f.consolidationOnly)
-            .map((f) => (
-              <option key={f.code} value={f.code}>
-                {f.name}
-              </option>
-            ))}
-        </Select>
+          onChange={(v) => setForm({ ...form, fsliCode: v })}
+          placeholder="Choose an FSLI"
+          options={fsliOptions(fslis.filter((f) => !f.computed && !f.consolidationOnly))}
+        />
       </Td>
       <Td className="align-top">
         {fsli?.needsCounterparty ? (
@@ -572,6 +693,198 @@ function CoaPreviewDialog({
                   </Td>
                   <Td className="text-xs">
                     {u.after.name} · {u.after.type ?? '—'}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+const STATUS_ORDER: GroupingStatus[] = [
+  'CHANGE',
+  'NEW',
+  'NEEDS_COUNTERPARTY',
+  'UNKNOWN_GROUPING',
+  'NOT_IN_COA',
+  'NO_GROUPING',
+  'SAME',
+];
+
+/** Preview of a groupings import: what each account would map to, then apply (and freeze). */
+function GroupingImportDialog({
+  entity,
+  initial,
+  frozen,
+  onClose,
+  onSaved,
+}: {
+  entity: string;
+  initial: { file: File; result: GroupingImportPreviewDto };
+  frozen: boolean;
+  onClose: () => void;
+  onSaved: (r: GroupingImportResultDto) => Promise<void>;
+}) {
+  const [p, setP] = useState(initial.result);
+  const [reason, setReason] = useState('');
+  const [freezeAfter, setFreezeAfter] = useState(true);
+  const [show, setShow] = useState<'CHANGES' | 'ALL'>('CHANGES');
+  const reload = useMutation({
+    mutationFn: (sheet: string) =>
+      api.uploadWith<GroupingImportPreviewDto>(
+        `/config/entities/${entity}/coa/grouping/preview`,
+        initial.file,
+        { sheet },
+      ),
+    onSuccess: setP,
+  });
+  const save = useMutation({
+    mutationFn: () =>
+      api.uploadWith<GroupingImportResultDto>(
+        `/config/entities/${entity}/coa/grouping/import`,
+        initial.file,
+        {
+          sheet: p.sheet!,
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+          freeze: String(freezeAfter && !frozen),
+        },
+      ),
+    onSuccess: async (r) => {
+      toast(
+        `${r.applied} mapping${r.applied === 1 ? '' : 's'} applied${r.frozen ? '; mapping frozen' : ''}.`,
+      );
+      await onSaved(r);
+    },
+  });
+  const n = (s: GroupingStatus) => p.counts[s] ?? 0;
+  const applies = n('NEW') + n('CHANGE');
+  const needsReason = n('CHANGE') > 0;
+  const items = [...p.items]
+    .filter((i) => show === 'ALL' || i.status !== 'SAME')
+    .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
+  return (
+    <Dialog
+      open
+      size="xl"
+      onClose={onClose}
+      title={`Import groupings · ${entity}`}
+      description="Each account is mapped by its code to the FSLI of its grouping. Accounts whose name names another group entity go to the intercompany FSLI of that grouping, with that entity as counterparty. Rows that cannot be resolved are listed and left as they are."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              save.isPending ||
+              !p.sheet ||
+              (applies === 0 && !(freezeAfter && !frozen)) ||
+              (needsReason && reason.trim().length < 3)
+            }
+            onClick={() => save.mutate()}
+          >
+            Apply {applies} mapping{applies === 1 ? '' : 's'}
+            {freezeAfter && !frozen ? ' and freeze' : ''}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Sheet" htmlFor="grouping-sheet">
+            <Select
+              id="grouping-sheet"
+              className="w-72"
+              value={p.sheet ?? ''}
+              onChange={(e) => e.target.value && reload.mutate(e.target.value)}
+            >
+              {!p.sheet && <option value="">Choose the sheet for {entity}</option>}
+              {p.sheets.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Select
+            aria-label="Show"
+            className="w-56"
+            value={show}
+            onChange={(e) => setShow(e.target.value as 'CHANGES' | 'ALL')}
+          >
+            <option value="CHANGES">Hide unchanged accounts</option>
+            <option value="ALL">Show every row</option>
+          </Select>
+        </div>
+        {(save.error || reload.error) && <Alert>{errorMessage(save.error ?? reload.error)}</Alert>}
+        <p className="text-sm" role="status">
+          {STATUS_ORDER.filter((s) => n(s) > 0)
+            .map((s) => `${GROUPING_STATUS_LABELS[s]}: ${n(s)}`)
+            .join(' · ') || 'Nothing to import from this sheet.'}
+        </p>
+        {needsReason && (
+          <Field label="Reason (existing mappings change)" htmlFor="grouping-reason">
+            <Input
+              id="grouping-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Client groupings from the Financials workbook"
+            />
+          </Field>
+        )}
+        {!frozen && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={freezeAfter}
+              onChange={(e) => setFreezeAfter(e.target.checked)}
+            />
+            Freeze the mapping after the import (tasks then map new accounts only)
+          </label>
+        )}
+        {items.length > 0 && (
+          <Table aria-label="Groupings">
+            <thead>
+              <tr>
+                <Th>Account</Th>
+                <Th>Grouping (file)</Th>
+                <Th>FSLI now</Th>
+                <Th>FSLI after import</Th>
+                <Th>Result</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.code}>
+                  <Td className="text-xs">
+                    <span className="font-mono">{i.code}</span> {i.name}
+                  </Td>
+                  <Td className="text-xs">{i.grouping || '—'}</Td>
+                  <Td className="text-xs">
+                    {i.before?.fsliName ?? '—'}
+                    {i.before?.counterpartyCode ? ` · ${i.before.counterpartyCode}` : ''}
+                  </Td>
+                  <Td className="text-xs">
+                    {i.fsliName ?? '—'}
+                    {i.counterpartyCode ? ` · ${i.counterpartyCode}` : ''}
+                  </Td>
+                  <Td className="text-xs">
+                    <Badge
+                      variant={
+                        i.status === 'CHANGE'
+                          ? 'warning'
+                          : i.status === 'NEW'
+                            ? 'success'
+                            : i.status === 'SAME'
+                              ? 'neutral'
+                              : 'outline'
+                      }
+                    >
+                      {GROUPING_STATUS_LABELS[i.status]}
+                    </Badge>
                   </Td>
                 </tr>
               ))}

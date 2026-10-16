@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { Decimal } from './money';
+import { parseChartOfAccounts } from './coa-parser';
 import { checkTrialBalance } from './tb-checks';
 import { detectTbLayout } from './tb-parser';
 import {
   parseZohoTrialBalance,
   suggestOrganisationLinks,
+  ZOHO_PRIOR_PROFIT_NAME,
   ZOHO_TB_SETTINGS,
+  zohoCoaCsv,
   zohoFetchRange,
   zohoTbCsv,
 } from './zoho-tb';
@@ -158,6 +162,113 @@ const readCsv = (text: string) =>
             .map((m) => (m[1]!.startsWith('"') ? m[1]!.slice(1, -1).replace(/""/g, '"') : m[1]!)),
     );
 
+/**
+ * Shaped like the real report for a date range with opening, movement and closing columns
+ * (Sep-2026, an organisation whose Zoho year started earlier): BS rows carry an opening balance,
+ * P&L rows only movement and closing; leaf rows have no account type, their group has.
+ */
+const PERIOD_REPORT = {
+  code: 0,
+  message: 'success',
+  page_context: { from_date: '2026-09-01', to_date: '2026-09-30', is_for_date_range: 'true' },
+  trialbalance: [
+    {
+      account_transactions: [
+        {
+          account_type: 'asset',
+          account_transactions: [
+            {
+              account_id: '1',
+              name: 'Bank',
+              account_code: '1001',
+              opening_balance: 13143159.82,
+              net_debit_total: 3078821.19,
+              net_credit_total: '',
+              closing_balance: 16221981.01,
+            },
+          ],
+        },
+        {
+          account_type: 'equity',
+          account_transactions: [
+            {
+              account_id: '2',
+              name: 'Retained Earnings',
+              account_code: '3001',
+              opening_balance: -12000000,
+              net_debit_total: '',
+              net_credit_total: '',
+              closing_balance: -12000000,
+            },
+          ],
+        },
+        {
+          account_type: 'income',
+          account_transactions: [
+            {
+              account_id: '3',
+              name: 'Sales',
+              account_code: '4001',
+              net_debit_total: '',
+              net_credit_total: 4042795,
+              closing_balance: -4042795,
+            },
+          ],
+        },
+        {
+          account_type: 'expense',
+          account_transactions: [
+            {
+              account_id: '4',
+              name: 'Salaries',
+              account_code: '5001',
+              net_debit_total: 963973.81,
+              net_credit_total: '',
+              closing_balance: 963973.81,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+describe('parseZohoTrialBalance – period report (opening, movement, closing)', () => {
+  it('balance sheet at closing, P&L at movement, earlier profit as YTD-PRIOR; nets to zero', () => {
+    const r = parseZohoTrialBalance(PERIOD_REPORT, []);
+    expect(r.problems).toEqual([]);
+    expect(r.amountFields).toMatch(/closing_balance for balance-sheet accounts/);
+    expect(r.lines.map((l) => [l.code, l.amount])).toEqual([
+      ['1001', '16221981.01'],
+      ['3001', '-12000000.00'],
+      ['4001', '-4042795.00'],
+      ['5001', '963973.81'],
+      // −(13143159.82 − 12000000): the profit of earlier months (a credit).
+      ['YTD-PRIOR', '-1143159.82'],
+    ]);
+    expect(r.lines.at(-1)).toMatchObject({ name: ZOHO_PRIOR_PROFIT_NAME, type: 'Equity' });
+    expect(r.priorProfit).toBe('-1143159.82');
+    expect(r.lines.reduce((s, l) => s.plus(l.amount), new Decimal(0)).isZero()).toBe(true);
+  });
+
+  it('no YTD-PRIOR line when the period starts the Zoho year (opening balances net to zero)', () => {
+    const report = structuredClone(PERIOD_REPORT);
+    const re = report.trialbalance[0]!.account_transactions[1]!.account_transactions[0]! as Record<
+      string,
+      unknown
+    >;
+    re.opening_balance = -13143159.82;
+    re.closing_balance = -13143159.82;
+    const r = parseZohoTrialBalance(report, []);
+    expect(r.priorProfit).toBe('0.00');
+    expect(r.lines.map((l) => l.code)).not.toContain('YTD-PRIOR');
+  });
+
+  it('a report with movements only stays a movement TB (no priorProfit)', () => {
+    expect(parseZohoTrialBalance(REPORT, []).priorProfit).toBeNull();
+  });
+});
+
 describe('zohoTbCsv', () => {
   const r = parseZohoTrialBalance(REPORT, CHART);
   const csv = zohoTbCsv({
@@ -237,3 +348,38 @@ describe('zohoFetchRange', () => {
     expect(detectTbLayout(readCsv(csv)).period).toEqual({ asOf: '2026-08-31' });
   });
 });
+
+describe('zohoCoaCsv', () => {
+  it('is read by the chart-of-accounts upload; no code → the TB fetch code ZOHO-<id>', () => {
+    const csv = zohoCoaCsv([
+      { accountId: '11', code: '1001', name: 'Bank, HDFC', type: 'bank', parent: null },
+      { accountId: '12', code: null, name: 'Accrued Interest FD', type: 'other_current_asset' },
+    ]);
+    const parsed = parseChartOfAccounts(csv.split('\r\n').filter(Boolean).map(splitCsv));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.accounts.map((a) => [a.code, a.name, a.type])).toEqual([
+      ['1001', 'Bank, HDFC', 'bank'],
+      ['ZOHO-12', 'Accrued Interest FD', 'other_current_asset'],
+    ]);
+  });
+});
+
+/** Minimal CSV line reader for the test (quoted cells with commas). */
+function splitCsv(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quoted && c === '"' && line[i + 1] === '"') {
+      cur += '"';
+      i++;
+    } else if (c === '"') quoted = !quoted;
+    else if (c === ',' && !quoted) {
+      out.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}

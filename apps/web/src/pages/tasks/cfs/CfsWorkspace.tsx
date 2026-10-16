@@ -247,7 +247,7 @@ function Stepper({
                 <span
                   className={cn(
                     'flex size-5 items-center justify-center rounded-full text-xs font-semibold',
-                    current ? 'bg-white/20' : done ? 'bg-mint text-success' : 'bg-muted',
+                    current ? 'bg-white/20' : done ? 'bg-success-surface text-success' : 'bg-muted',
                   )}
                 >
                   {done ? <Check className="size-3" /> : i + 1}

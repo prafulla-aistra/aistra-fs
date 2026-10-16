@@ -46,10 +46,15 @@
 - FCTR = balancing figure so the translated TB nets to zero; shown in equity.
 
 ## Consolidation
-- Four levels, run bottom-up: L1 Veracity Services (VS+VM, in SGD), L2 Unconstrained
-  (UC+VS+VM), L3 India (IN+AE+UK+UC+VS+VM), L4 US (all). This is a deliberate business
-  requirement; it adds one level compared with As-Is document §5.1. Derive levels from
-  the parent tree, never hard-code them.
+- Levels are derived from the parent tree (engine deriveConsolidationLevels; never hard-code
+  them): every active parent with subsidiaries prepares a level, unless its
+  entity.preparesConsolidation is off (Configuration → Group structure → "Not a level"); then its
+  members are consolidated in the next level up. The ultimate parent always prepares one.
+  Decision 2026-10-15 (user): no separate Unconstrained level, as in the Financials workbook:
+  L1 India (IN+AE+UK+UC+Veracity, INR), L2 US (all, USD). (Was four levels incl. Veracity and
+  Unconstrained; the client process doc v2 §5.1 also lists an Unconstrained level.)
+- Veracity (provisional, Aug-2026): VS holds Veracity Group combined (VS+VM) in USD from the
+  workbook; VM is inactive. Revert (SGD, reactivate VM) when Xero trial balances per entity exist.
 - A level can start only when every level below it is finalised.
 - Each entity is translated directly from functional currency into the level currency.
 - Eliminations: intercompany receivable/payable and revenue/expense by counterparty
@@ -99,10 +104,12 @@
   only in a *_test database.
 
 ## UI theme
-- Colours are CSS tokens in apps/web/src/index.css: ink navy #0F2A3D (sidebar, headings),
-  ledger teal #0E7C66 (primary, active, links), mint #E8F3EF (selected/highlight), page
-  #F6F8F7, cards #FFFFFF, borders #D9E2DE; status: done #0E7C66, in progress #D97706,
-  not started #64748B, overdue/error #B42318. Use tokens, never ad-hoc colours. Keep WCAG AA.
+- Aistra brand colours (logo: violet #6C48F2 on black). Colours are CSS tokens in
+  apps/web/src/index.css (token names teal / mint kept for the existing classes): ink #14112B
+  (sidebar #110F1F, headings), Aistra violet #6C48F2 (primary, active, links; hover #5935DB; light
+  #A996FF on dark backgrounds), lavender #F0ECFE (selected/highlight), page #F7F6FB, cards #FFFFFF,
+  borders #E3E0EE; status: done #0E7C66 on #E7F4EF (success-surface), in progress #D97706, not
+  started #64748B, overdue/error #B42318. Use tokens, never ad-hoc colours. Keep WCAG AA.
 - Font: Inter (bundled via @fontsource-variable, works offline); tabular numbers everywhere.
 - Illustrations are original inline SVG; no stock images or external assets.
 
@@ -114,7 +121,7 @@
 - Replace illustrative historical rates and holidays with confirmed values.
 
 ## Decisions
-- Consolidation: 4 levels as above (deliberate; one more than As-Is §5.1).
+- Consolidation levels: see Consolidation (2 levels since 2026-10-15; Unconstrained not a level).
 - Veracity currencies: SGD (VS) and LKR (VM), flagged "to be confirmed", editable.
 - Rounding: round half away from zero (matches Excel ROUND). No banker's rounding.
 
@@ -175,6 +182,23 @@
   RATE_SOURCE, IC_DIFF_THRESHOLD (1.00), VARIANCE_PCT_THRESHOLD (0.20) live in app_setting.
   Config rate uploads preview first and skip locked months; config COA edits need a reason
   when an existing mapping changes (source CONFIGURATION).
+
+- Client groupings (seed marker client-groupings, prisma/seed-client-groupings.ts): the client's
+  "Grouping" column (entity TB sheets of the monthly Financials workbook) is the mapping basis.
+  Groupings without a statutory FSLI got their own FSLIs (engine CLIENT_FSLIS, placed next to an
+  anchor FSLI in Statutory / Investor); the Management format (v2) is the client's layout line for
+  line. Engine client-groupings.ts: GROUPING_FSLI, readGroupingSheet, planGroupingImport; an
+  account naming another group entity goes to the intercompany FSLI of its grouping (IC_REC /
+  IC_PAY / INV_SUB / IC_REV / IC_EXP) with that counterparty, shown on the client's line. Import:
+  Configuration → Chart of accounts → Import groupings (preview, reason when mappings change).
+- Mapping freeze (entity.mappingFrozen): frozen after the Aug-2026 baseline import; tasks map new
+  accounts only (MAPPING_FROZEN otherwise); changes in Configuration with a reason; freeze /
+  unfreeze audited. TBC: SHARE_APP historical rate, SBC_RES opening rate.
+- New FSLIs from Configuration → FSLI master → Add FSLI (ReferenceService.createFsli, engine
+  placeNewFsli): every active format is checked with the FSLI placed next to an anchor FSLI (own
+  line in the chosen formats, added to the anchor line's totals) before it is created; formats are
+  then saved through FormatsService.save (versioned). Import groupings also matches a grouping to
+  an FSLI by name, so a new client grouping needs no code change.
 
 ## Open questions (do not guess)
 - Zoho: the trial balance report JSON is undocumented; confirm the first real fetch equals the

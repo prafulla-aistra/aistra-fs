@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Decimal } from '@finance-close/engine';
+import { checkFormatCoverage, Decimal, groupingKey, placeNewFsli } from '@finance-close/engine';
 import {
   AuditAction,
   Permission,
@@ -7,12 +7,15 @@ import {
   type AccountTypeDefaultDto,
   type AppSettingsDto,
   type AppSettingsInput,
+  type FsliCreateInput,
+  type FsliCreateResultDto,
 } from '@finance-close/shared';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/session-user';
 import { ApiError } from '../common/api-error';
 import { readSettings, SETTING } from '../common/settings';
 import { PrismaService } from '../prisma/prisma.service';
+import { FormatsService } from './formats.service';
 
 /** Settings, FSLI names and account-type defaults (Configuration C2). Every change audited. */
 @Injectable()
@@ -20,6 +23,7 @@ export class ReferenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly formats: FormatsService,
   ) {}
 
   async settings(user: AuthUser): Promise<AppSettingsDto> {
@@ -94,6 +98,133 @@ export class ReferenceService {
         tx,
       );
     });
+  }
+
+  /**
+   * A new FSLI (e.g. a new client grouping). It is placed in every active format before it
+   * exists anywhere: next to `anchor`, or on a line of its own in the formats asked for. Every
+   * format is checked first, so the FSLI is only created when all of them still cover every
+   * FSLI; each format is then saved the normal way (new version when finalised reports use the
+   * current one; open tasks follow). Audited.
+   */
+  async createFsli(
+    user: AuthUser,
+    input: FsliCreateInput,
+    ip: string | null,
+  ): Promise<FsliCreateResultDto> {
+    const name = input.name.trim().replace(/\s+/g, ' ');
+    const all = await this.prisma.fsli.findMany();
+    if (all.some((f) => f.code === input.code))
+      throw ApiError.validation(`FSLI code ${input.code} is already used.`);
+    if (all.some((f) => groupingKey(f.name) === groupingKey(name)))
+      throw ApiError.validation(`An FSLI named "${name}" already exists.`);
+    const classes = input.statement === 'BS' ? ['A', 'L', 'E'] : ['I', 'X'];
+    if (!classes.includes(input.class))
+      throw ApiError.validation(
+        `A ${input.statement === 'BS' ? 'balance sheet' : 'P&L'} FSLI is ${classes.join(', ')}.`,
+      );
+    const anchor = all.find((f) => f.code === input.anchor && f.isActive);
+    if (!anchor || anchor.statement !== input.statement)
+      throw ApiError.validation(`Choose an existing ${input.statement} FSLI to place it next to.`);
+
+    const fsli = { code: input.code, name, statement: input.statement, class: input.class };
+    const fslis = [
+      ...all
+        .filter((f) => f.isActive)
+        .map((f) => ({ code: f.code, name: f.name, statement: f.statement, class: f.class })),
+      fsli,
+    ];
+    const formats = await this.prisma.format.findMany({ where: { isActive: true } });
+    const plans: {
+      code: string;
+      name: string;
+      description: string;
+      lines: NonNullable<ReturnType<typeof placeNewFsli>>;
+      ownLine: boolean;
+    }[] = [];
+    for (const f of formats) {
+      const detail = await this.formats.detail(user, f.code);
+      const ownLine = input.ownLineIn.includes(f.code);
+      const lines = placeNewFsli(detail.lines, fsli, anchor.code, ownLine);
+      if (!lines)
+        throw ApiError.validation(`${anchor.name} is on no line of the ${f.name} format.`);
+      const issues = checkFormatCoverage(lines, fslis);
+      if (issues.length > 0)
+        throw ApiError.validation(
+          `${f.name}: ${issues
+            .slice(0, 3)
+            .map((i) => i.message)
+            .join(' ')}`,
+        );
+      plans.push({ code: f.code, name: f.name, description: detail.description, lines, ownLine });
+    }
+
+    const last = await this.prisma.fsli.aggregate({ _max: { sortOrder: true } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.fsli.create({
+        data: {
+          code: input.code,
+          name,
+          statement: input.statement,
+          class: input.class,
+          rateBasis: input.rateBasis,
+          sortOrder: (last._max.sortOrder ?? 0) + 1,
+        },
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.FsliCreate,
+          entityType: 'FSLI',
+          entityId: input.code,
+          newValue: {
+            name,
+            statement: input.statement,
+            class: input.class,
+            rateBasis: input.rateBasis,
+            placedNextTo: anchor.code,
+            ownLineIn: input.ownLineIn,
+          },
+          ip,
+        },
+        tx,
+      );
+    });
+    const saved: FsliCreateResultDto['formats'] = [];
+    for (const p of plans) {
+      const r = await this.formats.save(
+        user,
+        p.code,
+        {
+          name: p.name,
+          description: p.description,
+          lines: p.lines,
+          note: `FSLI ${input.code} "${name}" added${p.ownLine ? ' as its own line' : ` next to ${anchor.name}`}`,
+        },
+        ip,
+      );
+      saved.push({
+        code: p.code,
+        name: p.name,
+        version: r.format.currentVersion,
+        ownLine: p.ownLine,
+      });
+    }
+    return {
+      fsli: {
+        code: input.code,
+        name,
+        statement: input.statement,
+        class: input.class,
+        rateBasis: input.rateBasis,
+        consolidationOnly: false,
+        needsCounterparty: false,
+        intercompany: false,
+        computed: false,
+        accounts: 0,
+      },
+      formats: saved,
+    };
   }
 
   async setDefault(

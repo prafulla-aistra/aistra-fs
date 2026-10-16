@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { checkFormatCoverage, type FormatFsli, type FormatLine, renderFormat } from './formats';
+import {
+  checkFormatCoverage,
+  type FormatFsli,
+  type FormatLine,
+  placeNewFsli,
+  renderFormat,
+} from './formats';
 
 const FSLIS: FormatFsli[] = [
   { code: 'CASH', name: 'Cash', statement: 'BS', class: 'A' },
@@ -120,5 +126,53 @@ describe('renderFormat', () => {
       h: null,
     });
     expect(balanced).toBe(true);
+  });
+});
+
+describe('placeNewFsli', () => {
+  const line = (key: string, fslis: string[]): FormatLine => ({
+    key,
+    statement: 'PL',
+    type: 'LINE',
+    label: key,
+    indent: 1,
+    fslis,
+    formula: [],
+    role: null,
+  });
+  const LINES: FormatLine[] = [
+    line('rev', ['REV']),
+    line('opex', ['OPEX', 'OTHER']),
+    {
+      key: 'profit',
+      statement: 'PL',
+      type: 'TOTAL',
+      label: 'Profit',
+      indent: 0,
+      fslis: [],
+      formula: [
+        { key: 'rev', op: '+' },
+        { key: 'opex', op: '-' },
+      ],
+      role: 'PROFIT',
+    },
+  ];
+  const NEW = { code: 'MKT', name: 'Marketing', statement: 'PL' as const };
+
+  it('joins the anchor line, right after the anchor', () => {
+    const r = placeNewFsli(LINES, NEW, 'OPEX', false)!;
+    expect(r.find((l) => l.key === 'opex')!.fslis).toEqual(['OPEX', 'MKT', 'OTHER']);
+    expect(r).toHaveLength(3);
+  });
+
+  it('own line after the anchor line, in every total of that line with its sign', () => {
+    const r = placeNewFsli(LINES, NEW, 'OPEX', true)!;
+    expect(r.map((l) => l.key)).toEqual(['rev', 'opex', 'mkt', 'profit']);
+    expect(r[2]).toMatchObject({ label: 'Marketing', fslis: ['MKT'], indent: 1 });
+    expect(r[3]!.formula).toContainEqual({ key: 'mkt', op: '-' });
+  });
+
+  it('null when the anchor is on no line of the statement', () => {
+    expect(placeNewFsli(LINES, NEW, 'NOPE', true)).toBeNull();
   });
 });

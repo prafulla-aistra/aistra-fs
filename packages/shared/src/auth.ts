@@ -277,6 +277,7 @@ export const AuditAction = {
   FormatVersionCreate: 'FORMAT_VERSION_CREATE',
   FormatDuplicate: 'FORMAT_DUPLICATE',
   FsliRename: 'FSLI_RENAME',
+  FsliCreate: 'FSLI_CREATE',
   AccountTypeDefaultSet: 'ACCOUNT_TYPE_DEFAULT_SET',
   AccountTypeDefaultDelete: 'ACCOUNT_TYPE_DEFAULT_DELETE',
   AccountUpdate: 'ACCOUNT_UPDATE',
@@ -291,6 +292,11 @@ export const AuditAction = {
   ErpDisconnect: 'ERP_DISCONNECT',
   ErpLinkChange: 'ERP_LINK_CHANGE',
   ErpTbFetch: 'ERP_TB_FETCH',
+  // Client groupings
+  MappingImport: 'MAPPING_IMPORT',
+  LevelPreparesChange: 'LEVEL_PREPARES_CHANGE',
+  MappingFreeze: 'MAPPING_FREEZE',
+  MappingUnfreeze: 'MAPPING_UNFREEZE',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

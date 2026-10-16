@@ -271,3 +271,53 @@ export function renderFormat(
   const tel = rows.find((r) => r.role === 'TOTAL_EQUITY_LIABILITIES')?.value;
   return { rows, balanced: ta && tel ? new Decimal(ta).equals(tel) : null };
 }
+
+/**
+ * A new FSLI placed in a format: next to `anchor` on the anchor's line, or (ownLine) as a line
+ * of its own right after the anchor's line, added to every total that adds up the anchor's
+ * line, with the same sign. Returns null when the anchor is on no line of its statement.
+ */
+export function placeNewFsli(
+  lines: readonly FormatLine[],
+  fsli: { code: string; name: string; statement: FormatStatement },
+  anchor: string,
+  ownLine: boolean,
+): FormatLine[] | null {
+  const at = lines.findIndex(
+    (l) => l.statement === fsli.statement && l.type === 'LINE' && l.fslis.includes(anchor),
+  );
+  if (at < 0) return null;
+  const host = lines[at]!;
+  if (!ownLine)
+    return lines.map((l, i) =>
+      i === at
+        ? {
+            ...l,
+            fslis: [
+              ...l.fslis.slice(0, l.fslis.indexOf(anchor) + 1),
+              fsli.code,
+              ...l.fslis.slice(l.fslis.indexOf(anchor) + 1),
+            ],
+          }
+        : l,
+    );
+  const taken = new Set(lines.map((l) => l.key));
+  const base = fsli.code.toLowerCase();
+  let key = base;
+  for (let n = 2; taken.has(key); n++) key = `${base}_${n}`;
+  const line: FormatLine = {
+    key,
+    statement: fsli.statement,
+    type: 'LINE',
+    label: fsli.name,
+    indent: host.indent,
+    fslis: [fsli.code],
+    formula: [],
+    role: null,
+  };
+  return [...lines.slice(0, at + 1), line, ...lines.slice(at + 1)].map((l) => {
+    if (l.type !== 'TOTAL' || l.statement !== fsli.statement) return l;
+    const part = l.formula.find((f) => f.key === host.key);
+    return part ? { ...l, formula: [...l.formula, { key, op: part.op }] } : l;
+  });
+}

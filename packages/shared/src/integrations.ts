@@ -22,6 +22,8 @@ export interface ZohoStatusDto {
   apiDomain: string | null;
   /** Register this as the redirect URI of the Zoho API client. */
   redirectUri: string;
+  /** ZOHO_REFRESH_TOKEN is set on the server: "Connect with server token" is available. */
+  serverTokenAvailable: boolean;
   canEdit: boolean;
   /** Active Zoho entities (and any entity already linked). */
   links: ZohoLinkDto[];

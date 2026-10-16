@@ -31,6 +31,7 @@ describe('validateEnv', () => {
       ZOHO_ACCOUNTS_URL: 'https://accounts.zoho.com',
       ZOHO_REDIRECT_URI: 'http://localhost:5173/api/integrations/zoho/callback',
       ZOHO_SCOPE: 'ZohoBooks.reports.READ,ZohoBooks.settings.READ,ZohoBooks.accountants.READ',
+      ZOHO_REFRESH_TOKEN: '',
     });
     expect(() => validateEnv({ ...BASE, MAIL_DRIVER: 'smtp' })).toThrow(/SMTP_HOST must be set/);
     expect(() => validateEnv({ ...BASE, ZOHO_ACCOUNTS_URL: 'https://evil.example' })).toThrow(

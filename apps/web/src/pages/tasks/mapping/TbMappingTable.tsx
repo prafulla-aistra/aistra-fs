@@ -15,12 +15,14 @@ import { api, ApiError, errorMessage } from '@/lib/api';
 import { amountText } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { MappingStatusTag } from '@/components/MappingStatusTag';
+import { needsAttention } from '@/lib/mapping-status';
 import { useQueryMarkers } from '../review/markers';
 import { QueryMarker } from '../review/ReviewStep';
 import { SearchBox } from '@/pages/configuration/common';
 import { CounterpartySelect, FsliSelect } from './FsliSelect';
 
-type Filter = 'all' | 'unmapped' | 'intercompany' | `fsli:${string}`;
+type Filter = 'all' | 'attention' | 'unmapped' | 'intercompany' | `fsli:${string}`;
 
 /** The TB with its mapping: debit / credit columns, filters, totals, and mapping changes. */
 export function TbMappingTable({
@@ -46,6 +48,7 @@ export function TbMappingTable({
   );
   const rows = mapping.lines.filter((l) => {
     if (filter === 'unmapped' && l.mapped) return false;
+    if (filter === 'attention' && !needsAttention(l.mappingStatus)) return false;
     if (filter === 'intercompany' && !l.intercompany) return false;
     if (filter.startsWith('fsli:') && l.fsliCode !== filter.slice(5)) return false;
     const s = search.trim().toLowerCase();
@@ -64,6 +67,10 @@ export function TbMappingTable({
             className="w-56"
           >
             <option value="all">All accounts</option>
+            <option value="attention">
+              Needs attention ({mapping.lines.filter((l) => needsAttention(l.mappingStatus)).length}
+              )
+            </option>
             <option value="unmapped">Unmapped</option>
             <option value="intercompany">Intercompany</option>
             <optgroup label="By FSLI">
@@ -93,7 +100,12 @@ export function TbMappingTable({
           </thead>
           <tbody>
             {rows.map((l) => (
-              <tr key={l.code} className={cn(!l.mapped && 'bg-amber-50')}>
+              <tr
+                key={l.code}
+                className={cn(
+                  !l.mapped ? 'bg-red-50' : needsAttention(l.mappingStatus) && 'bg-amber-50',
+                )}
+              >
                 <Td className="font-mono text-xs">
                   {l.code}
                   {queriesOn('ACCOUNT', l.code) > 0 && (
@@ -103,9 +115,10 @@ export function TbMappingTable({
                 <Td>{l.name}</Td>
                 <Td className="text-xs">{l.accountType ?? '—'}</Td>
                 <Td className="text-xs">
-                  {l.fsliName ?? (
-                    <span className="font-medium text-warning-foreground">Unmapped</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {l.fsliName && <span>{l.fsliName}</span>}
+                    <MappingStatusTag status={l.mappingStatus} grouping={l.grouping} />
+                  </div>
                 </Td>
                 <Td className="font-mono text-xs">{l.counterpartyCode ?? ''}</Td>
                 <Td className="text-right font-mono tabular-nums">

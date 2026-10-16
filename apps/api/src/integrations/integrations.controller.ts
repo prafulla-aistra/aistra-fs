@@ -53,6 +53,16 @@ export class IntegrationsController {
     return this.zoho.connectUrl(user);
   }
 
+  /** Connect with ZOHO_REFRESH_TOKEN from apps/api/.env (Self Client) instead of signing in. */
+  @Post('connect-server-token')
+  @RequirePermission(Permission.ConfigManage)
+  connectServerToken(
+    @CurrentUser() user: AuthUser,
+    @ClientIp() ip: string | null,
+  ): Promise<ZohoStatusDto> {
+    return this.zoho.connectServerToken(user, ip);
+  }
+
   /** Zoho's redirect. Public: the one-time state names the user who started the connection. */
   @Get('callback')
   @Public()

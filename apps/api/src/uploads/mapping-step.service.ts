@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
+  mappingStatus,
   accountsToMap,
   crossRate,
   deriveTaskStatus,
@@ -187,10 +188,19 @@ export class MappingStepService {
 
     const byCode = new Map(d.coa.map((a) => [a.accountCode, a]));
     const toMap = await this.toMapRows(te, d.toMap, allEntities);
+    const origin = new Map(
+      (
+        await this.prisma.entityAccount.findMany({
+          where: { entityCode: te.entityCode },
+          select: { accountCode: true, suggested: true, grouping: true },
+        })
+      ).map((a) => [a.accountCode, a]),
+    );
 
     const mappedLines = d.lines.map((l) => {
       const a = byCode.get(l.accountCode);
       const fsli = a?.fsliCode ? fsliBy.get(a.fsliCode) : undefined;
+      const o = origin.get(l.accountCode);
       return {
         code: l.accountCode,
         name: l.accountName,
@@ -202,6 +212,15 @@ export class MappingStepService {
         mapped: Boolean(fsli) && !(fsli!.needsCounterparty && !a?.counterpartyCode),
         intercompany: fsli ? IC_FSLIS.has(fsli.code) : false,
         inCoa: Boolean(a),
+        grouping: o?.grouping ?? null,
+        mappingStatus: mappingStatus({
+          code: l.accountCode,
+          fsliCode: fsli?.code ?? null,
+          needsCounterparty: fsli?.needsCounterparty ?? false,
+          counterpartyCode: a?.counterpartyCode ?? null,
+          suggested: o?.suggested ?? false,
+          grouping: o?.grouping ?? null,
+        }),
       };
     });
     const withMapping = mappedLines.map((l) => ({
@@ -233,6 +252,7 @@ export class MappingStepService {
       },
       canEdit: reason === null && d.version !== null,
       readOnlyReason: reason,
+      mappingFrozen: te.entity.mappingFrozen,
       tb: d.version
         ? {
             version: d.version.version,
@@ -452,6 +472,12 @@ export class MappingStepService {
     const lineBy = new Map(
       [...this.comparatives.lines(comparative.version), ...d.lines].map((l) => [l.accountCode, l]),
     );
+    const frozen = !!(
+      await this.prisma.entity.findUnique({
+        where: { code: entityCode },
+        select: { mappingFrozen: true },
+      })
+    )?.mappingFrozen;
     const coaBy = new Map(d.coa.map((a) => [a.accountCode, a]));
 
     const errors: MappingRowIssuesDto[] = [];
@@ -493,7 +519,12 @@ export class MappingStepService {
         before?.fsliCode != null &&
         (before.fsliCode !== input.fsliCode ||
           (before.counterpartyCode !== null && before.counterpartyCode !== counterparty));
-      if (changesExisting && !(input.reason && input.reason.trim().length >= 3))
+      if (changesExisting && frozen)
+        rowErrors.push({
+          code: 'MAPPING_FROZEN',
+          message: `The ${entityCode} mapping is frozen: change it in Configuration → Chart of accounts (with a reason).`,
+        });
+      else if (changesExisting && !(input.reason && input.reason.trim().length >= 3))
         rowErrors.push({
           code: 'REASON_REQUIRED',
           message: 'Give a reason for changing an existing mapping.',
@@ -540,6 +571,8 @@ export class MappingStepService {
           counterpartyCode: c.counterparty,
           source: 'TASK_MAPPING' as const,
           suggested: false,
+          // Mapped by hand: no longer (or not yet) from the client's groupings.
+          ...(c.before?.fsliCode !== c.input.fsliCode ? { grouping: null } : {}),
           mappedInTaskId: taskId,
           updatedById: user.id,
         };
@@ -585,7 +618,12 @@ export class MappingStepService {
         await tx.task.update({ where: { id: taskId }, data: { updatedAt: new Date() } });
     });
     if (changes.length > 0)
-      await this.guard.accountsChanged(user, entityCode, `Mapping changed (${changes.map((c) => c.input.accountCode).join(', ')})`, ip);
+      await this.guard.accountsChanged(
+        user,
+        entityCode,
+        `Mapping changed (${changes.map((c) => c.input.accountCode).join(', ')})`,
+        ip,
+      );
     await this.guard.changed(user, taskId, entityCode, 'Mapping changed', ip);
     return this.build(user, task, te);
   }

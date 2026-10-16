@@ -4,53 +4,58 @@
 @import '@fontsource-variable/inter';
 
 /*
- * Finance Close theme. All colours are tokens; components use them through Tailwind
- * (bg-primary, text-muted-foreground, …), so the whole app changes from here.
+ * Finance Close theme in the Aistra brand colours (logo: violet #6C48F2 on black). All colours are
+ * tokens; components use them through Tailwind (bg-primary, text-muted-foreground, …), so the
+ * whole app changes from here. The token names teal / mint are kept for the existing classes:
+ * teal is the brand violet, mint the lavender highlight.
  *
- * Contrast (WCAG AA, 4.5:1 for text): ink on page 14:1, white on teal 5.3:1, teal on mint 4.7:1,
- * muted text on white 6.6:1, sidebar text on ink 12:1, sidebar muted on ink 6.7:1.
+ * Contrast (WCAG AA, 4.5:1 for text): ink on page 17:1, white on violet 5.4:1, violet on
+ * lavender 4.7:1, muted text on white 6.7:1, sidebar text on ink 15:1, sidebar muted on ink 7.7:1,
+ * green on its surface 4.9:1.
  */
 :root {
   --radius: 0.5rem;
 
   /* Brand */
-  --ink: #0f2a3d; /* ink navy: sidebar, headings */
-  --teal: #0e7c66; /* ledger teal: primary actions, active states, links */
-  --teal-hover: #0b6654;
-  --mint: #e8f3ef; /* mint surface: selected rows, highlights */
+  --ink: #14112b; /* Aistra ink (near-black, violet tint): sidebar, headings */
+  --teal: #6c48f2; /* Aistra violet: primary actions, active states, links */
+  --teal-hover: #5935db;
+  --teal-light: #a996ff; /* light violet: accents on the dark sidebar, login panel and toasts */
+  --mint: #f0ecfe; /* lavender surface: selected rows, highlights */
 
   /* Surfaces and text */
-  --background: #f6f8f7;
-  --foreground: #0f2a3d;
+  --background: #f7f6fb;
+  --foreground: #14112b;
   --card: #ffffff;
-  --card-foreground: #0f2a3d;
+  --card-foreground: #14112b;
   --popover: #ffffff;
-  --popover-foreground: #0f2a3d;
+  --popover-foreground: #14112b;
   --primary: var(--teal);
   --primary-foreground: #ffffff;
-  --secondary: #eef3f1;
-  --secondary-foreground: #0f2a3d;
-  --muted: #eef3f1;
-  --muted-foreground: #4b5d6a;
+  --secondary: #f1eff8;
+  --secondary-foreground: #14112b;
+  --muted: #f1eff8;
+  --muted-foreground: #5b5773;
   --accent: var(--mint);
-  --accent-foreground: #0f2a3d;
-  --border: #d9e2de;
-  --input: #c9d6d1;
+  --accent-foreground: #14112b;
+  --border: #e3e0ee;
+  --input: #d2cde3;
   --ring: var(--teal);
 
   /* Status */
   --destructive: #b42318; /* overdue / error */
   --success: #0e7c66; /* done */
+  --success-surface: #e7f4ef; /* done: light fill behind green text */
   --warning: #d97706; /* in progress (fills, dots, borders) */
   --warning-foreground: #92400e; /* in-progress text on light backgrounds */
   --neutral: #64748b; /* not started */
 
   /* Navigation */
-  --sidebar: #0f2a3d;
-  --sidebar-foreground: #e3ecef;
-  --sidebar-muted: #9db2bf;
+  --sidebar: #110f1f;
+  --sidebar-foreground: #eceaf6;
+  --sidebar-muted: #a9a4c4;
   --sidebar-hover: rgb(255 255 255 / 0.07);
-  --sidebar-active: rgb(14 124 102 / 0.28);
+  --sidebar-active: rgb(108 72 242 / 0.35);
   --sidebar-border: rgb(255 255 255 / 0.1);
 }
 
@@ -65,6 +70,7 @@
   --color-ink: var(--ink);
   --color-teal: var(--teal);
   --color-teal-hover: var(--teal-hover);
+  --color-teal-light: var(--teal-light);
   --color-mint: var(--mint);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -82,6 +88,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-neutral: var(--neutral);

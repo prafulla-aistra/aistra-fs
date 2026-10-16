@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import type {
   AccountTypeDefaultDto,
   AppSettingsDto,
   ExchangeRateRowDto,
   FormatDto,
+  FsliCreateResultDto,
   FsliDto,
 } from '@finance-close/shared';
 import { Decimal } from '@finance-close/engine';
@@ -36,6 +37,15 @@ const settingsSchema = z.object({
 });
 const fsliCode = z.string().regex(/^[A-Z0-9_]{1,30}$/, 'Invalid FSLI code');
 const erp = z.enum(['ZOHO', 'XERO', 'OTHER']);
+const fsliCreateSchema = z.object({
+  code: fsliCode,
+  name: z.string().trim().min(2, 'Enter a name').max(120),
+  statement: z.enum(['BS', 'PL']),
+  class: z.enum(['A', 'L', 'E', 'I', 'X']),
+  rateBasis: z.enum(['CLOSING', 'AVERAGE', 'HISTORICAL', 'OPENING']),
+  anchor: fsliCode,
+  ownLineIn: z.array(z.string().max(40)).max(20).default([]),
+});
 const defaultSchema = z.object({
   erp,
   accountType: z.string().trim().min(1, 'Enter the account type').max(60),
@@ -64,6 +74,17 @@ export class ReferenceController {
     @ClientIp() ip: string | null,
   ): Promise<AppSettingsDto> {
     return this.reference.saveSettings(user, body, ip);
+  }
+
+  /** A new FSLI, placed in every format (Configuration → FSLI master → Add FSLI). */
+  @Post('fslis')
+  @EditConfig()
+  createFsli(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(fsliCreateSchema)) body: z.output<typeof fsliCreateSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<FsliCreateResultDto> {
+    return this.reference.createFsli(user, body, ip);
   }
 
   @Patch('fslis/:code')

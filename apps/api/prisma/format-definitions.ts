@@ -7,7 +7,7 @@
 import type { FormatLine, FormatRole, FormatStatement } from '@finance-close/engine';
 
 type Builder = (statement: FormatStatement) => FormatLine;
-const H =
+export const H =
   (key: string, label: string, indent = 0): Builder =>
   (statement) => ({
     key,
@@ -19,10 +19,10 @@ const H =
     formula: [],
     role: null,
   });
-const L =
+export const L =
   (key: string, label: string, fslis: string[], indent = 0): Builder =>
   (statement) => ({ key, statement, type: 'LINE', label, indent, fslis, formula: [], role: null });
-const T =
+export const T =
   (key: string, label: string, expr: string, role: FormatRole | null = null, indent = 0): Builder =>
   (statement) => {
     const tokens = expr.split(/\s+/);
@@ -32,7 +32,7 @@ const T =
       .map(({ t, i }) => ({ key: t, op: (i === 0 ? '+' : tokens[i - 1]) as '+' | '-' }));
     return { key, statement, type: 'TOTAL', label, indent, fslis: [], formula, role };
   };
-const build = (pl: Builder[], bs: Builder[]): FormatLine[] => [
+export const build = (pl: Builder[], bs: Builder[]): FormatLine[] => [
   ...pl.map((b) => b('PL')),
   ...bs.map((b) => b('BS')),
 ];

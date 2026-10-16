@@ -15,6 +15,8 @@ import type {
   CoaPreviewDto,
   CrossRateDto,
   EntityCoaDto,
+  GroupingImportPreviewDto,
+  GroupingImportResultDto,
   RateGridDto,
   RatePreviewDto,
   RateSaveResultDto,
@@ -64,6 +66,14 @@ const requireFile = (f: UploadedBlob | undefined, what: string) => {
   if (f.size === 0) throw ApiError.validation('The file is empty.');
   return f;
 };
+
+const groupingPreviewSchema = z.object({ sheet: z.string().max(100).optional() });
+const groupingImportSchema = z.object({
+  sheet: z.string().min(1).max(100),
+  reason: z.string().max(500).optional(),
+  freeze: z.enum(['true', 'false']).default('false'),
+});
+const freezeSchema = z.object({ frozen: z.boolean(), reason: z.string().min(3).max(500) });
 
 /** Configuration → Exchange rates and Chart of accounts (CONFIG_MANAGE edits; REPORTS_VIEW views). */
 @Controller('config')
@@ -171,6 +181,49 @@ export class ConfigDataController {
     @ClientIp() ip: string | null,
   ): Promise<EntityCoaDto> {
     return this.coa.upload(user, code, requireFile(file, 'chart-of-accounts'), ip);
+  }
+
+  /** The client's "Account Code → Grouping" sheet: what importing it would change. */
+  @Post('entities/:code/coa/grouping/preview')
+  @EditConfig()
+  @Upload()
+  groupingPreview(
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @UploadedFile() file: UploadedBlob | undefined,
+    @Body(new ZodPipe(groupingPreviewSchema)) body: z.output<typeof groupingPreviewSchema>,
+  ): Promise<GroupingImportPreviewDto> {
+    return this.coa.groupingPreview(code, requireFile(file, 'grouping'), body.sheet ?? null);
+  }
+
+  @Post('entities/:code/coa/grouping/import')
+  @EditConfig()
+  @Upload()
+  groupingImport(
+    @CurrentUser() user: AuthUser,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @UploadedFile() file: UploadedBlob | undefined,
+    @Body(new ZodPipe(groupingImportSchema)) body: z.output<typeof groupingImportSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<GroupingImportResultDto> {
+    return this.coa.groupingImport(
+      user,
+      code,
+      requireFile(file, 'grouping'),
+      { sheet: body.sheet, reason: body.reason ?? null, freeze: body.freeze === 'true' },
+      ip,
+    );
+  }
+
+  /** Freeze / unfreeze the entity's mapping (tasks then map new accounts only). */
+  @Put('entities/:code/coa/freeze')
+  @EditConfig()
+  setFreeze(
+    @CurrentUser() user: AuthUser,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @Body(new ZodPipe(freezeSchema)) body: z.output<typeof freezeSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<EntityCoaDto> {
+    return this.coa.setFreeze(user, code, body.frozen, body.reason, ip);
   }
 
   @Get('entities/:code/coa/export')

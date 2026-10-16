@@ -75,7 +75,7 @@ export function DashboardPage() {
       <section className="relative overflow-hidden rounded-2xl bg-sidebar px-6 py-6 text-white shadow-sm sm:px-8">
         <div
           aria-hidden
-          className="absolute -top-24 -right-16 size-72 rounded-full bg-[#0E7C66] opacity-30 blur-3xl"
+          className="absolute -top-24 -right-16 size-72 rounded-full bg-teal opacity-30 blur-3xl"
         />
         <div className="relative flex flex-wrap items-end justify-between gap-5">
           <div>
@@ -114,7 +114,7 @@ export function DashboardPage() {
               </label>
             )}
             {canCreate && (
-              <Button asChild size="lg" className="bg-[#13A386] text-white hover:bg-[#10967B]">
+              <Button asChild size="lg" className="bg-teal text-white hover:bg-teal-hover">
                 <Link to="/tasks/new" className="no-underline">
                   <Plus /> New task
                 </Link>

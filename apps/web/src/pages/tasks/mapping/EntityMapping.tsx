@@ -77,6 +77,13 @@ export function EntityMapping({
           </span>
         )}
       </p>
+      {m.mappingFrozen && (
+        <p className="flex items-center gap-1.5 rounded-md border bg-mint px-3 py-2 text-sm">
+          <Lock className="size-4 text-primary" /> The {m.entity.code} mapping is frozen: new
+          accounts can be mapped here; to change an existing mapping, use Configuration → Chart of
+          accounts (a reason is asked for).
+        </p>
+      )}
       <RatesCard rates={m.rates} taskId={taskId} onUpload={onUpload} />
       {m.toMap.length > 0 && (
         <AccountsToMap
@@ -94,7 +101,7 @@ export function EntityMapping({
         <IntercompanyCard rows={m.intercompany} currency={m.entity.functionalCurrency} />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 md:left-(--shell-left) z-30 border-t bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-3">
           <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <Check ok={c.balanced}>TB balanced</Check>

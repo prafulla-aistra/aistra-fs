@@ -205,6 +205,18 @@ export class UploadsController {
     return this.step.uploadCoa(user, id, code, file, ip);
   }
 
+  /** Zoho entities: fetch the chart of accounts from Zoho Books → the same merge as a file. */
+  @Post('tasks/:id/entities/:code/coa/zoho')
+  @Prepare()
+  fetchZohoCoa(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @ClientIp() ip: string | null,
+  ): Promise<CoaMergeSummaryDto> {
+    return this.step.fetchZohoCoa(user, id, code, ip);
+  }
+
   @Post('tasks/:id/entities/:code/documents')
   @Prepare()
   @Upload()

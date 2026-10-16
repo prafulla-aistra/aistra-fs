@@ -41,6 +41,11 @@ export function AppShell() {
     }
   };
 
+  // Fixed bars (step footers) start where the content starts: after the open sidebar.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--shell-left', collapsed ? '0px' : '16rem');
+  }, [collapsed]);
+
   const signOut = async () => {
     if (!confirmLeave()) return;
     await logout();
@@ -82,7 +87,7 @@ export function AppShell() {
                 cn(
                   'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-muted no-underline transition-colors hover:bg-sidebar-hover hover:text-white',
                   isActive &&
-                    'bg-sidebar-active text-white before:absolute before:inset-y-1.5 before:left-0 before:w-1 before:rounded-full before:bg-[#3FD0AE]',
+                    'bg-sidebar-active text-white before:absolute before:inset-y-1.5 before:left-0 before:w-1 before:rounded-full before:bg-teal-light',
                 )
               }
             >

@@ -194,8 +194,8 @@ function Backdrop() {
           backgroundSize: '44px 44px',
         }}
       />
-      <div className="absolute -top-40 -right-32 size-[28rem] rounded-full bg-[#0E7C66] opacity-30 blur-3xl" />
-      <div className="absolute -bottom-48 -left-24 size-[26rem] rounded-full bg-[#1B3E56] opacity-60 blur-3xl" />
+      <div className="absolute -top-40 -right-32 size-[28rem] rounded-full bg-teal opacity-30 blur-3xl" />
+      <div className="absolute -bottom-48 -left-24 size-[26rem] rounded-full bg-[#231E45] opacity-60 blur-3xl" />
     </div>
   );
 }

@@ -132,7 +132,7 @@ export function PriorPanel({
                 x.op === 'same' ? (
                   <span key={i}>{x.text}</span>
                 ) : x.op === 'added' ? (
-                  <ins key={i} className="bg-mint text-success no-underline">
+                  <ins key={i} className="bg-success-surface text-success no-underline">
                     {x.text === '{figure}' ? '[live figure]' : x.text}
                   </ins>
                 ) : (

@@ -5,6 +5,7 @@
 import type { ErpSystem } from './enums';
 import type { ItemStatus } from './tasks';
 import type { UploadStepDto } from './upload-step';
+import type { MappingStatusCode } from './configuration-c2';
 
 /** Zoho account types (the account-type select). */
 export const ZOHO_ACCOUNT_TYPES = [
@@ -98,6 +99,9 @@ export interface MappedLineDto {
   mapped: boolean;
   intercompany: boolean;
   inCoa: boolean;
+  /** See MAPPING_STATUS (configuration-c2). */
+  mappingStatus: MappingStatusCode;
+  grouping: string | null;
 }
 
 export interface FsliSummaryDto {
@@ -139,6 +143,8 @@ export interface EntityMappingDto {
   };
   canEdit: boolean;
   readOnlyReason: string | null;
+  /** The entity's mapping is frozen: new accounts only; changes in Configuration. */
+  mappingFrozen: boolean;
   /** null: no validated TB yet ("Upload a trial balance first"). */
   tb: { version: number; fileName: string; createdAt: string } | null;
   rates: MappingRatesDto;

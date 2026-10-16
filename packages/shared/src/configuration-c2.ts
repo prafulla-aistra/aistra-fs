@@ -223,9 +223,54 @@ export interface CoaAccountDto {
   source: string;
   sourceLabel: string;
   suggested: boolean;
+  /** Client grouping the mapping came from (null: not in the client's groupings). */
+  grouping: string | null;
+  mappingStatus: MappingStatusCode;
+  /** In a confirmed trial balance of this entity (an account the figures use). */
+  inTrialBalance: boolean;
   updatedBy: string | null;
   updatedAt: string;
 }
+
+export type MappingStatusCode =
+  'SYSTEM' | 'GROUPING' | 'NOT_IN_GROUPINGS' | 'SUGGESTED' | 'NO_COUNTERPARTY' | 'UNMAPPED';
+
+/** Tag text and what the finance team should do. */
+export const MAPPING_STATUS: Record<
+  MappingStatusCode,
+  { label: string; hint: string; tone: 'success' | 'warning' | 'destructive' | 'neutral' }
+> = {
+  SYSTEM: {
+    label: 'System line',
+    hint: 'Added by the app (profit of earlier months, mapped to retained earnings).',
+    tone: 'neutral',
+  },
+  GROUPING: {
+    label: 'Client grouping',
+    hint: 'Mapped from the client groupings workbook.',
+    tone: 'success',
+  },
+  NOT_IN_GROUPINGS: {
+    label: 'Not in client groupings',
+    hint: 'Mapped by hand: add this account code and its grouping to the client workbook.',
+    tone: 'warning',
+  },
+  SUGGESTED: {
+    label: 'Auto-suggested',
+    hint: 'Guessed from the Zoho account type: check it, or give it a grouping in the client workbook.',
+    tone: 'warning',
+  },
+  NO_COUNTERPARTY: {
+    label: 'Counterparty missing',
+    hint: 'Intercompany line without the group entity on the other side: choose the counterparty.',
+    tone: 'destructive',
+  },
+  UNMAPPED: {
+    label: 'Unmapped',
+    hint: 'Choose an FSLI (line) for this account.',
+    tone: 'destructive',
+  },
+};
 
 export interface CoaStatsDto {
   accounts: number;
@@ -242,6 +287,58 @@ export interface EntityCoaDto {
   stats: CoaStatsDto;
   accounts: CoaAccountDto[];
   canEdit: boolean;
+  /** Mapping frozen: tasks map new accounts only; changes are made here, with a reason. */
+  mapping: { frozen: boolean; frozenAt: string | null; frozenBy: string | null };
+}
+
+/** Import of the client's "Account Code → Grouping" sheet (Financials workbook TB sheets). */
+export type GroupingStatus =
+  | 'NEW'
+  | 'CHANGE'
+  | 'SAME'
+  | 'NO_GROUPING'
+  | 'UNKNOWN_GROUPING'
+  | 'NEEDS_COUNTERPARTY'
+  | 'NOT_IN_COA';
+
+export const GROUPING_STATUS_LABELS: Record<GroupingStatus, string> = {
+  NEW: 'Mapped (was unmapped)',
+  CHANGE: 'Mapping changes',
+  SAME: 'Already mapped like this',
+  NO_GROUPING: 'No grouping in the file – left as is',
+  UNKNOWN_GROUPING: 'Grouping not recognised – left as is',
+  NEEDS_COUNTERPARTY: 'Intercompany, counterparty not in the name – map it by hand',
+  NOT_IN_COA: 'Not in the chart of accounts – ignored',
+};
+
+export interface GroupingImportItemDto {
+  code: string;
+  name: string;
+  grouping: string;
+  fsliCode: string | null;
+  fsliName: string | null;
+  counterpartyCode: string | null;
+  status: GroupingStatus;
+  before: {
+    fsliCode: string | null;
+    fsliName: string | null;
+    counterpartyCode: string | null;
+  } | null;
+}
+
+export interface GroupingImportPreviewDto {
+  fileName: string;
+  /** Sheets with an "Account Code" and "Grouping" header; the one used is `sheet`. */
+  sheets: string[];
+  sheet: string | null;
+  items: GroupingImportItemDto[];
+  counts: Partial<Record<GroupingStatus, number>>;
+}
+
+export interface GroupingImportResultDto {
+  applied: number;
+  frozen: boolean;
+  coa: EntityCoaDto;
 }
 
 export interface CoaAccountInput {

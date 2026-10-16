@@ -105,7 +105,7 @@ export function Showcase() {
               aria-current={i === index}
               className={cn(
                 'h-2 rounded-full transition-all focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none',
-                i === index ? 'w-7 bg-[#3FD0AE]' : 'w-2 bg-white/30 hover:bg-white/50',
+                i === index ? 'w-7 bg-teal-light' : 'w-2 bg-white/30 hover:bg-white/50',
               )}
             />
           ))}

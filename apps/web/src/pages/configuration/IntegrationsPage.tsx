@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2, PlugZap, Unplug, Wand2 } from 'lucide-react';
+import { KeyRound, Link2, PlugZap, Unplug, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import type { ZohoOrganisationDto, ZohoStatusDto } from '@finance-close/shared';
@@ -46,6 +46,13 @@ export function IntegrationsPage() {
     mutationFn: () => api.post<{ url: string }>('/integrations/zoho/connect'),
     onSuccess: ({ url }) => window.location.assign(url),
   });
+  const connectServer = useMutation({
+    mutationFn: () => api.post<ZohoStatusDto>('/integrations/zoho/connect-server-token'),
+    onSuccess: async () => {
+      toast('Zoho Books connected with the server token.');
+      await qc.invalidateQueries({ queryKey: ['config', 'zoho'] });
+    },
+  });
   const disconnect = useMutation({
     mutationFn: () => api.delete<ZohoStatusDto>('/integrations/zoho'),
     onSuccess: async () => {
@@ -77,7 +84,23 @@ export function IntegrationsPage() {
     });
   const dirty =
     !!s && s.links.some((l) => (l.organizationId ?? '') !== (draft[l.entityCode] ?? ''));
-  const error = status.error ?? connect.error ?? disconnect.error ?? save.error ?? orgs.error;
+  const error =
+    status.error ??
+    connect.error ??
+    connectServer.error ??
+    disconnect.error ??
+    save.error ??
+    orgs.error;
+  const serverTokenButton = s?.serverTokenAvailable && (
+    <EditButton
+      size="sm"
+      variant={s.connected ? 'outline' : 'default'}
+      disabled={connectServer.isPending}
+      onClick={() => connectServer.mutate()}
+    >
+      <KeyRound /> {connectServer.isPending ? 'Checking token…' : 'Connect with server token'}
+    </EditButton>
+  );
 
   return (
     <ConfigPage
@@ -91,6 +114,7 @@ export function IntegrationsPage() {
       action={
         s?.connected ? (
           <>
+            {serverTokenButton}
             <EditButton
               size="sm"
               variant="outline"
@@ -116,13 +140,17 @@ export function IntegrationsPage() {
             </EditButton>
           </>
         ) : (
-          <EditButton
-            size="sm"
-            disabled={!s?.configured || connect.isPending}
-            onClick={() => connect.mutate()}
-          >
-            <PlugZap /> {connect.isPending ? 'Opening Zoho…' : 'Connect Zoho Books'}
-          </EditButton>
+          <>
+            {serverTokenButton}
+            <EditButton
+              size="sm"
+              variant={s?.serverTokenAvailable ? 'outline' : 'default'}
+              disabled={!s?.configured || connect.isPending}
+              onClick={() => connect.mutate()}
+            >
+              <PlugZap /> {connect.isPending ? 'Opening Zoho…' : 'Connect Zoho Books'}
+            </EditButton>
+          </>
         )
       }
     >
@@ -165,6 +193,8 @@ export function IntegrationsPage() {
               <p className="text-muted-foreground">
                 Connect signs in to Zoho (an administrator of the Zoho account) and grants read-only
                 access to reports, settings and the chart of accounts.
+                {s.serverTokenAvailable &&
+                  ' A refresh token is also set on the server (ZOHO_REFRESH_TOKEN): “Connect with server token” uses it without signing in.'}
               </p>
             ) : (
               <Alert variant="info">

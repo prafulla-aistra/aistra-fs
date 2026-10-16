@@ -10,6 +10,14 @@
  */
 import http from 'node:http';
 
+// WEB_PORT can be set in apps/web/.env (Vite reads the same file).
+try {
+  process.loadEnvFile('apps/web/.env');
+} catch {
+  // no apps/web/.env: defaults apply
+}
+const WEB_PORT = Number(process.env.WEB_PORT) || 5173;
+
 const TIMEOUT_MS = 3 * 60_000;
 
 function get(url) {
@@ -35,7 +43,7 @@ async function apiReady() {
 }
 
 async function webReady() {
-  return (await get('http://localhost:5173/')).status === 200;
+  return (await get(`http://localhost:${WEB_PORT}/`)).status === 200;
 }
 
 async function main() {
@@ -45,7 +53,7 @@ async function main() {
       const secs = Math.round((Date.now() - started) / 1000);
       console.log('');
       console.log('  ==============================================================');
-      console.log(`   Finance Close is ready (${secs}s). Open http://localhost:5173`);
+      console.log(`   Finance Close is ready (${secs}s). Open http://localhost:${WEB_PORT}`);
       console.log('  ==============================================================');
       console.log('');
       return;

@@ -18,7 +18,16 @@ export function TbResult({ version, compact }: { version: ResultLike; compact?: 
   const balanced = !version.errors.some((e) => e.code === 'UNBALANCED');
   const ok = version.status !== 'ERROR';
   return (
-    <div className={cn('space-y-2 rounded-md px-3 py-2 text-sm', ok ? 'bg-mint/60' : 'bg-red-50')}>
+    <div
+      className={cn(
+        'space-y-2 rounded-md border px-3 py-2 text-sm',
+        !ok
+          ? 'border-destructive/20 bg-red-50'
+          : version.status === 'VALIDATED_WITH_WARNINGS'
+            ? 'border-warning/30 bg-amber-50'
+            : 'border-success/20 bg-success-surface',
+      )}
+    >
       <p
         className={cn(
           'flex items-center gap-1.5 font-medium',

@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import type { AccountTypeDefaultDto, FsliDto } from '@finance-close/shared';
+import type {
+  AccountTypeDefaultDto,
+  FsliCreateInput,
+  FsliCreateResultDto,
+  FsliDto,
+} from '@finance-close/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, Field, Input, Select } from '@/components/ui/form';
 import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -30,12 +36,18 @@ export function FsliPage() {
   const q = useFslis();
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<FsliDto | null>(null);
+  const [adding, setAdding] = useState(false);
   const rows = (q.data ?? []).filter((f) => matches(query, f.code, f.name));
   return (
     <ConfigPage
       title="FSLI master"
-      purpose="The financial statement line items every account maps to, with their translation rate and flags. Only names can be changed; codes, classes and rates are fixed."
+      purpose="The financial statement line items every account maps to, with their translation rate and flags. New FSLIs (e.g. a new client grouping) can be added; existing ones can only be renamed."
       count={q.data ? `${q.data.length} FSLIs` : null}
+      action={
+        <EditButton disabled={!q.data} onClick={() => setAdding(true)}>
+          <Plus /> Add FSLI
+        </EditButton>
+      }
     >
       <SearchBox value={query} onChange={setQuery} placeholder="Search FSLIs" />
       {q.error && <Alert>{errorMessage(q.error)}</Alert>}
@@ -90,7 +102,174 @@ export function FsliPage() {
         </Table>
       )}
       {editing && <RenameFsliDialog fsli={editing} onClose={() => setEditing(null)} />}
+      {adding && q.data && <AddFsliDialog fslis={q.data} onClose={() => setAdding(false)} />}
     </ConfigPage>
+  );
+}
+
+const CLASSES = { BS: ['A', 'L', 'E'], PL: ['I', 'X'] } as const;
+const DEFAULT_RATE: Record<string, FsliCreateInput['rateBasis']> = {
+  A: 'CLOSING',
+  L: 'CLOSING',
+  E: 'OPENING',
+  I: 'AVERAGE',
+  X: 'AVERAGE',
+};
+const codeFrom = (name: string) =>
+  name
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30);
+
+/**
+ * A new FSLI, e.g. a grouping the client starts using. It is placed in every format next to an
+ * existing FSLI (and, by default, as a line of its own in the Aistra management format), so
+ * statements keep adding up; "Import groupings" then recognises it by its name.
+ */
+function AddFsliDialog({ fslis, onClose }: { fslis: FsliDto[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [codeTouched, setCodeTouched] = useState(false);
+  const [statement, setStatement] = useState<'BS' | 'PL'>('PL');
+  const [cls, setCls] = useState<FsliCreateInput['class']>('X');
+  const [rate, setRate] = useState<FsliCreateInput['rateBasis']>('AVERAGE');
+  const [anchor, setAnchor] = useState('');
+  const [ownLine, setOwnLine] = useState(true);
+  const anchors = fslis.filter((f) => f.statement === statement && !f.computed);
+  const finalCode = codeTouched ? code : codeFrom(name);
+  const save = useMutation({
+    mutationFn: () =>
+      api.post<FsliCreateResultDto>('/config/fslis', {
+        code: finalCode,
+        name,
+        statement,
+        class: cls,
+        rateBasis: rate,
+        anchor,
+        ownLineIn: ownLine ? ['MANAGEMENT'] : [],
+      } satisfies FsliCreateInput),
+    onSuccess: async (r) => {
+      toast(
+        `${r.fsli.name} added; ${r.formats.map((f) => `${f.name} v${f.version}`).join(', ')} updated.`,
+      );
+      await qc.invalidateQueries({ queryKey: ['config'] });
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="Add FSLI"
+      description="Use the client's grouping name as the FSLI name: Import groupings then maps accounts with that grouping to it. Every report format gets it next to the FSLI you choose (a new format version where finalised reports use the current one)."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={save.isPending || name.trim().length < 2 || !finalCode || !anchor}
+            onClick={() => save.mutate()}
+          >
+            Add FSLI
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+        <Field label="Name (as the client's grouping)" htmlFor="new-fsli-name">
+          <Input
+            id="new-fsli-name"
+            value={name}
+            maxLength={120}
+            placeholder="e.g. Marketing - Events"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Code"
+          htmlFor="new-fsli-code"
+          hint="Upper case, digits and _; cannot change later."
+        >
+          <Input
+            id="new-fsli-code"
+            value={finalCode}
+            maxLength={30}
+            className="font-mono"
+            onChange={(e) => {
+              setCodeTouched(true);
+              setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''));
+            }}
+          />
+        </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Statement" htmlFor="new-fsli-statement">
+            <Select
+              id="new-fsli-statement"
+              value={statement}
+              onChange={(e) => {
+                const st = e.target.value as 'BS' | 'PL';
+                const c = CLASSES[st][0];
+                setStatement(st);
+                setCls(c);
+                setRate(DEFAULT_RATE[c]!);
+                setAnchor('');
+              }}
+            >
+              <option value="PL">Profit and loss</option>
+              <option value="BS">Balance sheet</option>
+            </Select>
+          </Field>
+          <Field label="Class" htmlFor="new-fsli-class">
+            <Select
+              id="new-fsli-class"
+              value={cls}
+              onChange={(e) => {
+                const c = e.target.value as FsliCreateInput['class'];
+                setCls(c);
+                setRate(DEFAULT_RATE[c]!);
+              }}
+            >
+              {CLASSES[statement].map((c) => (
+                <option key={c} value={c}>
+                  {CLASS_LABEL[c]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Translation rate" htmlFor="new-fsli-rate">
+            <Select
+              id="new-fsli-rate"
+              value={rate}
+              onChange={(e) => setRate(e.target.value as FsliCreateInput['rateBasis'])}
+            >
+              <option value="CLOSING">Closing</option>
+              <option value="AVERAGE">Average</option>
+              <option value="HISTORICAL">Historical</option>
+              <option value="OPENING">Opening</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="Show it next to">
+          <SearchableSelect
+            label="Show it next to"
+            value={anchor}
+            onChange={setAnchor}
+            placeholder="Choose an FSLI"
+            options={anchors.map((f) => ({ value: f.code, label: f.name, hint: f.code }))}
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={ownLine} onChange={(e) => setOwnLine(e.target.checked)} />
+          Its own line in the Aistra management format (other formats: on the chosen FSLI&apos;s
+          line)
+        </label>
+      </div>
+    </Dialog>
   );
 }
 
@@ -298,19 +477,19 @@ function DefaultDialog({
             onChange={(e) => setForm({ ...form, accountType: e.target.value })}
           />
         </Field>
-        <Field label="Default FSLI" htmlFor="def-fsli">
-          <Select
-            id="def-fsli"
+        <Field label="Default FSLI">
+          <SearchableSelect
+            label="Default FSLI"
             value={form.fsliCode}
-            onChange={(e) => setForm({ ...form, fsliCode: e.target.value })}
-          >
-            <option value="">Choose an FSLI</option>
-            {mappable.map((f) => (
-              <option key={f.code} value={f.code}>
-                {f.name} ({f.code})
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => setForm({ ...form, fsliCode: v })}
+            placeholder="Choose an FSLI"
+            options={mappable.map((f) => ({
+              value: f.code,
+              label: f.name,
+              hint: f.code,
+              group: f.statement === 'BS' ? 'Balance sheet' : 'Profit and loss',
+            }))}
+          />
         </Field>
       </div>
     </Dialog>

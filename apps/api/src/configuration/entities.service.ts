@@ -95,6 +95,7 @@ export class EntitiesService {
           heldByParentPct: o ? o.heldByParentPct : pctText(r.heldByParentPct),
           reportingCurrency: r.levelCurrency?.currency ?? r.reportingCurrency,
           isActive: r.isActive,
+          preparesConsolidation: r.preparesConsolidation,
         };
       });
   }
@@ -134,7 +135,7 @@ export class EntitiesService {
     const rows = await this.rows();
     const groupEntities = this.structureAt(rows, month);
     const issues = validateGroupStructure(groupEntities);
-    if (issues.length > 0) return { tree: null, levels: [], issues, asAt: month };
+    if (issues.length > 0) return { tree: null, levels: [], notLevels: [], issues, asAt: month };
 
     const effective = effectiveOwnership(groupEntities);
     const byCode = new Map(rows.map((r) => [r.code, r]));
@@ -179,7 +180,21 @@ export class EntitiesService {
         })),
       };
     });
-    return { tree: root ? build(root) : null, levels, issues: [], asAt: month };
+    // Parents with subsidiaries that do not prepare a level of their own.
+    const notLevels = active
+      .filter(
+        (g) =>
+          g.parentCode !== null &&
+          g.preparesConsolidation === false &&
+          active.some((c) => c.parentCode === g.code),
+      )
+      .map((g) => ({
+        code: g.code,
+        name: g.name,
+        legalName: byCode.get(g.code)!.legalName,
+        consolidatedIn: levels.find((l) => l.members.some((m) => m.code === g.code))?.name ?? null,
+      }));
+    return { tree: root ? build(root) : null, levels, notLevels, issues: [], asAt: month };
   }
 
   async detail(codeRaw: string): Promise<EntityDetailDto> {
@@ -596,6 +611,43 @@ export class EntitiesService {
   }
 
   /** Level currency override (null = back to the parent's reporting currency). */
+  /**
+   * Whether a parent prepares its own consolidation level. Off: its subsidiaries are
+   * consolidated directly in the next level up. Not for the ultimate parent. Audited.
+   */
+  async setPreparesConsolidation(
+    actor: AuthUser,
+    parentCode: string,
+    prepares: boolean,
+    reason: string,
+    ip: string | null,
+  ): Promise<GroupStructureDto> {
+    const code = parentCode.toUpperCase();
+    const entity = await this.prisma.entity.findUnique({ where: { code } });
+    if (!entity) throw ApiError.notFound(`Entity ${code} not found.`);
+    if (entity.parentCode === null && !prepares)
+      throw ApiError.validation('The ultimate parent always prepares the group consolidation.');
+    if (!(reason && reason.trim().length >= 3))
+      throw ApiError.validation('Give a reason for the consolidation level change.');
+    if (entity.preparesConsolidation !== prepares)
+      await this.prisma.$transaction(async (tx) => {
+        await tx.entity.update({ where: { code }, data: { preparesConsolidation: prepares } });
+        await this.audit.record(
+          {
+            userId: actor.id,
+            action: AuditAction.LevelPreparesChange,
+            entityType: 'ENTITY',
+            entityId: code,
+            oldValue: { preparesConsolidation: entity.preparesConsolidation },
+            newValue: { preparesConsolidation: prepares, reason: reason.trim() },
+            ip,
+          },
+          tx,
+        );
+      });
+    return this.groupStructure();
+  }
+
   async setLevelCurrency(
     actor: AuthUser,
     parentCode: string,

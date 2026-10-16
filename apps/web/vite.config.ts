@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       conditions: ['@finance-close/source', ...defaultClientConditions],
     },
     server: {
-      port: 5173,
+      port: Number(env.WEB_PORT) || 5173,
       strictPort: true,
       proxy: {
         // xfwd: pass the browser's IP to the API (X-Forwarded-For) for the audit log.

@@ -4,20 +4,20 @@ import { cn } from '@/lib/utils';
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={cn('size-8', className)} aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="#0E7C66" />
-      <rect x="8" y="6.5" width="16" height="19" rx="2.5" fill="#E8F3EF" />
+      <rect width="32" height="32" rx="8" fill="#6C48F2" />
+      <rect x="8" y="6.5" width="16" height="19" rx="2.5" fill="#F0ECFE" />
       <path
         d="M11 11.5h10M11 15h10M11 18.5h5"
-        stroke="#0F2A3D"
+        stroke="#14112B"
         strokeWidth="1.6"
         strokeLinecap="round"
         opacity=".55"
       />
-      <circle cx="22" cy="22" r="5.5" fill="#0F2A3D" />
+      <circle cx="22" cy="22" r="5.5" fill="#14112B" />
       <path
         d="m19.6 22 1.7 1.7 3.2-3.4"
         fill="none"
-        stroke="#E8F3EF"
+        stroke="#F0ECFE"
         strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"

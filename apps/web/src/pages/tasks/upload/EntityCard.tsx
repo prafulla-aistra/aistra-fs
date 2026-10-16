@@ -33,6 +33,14 @@ import { TbColumnsDialog } from './TbColumnsDialog';
 import { TbResult } from './TbResult';
 import { VersionsDialog } from './VersionsDialog';
 
+/** Coloured top edge of the card: the trial balance status at a glance. */
+const STATUS_ACCENT: Record<EntityUploadStatus, string> = {
+  PENDING: 'border-t-neutral/40',
+  ERROR: 'border-t-destructive',
+  VALIDATED_WITH_WARNINGS: 'border-t-warning',
+  VALIDATED: 'border-t-success',
+};
+
 const STATUS_VARIANT: Record<
   EntityUploadStatus,
   'neutral' | 'destructive' | 'warning' | 'success'
@@ -73,6 +81,16 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
       await refresh();
     },
   });
+  const coaZoho = useMutation({
+    mutationFn: () => api.post<CoaMergeSummaryDto>(`${base}/coa/zoho`),
+    onSuccess: async (s) => {
+      setCoaSummary(s);
+      toast(
+        `Chart of accounts from Zoho: ${s.added} added, ${s.updated} updated, ${s.unchanged} unchanged.`,
+      );
+      await refresh();
+    },
+  });
   const docs = useMutation({
     mutationFn: async (files: File[]) => {
       for (const f of files) await api.upload<FileRefDto>(`${base}/documents`, f);
@@ -92,8 +110,10 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
   });
   const error =
     localError ??
-    ((tb.error ?? zoho.error ?? coa.error ?? docs.error ?? basis.error)
-      ? errorMessage(tb.error ?? zoho.error ?? coa.error ?? docs.error ?? basis.error)
+    ((tb.error ?? zoho.error ?? coa.error ?? coaZoho.error ?? docs.error ?? basis.error)
+      ? errorMessage(
+          tb.error ?? zoho.error ?? coa.error ?? coaZoho.error ?? docs.error ?? basis.error,
+        )
       : null);
   const pick = (files: File[], run: (files: File[]) => void) => {
     setLocalError(null);
@@ -104,35 +124,52 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
 
   const latest = card.tb.latest;
   return (
-    <Card className={cn(!card.canEdit && 'bg-muted/30')}>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div className="min-w-0">
-          <CardTitle className="flex items-center gap-2">
-            <span className="font-mono text-xs font-semibold text-muted-foreground">
+    <Card
+      className={cn(
+        'gap-0 overflow-hidden border-t-[3px] py-0',
+        STATUS_ACCENT[card.uploadStatus],
+        !card.canEdit && 'bg-muted/30',
+      )}
+    >
+      <CardHeader className="gap-3 border-b bg-card px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-mint font-mono text-sm font-bold text-primary"
+              aria-hidden="true"
+            >
               {card.code}
             </span>
-            <span className="truncate">{card.legalName}</span>
-          </CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {card.functionalCurrency} · {ERP_LABELS[card.erp]} ·{' '}
-            <ItemStatusBadge status={card.itemStatus} />
-          </p>
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base text-ink" title={card.legalName}>
+                {card.legalName}
+              </CardTitle>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="rounded border bg-muted/60 px-1.5 py-px font-medium text-foreground">
+                  {card.functionalCurrency}
+                </span>
+                <span className="rounded border bg-muted/60 px-1.5 py-px">
+                  {ERP_LABELS[card.erp]}
+                </span>
+                <ItemStatusBadge status={card.itemStatus} />
+              </div>
+            </div>
+          </div>
+          <Badge variant={STATUS_VARIANT[card.uploadStatus]} className="shrink-0">
+            {UPLOAD_STATUS_LABELS[card.uploadStatus]}
+          </Badge>
         </div>
-        <Badge variant={STATUS_VARIANT[card.uploadStatus]}>
-          {UPLOAD_STATUS_LABELS[card.uploadStatus]}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3">
         {card.readOnlyReason && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="size-3" /> {card.readOnlyReason}
           </p>
         )}
-
-        <label className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted-foreground">P&amp;L basis of the trial balance</span>
+        <label className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/60 px-3 py-2 text-xs">
+          <span className="font-medium text-muted-foreground">
+            P&amp;L basis of the trial balance
+          </span>
           <Select
-            className="h-8 w-auto text-xs"
+            className="h-8 w-full bg-card text-xs sm:w-72"
             disabled={!card.canEdit || basis.isPending}
             value={card.plBasis}
             onChange={(e) => basis.mutate(e.target.value as 'PERIOD' | 'YTD')}
@@ -141,7 +178,8 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
             <option value="YTD">Year-to-date (converted using the previous month)</option>
           </Select>
         </label>
-
+      </CardHeader>
+      <CardContent className="divide-y px-0">
         <UploadRow
           icon={<FileSpreadsheet />}
           title="Trial balance"
@@ -157,7 +195,6 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
             card.canEdit && (
               <Button
                 size="sm"
-                variant="outline"
                 disabled={!card.erpFetch.available || tb.isPending || zoho.isPending}
                 title={
                   card.erpFetch.available
@@ -183,10 +220,31 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
           tag="Optional"
           accept={TB_FILE_EXTENSIONS.join(',')}
           canEdit={card.canEdit}
-          busy={coa.isPending}
+          busy={coa.isPending || coaZoho.isPending}
           last={card.coa.latest}
           onFiles={(f) => pick(f.slice(0, 1), ([file]) => coa.mutate(file!))}
           onVersions={card.coa.count > 0 ? () => setVersions('COA') : undefined}
+          extra={
+            card.erpFetch &&
+            card.canEdit && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!card.erpFetch.available || coa.isPending || coaZoho.isPending}
+                title={
+                  card.erpFetch.available
+                    ? `Chart of accounts of "${card.erpFetch.organizationName}" from Zoho Books (new accounts are added; existing mappings are not changed)`
+                    : (card.erpFetch.reason ?? undefined)
+                }
+                onClick={() => {
+                  setLocalError(null);
+                  coaZoho.mutate();
+                }}
+              >
+                <CloudDownload /> {coaZoho.isPending ? 'Fetching from Zoho…' : 'Fetch from Zoho'}
+              </Button>
+            )
+          }
         >
           {coaSummary && (
             <p className="text-xs">
@@ -225,7 +283,11 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
           )}
         </UploadRow>
 
-        {error && <Alert>{error}</Alert>}
+        {error && (
+          <div className="px-5 py-3">
+            <Alert>{error}</Alert>
+          </div>
+        )}
       </CardContent>
 
       {preview && (
@@ -299,12 +361,12 @@ function UploadRow({
     setOver(false);
     if (canEdit && !busy) onFiles?.([...e.dataTransfer.files]);
   };
+  const mandatory = /mandatory/i.test(tag);
   return (
     <div
       className={cn(
-        'rounded-lg border border-dashed p-3 transition-colors',
-        over && 'border-primary bg-mint/60',
-        !canEdit && 'border-solid',
+        'relative px-5 py-4 transition-colors',
+        over && 'bg-mint/70 outline-2 -outline-offset-4 outline-primary outline-dashed',
       )}
       onDragOver={(e) => {
         if (!canEdit) return;
@@ -314,27 +376,38 @@ function UploadRow({
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium [&>svg]:size-4 [&>svg]:text-muted-foreground">
+      <div className="flex items-center gap-2.5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-mint text-primary [&>svg]:size-4">
           {icon}
+        </span>
+        <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-ink">
           {title}
-          <span className="text-xs font-normal text-muted-foreground">{tag}</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
+          <span
+            className={cn(
+              'rounded-full px-2 py-px text-[10px] font-medium tracking-wide uppercase',
+              mandatory ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {tag}
+          </span>
+        </p>
+      </div>
+      <input
+        ref={input}
+        type="file"
+        aria-label={`Choose ${title.toLowerCase()} file`}
+        accept={accept}
+        multiple={multiple}
+        className="hidden"
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          onFiles?.(files);
+        }}
+      />
+      {(extra || canEdit || onVersions) && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-[42px]">
           {extra}
-          <input
-            ref={input}
-            type="file"
-            aria-label={`Choose ${title.toLowerCase()} file`}
-            accept={accept}
-            multiple={multiple}
-            className="hidden"
-            onChange={(e) => {
-              const files = [...(e.target.files ?? [])];
-              e.target.value = '';
-              onFiles?.(files);
-            }}
-          />
           {canEdit && (
             <Button
               size="sm"
@@ -347,26 +420,46 @@ function UploadRow({
             </Button>
           )}
           {onVersions && (
-            <Button size="sm" variant="ghost" onClick={onVersions}>
-              <History /> View versions
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto text-muted-foreground"
+              onClick={onVersions}
+              title="View versions"
+            >
+              <History /> Versions
             </Button>
           )}
         </div>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+      )}
+      <div className="mt-2 pl-[42px] text-xs text-muted-foreground">
         {last ? (
-          <>
-            Last: <FileLink file={last} />
-            {last.source === 'ZOHO' && ' (fetched from Zoho Books)'} · {last.uploadedBy},{' '}
-            {formatDateTime(last.uploadedAt)}
-          </>
+          <div className="space-y-0.5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate" title={last.name}>
+                <FileLink file={last} />
+              </span>
+              {last.source === 'ZOHO' && (
+                <Badge
+                  variant="review"
+                  className="shrink-0 px-1.5 py-0 text-[10px]"
+                  title="Fetched from Zoho Books"
+                >
+                  <CloudDownload className="size-3" /> From Zoho
+                </Badge>
+              )}
+            </div>
+            <p>
+              {last.uploadedBy} · {formatDateTime(last.uploadedAt)}
+            </p>
+          </div>
         ) : canEdit ? (
-          `Drop a file here or choose one (${accept.replaceAll(',', ', ')}; up to 10 MB).`
+          <p>Drop a file here or choose one ({accept.replaceAll(',', ', ')}; up to 10 MB).</p>
         ) : (
-          'Nothing uploaded.'
+          <p>Nothing uploaded.</p>
         )}
-      </p>
-      {children && <div className="mt-2">{children}</div>}
+      </div>
+      {children && <div className="mt-3 pl-[42px]">{children}</div>}
     </div>
   );
 }

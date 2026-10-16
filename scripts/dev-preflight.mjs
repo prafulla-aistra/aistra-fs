@@ -9,9 +9,17 @@
 import http from 'node:http';
 import net from 'node:net';
 
+// WEB_PORT can be set in apps/web/.env (Vite reads the same file).
+try {
+  process.loadEnvFile('apps/web/.env');
+} catch {
+  // no apps/web/.env: defaults apply
+}
+const WEB_PORT = Number(process.env.WEB_PORT) || 5173;
+
 const PORTS = [
   { port: 3000, name: 'API' },
-  { port: 5173, name: 'web app' },
+  { port: WEB_PORT, name: 'web app' },
 ];
 
 function inUse(port) {
@@ -60,7 +68,7 @@ for (const p of PORTS) if (await inUse(p.port)) busy.push(p);
 if (busy.length > 0) {
   console.error('');
   if (await isFinanceClose()) {
-    console.error('  Finance Close is already running. Open http://localhost:5173');
+    console.error(`  Finance Close is already running. Open http://localhost:${WEB_PORT}`);
     console.error(
       '  (To restart it, press Ctrl+C in the window where it runs, then run "npm run dev" again.)',
     );

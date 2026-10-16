@@ -16,7 +16,7 @@ const badgeVariants = cva(
         default: 'border-transparent bg-primary text-primary-foreground',
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
         // Tinted status badges: coloured text on a light fill keeps AA contrast.
-        success: 'border-success/25 bg-mint text-success',
+        success: 'border-success/25 bg-success-surface text-success',
         warning: 'border-warning/40 bg-amber-50 text-warning-foreground',
         destructive: 'border-destructive/25 bg-red-50 text-destructive',
         neutral: 'border-neutral/25 bg-slate-100 text-slate-700',

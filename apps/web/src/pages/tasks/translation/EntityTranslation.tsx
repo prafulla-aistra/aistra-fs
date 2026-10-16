@@ -140,7 +140,7 @@ export function EntityTranslation({
       )}
       <RulesPanel />
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 md:left-(--shell-left) z-30 border-t bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-3">
           <ul className="flex flex-wrap gap-x-4 text-sm">
             {t.currencies.map((c) => (

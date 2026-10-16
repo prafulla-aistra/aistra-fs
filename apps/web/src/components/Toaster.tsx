@@ -16,7 +16,7 @@ export function Toaster() {
           role="status"
           className="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-lg animate-in slide-in-from-bottom-2"
         >
-          <CheckCircle2 className="size-4 text-[#3FD0AE]" />
+          <CheckCircle2 className="size-4 text-teal-light" />
           {t.text}
           <button
             type="button"

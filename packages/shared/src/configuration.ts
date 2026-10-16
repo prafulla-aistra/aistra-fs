@@ -155,6 +155,8 @@ export interface GroupStructureDto {
   /** null when the structure is invalid (see issues). */
   tree: GroupTreeNode | null;
   levels: ConsolidationLevelDto[];
+  /** Parents that do not prepare their own level: consolidated in `consolidatedIn`. */
+  notLevels: { code: string; name: string; legalName: string; consolidatedIn: string | null }[];
   issues: GroupIssueDto[];
   /** The structure is shown as at this month (first day). */
   asAt: IsoDate;
@@ -334,6 +336,26 @@ export interface FsliDto {
   computed: boolean;
   /** Accounts mapped to it, across all entities. */
   accounts: number;
+}
+
+/** Configuration → FSLI master → Add FSLI. */
+export interface FsliCreateInput {
+  /** Upper case, digits and _ (1–30); unique. */
+  code: string;
+  name: string;
+  statement: 'BS' | 'PL';
+  class: 'A' | 'L' | 'E' | 'I' | 'X';
+  rateBasis: 'CLOSING' | 'AVERAGE' | 'HISTORICAL' | 'OPENING';
+  /** Existing FSLI of the same statement it is shown next to in every format. */
+  anchor: string;
+  /** Formats where it gets a line of its own (else it joins the anchor's line). */
+  ownLineIn: string[];
+}
+
+export interface FsliCreateResultDto {
+  fsli: FsliDto;
+  /** Formats updated (code → version saved). */
+  formats: { code: string; name: string; version: number; ownLine: boolean }[];
 }
 
 export interface AccountTypeDefaultDto {

@@ -39,13 +39,13 @@ export function UploadStep({ taskId, onContinue }: { taskId: string; onContinue:
   return (
     <div className="space-y-6 pb-24">
       <RatesPanel taskId={taskId} rates={s.rates} />
-      <section aria-label="Entities" className="grid gap-4 lg:grid-cols-2">
+      <section aria-label="Entities" className="grid items-start gap-4 lg:grid-cols-2">
         {s.entities.map((e) => (
           <EntityCard key={e.code} taskId={taskId} card={e} />
         ))}
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 md:left-(--shell-left) z-30 border-t bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-3">
           <p className="flex items-center gap-2 text-sm">
             {s.summary.validated === s.summary.total && s.summary.ratesComplete ? (

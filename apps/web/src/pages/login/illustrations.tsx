@@ -5,15 +5,15 @@
  */
 
 const C = {
-  ink: '#0F2A3D',
-  inkLight: '#1B3E56',
-  inkLine: '#2C5470',
-  teal: '#0E7C66',
-  tealBright: '#3FD0AE',
-  mint: '#E8F3EF',
+  ink: '#14112B',
+  inkLight: '#231E45',
+  inkLine: '#3A3366',
+  teal: '#6C48F2',
+  tealBright: '#A996FF',
+  mint: '#F0ECFE',
   paper: '#FFFFFF',
-  rule: '#D9E2DE',
-  muted: '#9DB2BF',
+  rule: '#E3E0EE',
+  muted: '#A9A4C4',
   amber: '#D97706',
   amberSoft: '#FCD9A8',
   red: '#E0685E',
@@ -204,7 +204,7 @@ export function StatutoryIllustration() {
 
       {/* Statements */}
       <Sheet x={396} y={70} w={110} h={150} label="Notes" band={C.inkLine} />
-      <Sheet x={378} y={96} w={116} h={156} label="Profit & loss" band="#136F5C" />
+      <Sheet x={378} y={96} w={116} h={156} label="Profit & loss" band="#5935DB" />
       <Sheet x={358} y={122} w={124} h={172} label="Balance sheet" />
       {[0, 1, 2, 3, 4].map((i) => (
         <g key={i}>
@@ -222,7 +222,7 @@ export function StatutoryIllustration() {
             width={28}
             height={6}
             rx="3"
-            fill={i === 4 ? C.teal : '#B8C7C1'}
+            fill={i === 4 ? C.teal : '#CFC8E6'}
           />
         </g>
       ))}

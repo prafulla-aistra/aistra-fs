@@ -95,6 +95,10 @@ const ownershipSchema = z.object({
 });
 const reasonSchema = z.object({ reason: z.string().trim().min(3, 'Give a reason').max(500) });
 const asAtSchema = z.object({ asAt: month.optional() });
+const levelPreparesSchema = z.object({
+  prepares: z.boolean(),
+  reason: z.string().trim().min(3, 'Give a reason').max(500),
+});
 const levelCurrencySchema = z.object({
   currency: z
     .string()
@@ -197,6 +201,24 @@ export class EntitiesController {
     @Query(new ZodPipe(asAtSchema)) q: z.output<typeof asAtSchema>,
   ): Promise<GroupStructureDto> {
     return this.entities.groupStructure(q.asAt);
+  }
+
+  /** Whether this parent prepares its own consolidation level (else: next level up). */
+  @Put('levels/:parentCode/prepares')
+  @EditConfig()
+  levelPrepares(
+    @CurrentUser() actor: AuthUser,
+    @Param('parentCode') parentCode: string,
+    @Body(new ZodPipe(levelPreparesSchema)) body: z.output<typeof levelPreparesSchema>,
+    @ClientIp() ip: string | null,
+  ): Promise<GroupStructureDto> {
+    return this.entities.setPreparesConsolidation(
+      actor,
+      parentCode,
+      body.prepares,
+      body.reason,
+      ip,
+    );
   }
 
   @Put('levels/:parentCode/currency')

@@ -110,7 +110,7 @@ export function DashboardCards({ data, filters, onFilter }: Props) {
             <div className="text-xl font-semibold text-ink">{data.lastPeriod.label}</div>
             <div className="mt-3">
               {data.lastPeriod.done ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-mint px-2.5 py-1 text-sm font-semibold text-success">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-success-surface px-2.5 py-1 text-sm font-semibold text-success">
                   <CheckCircle2 className="size-4" /> Done
                 </span>
               ) : (
@@ -309,7 +309,7 @@ const CHIP: Record<ItemStatus, string> = {
   NOT_STARTED: 'bg-slate-100 text-slate-700',
   IN_PROGRESS: 'bg-amber-50 text-warning-foreground',
   IN_REVIEW: 'bg-[#E6EDF3] text-ink',
-  FINALISED: 'bg-mint text-success',
+  FINALISED: 'bg-success-surface text-success',
 };
 
 function Chips({ counts }: { counts: ItemCountsDto }) {

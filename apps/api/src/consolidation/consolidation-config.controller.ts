@@ -115,6 +115,7 @@ export async function acquisitionRatesNeeded(
     heldByParentPct: e.heldByParentPct?.toString() ?? null,
     reportingCurrency: e.levelCurrency?.currency ?? e.reportingCurrency,
     isActive: e.isActive,
+    preparesConsolidation: e.preparesConsolidation,
   }));
   let levels: ReturnType<typeof deriveConsolidationLevels> = [];
   try {

@@ -35,3 +35,31 @@ export function readSheetRows(buffer: Buffer, fileName: string): Cell[][] {
 export function columnLetter(index: number): string {
   return XLSX.utils.encode_col(index);
 }
+
+/** Every sheet of a workbook as rows of cells (same reading rules as readSheetRows). */
+export function readWorkbookSheets(
+  buffer: Buffer,
+  fileName: string,
+): { name: string; rows: Cell[][] }[] {
+  const csv = fileName.toLowerCase().endsWith('.csv');
+  const wb = XLSX.read(buffer, {
+    type: 'buffer',
+    raw: csv,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+  });
+  return wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name];
+    if (!ws?.['!ref']) return { name, rows: [] };
+    const end = XLSX.utils.decode_range(ws['!ref']).e;
+    const rows = XLSX.utils.sheet_to_json<Cell[]>(ws, {
+      header: 1,
+      raw: true,
+      defval: null,
+      blankrows: true,
+      range: { s: { r: 0, c: 0 }, e: end },
+    });
+    return { name, rows };
+  });
+}
