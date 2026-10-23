@@ -5,10 +5,10 @@
 #
 # AWS credentials: the usual environment variables / profile. Set AWS_CREDS_FILE to a file of
 # "export AWS_..." lines to source it first (e.g. the SSO keys copied from the access portal).
-# FC_INSTANCE_ID / AWS_REGION override the defaults below. Exits non-zero unless the script
-# succeeded on the VM.
+# FC_INSTANCE_ID (the VM's EC2 instance id, required; see the deployment tracker, kept out of git)
+# and AWS_REGION (default us-east-1). Exits non-zero unless the script succeeded on the VM.
 set -euo pipefail
-INSTANCE_ID=${FC_INSTANCE_ID:-i-0eb7fc8a754dafc25}
+INSTANCE_ID=${FC_INSTANCE_ID:?Set FC_INSTANCE_ID to the Finance Close VM instance id}
 export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
 if [ -n "${AWS_CREDS_FILE:-}" ]; then source "$AWS_CREDS_FILE"; fi
 [ -f "${1:-}" ] || { echo "usage: $0 <script-file> [timeout-seconds]"; exit 2; }
