@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -10,9 +12,10 @@ import {
   Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import {
   MAX_UPLOAD_BYTES,
   Permission,
@@ -133,6 +136,60 @@ export class UploadsController {
     @UploadedFile() file: UploadedBlob | undefined,
   ): Promise<TbPreviewDto> {
     return this.step.uploadTb(user, id, code, file);
+  }
+
+  /** Removes the latest TB version (wrong file); the entity goes back to the Upload step. */
+  @Delete('tasks/:id/entities/:code/tb/latest')
+  @Prepare()
+  removeLatestTb(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @ClientIp() ip: string | null,
+  ): Promise<{ removedVersion: number; remainingVersion: number | null }> {
+    return this.step.removeLatestTb(user, id, code, ip);
+  }
+
+  /** Deletes a supporting document (or an unconfirmed upload) of the entity in this task. */
+  @Delete('tasks/:id/entities/:code/files/:fileId')
+  @Prepare()
+  @HttpCode(204)
+  deleteDocument(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+    @ClientIp() ip: string | null,
+  ): Promise<void> {
+    return this.step.deleteDocument(user, id, code, fileId, ip);
+  }
+
+  /** Veracity (Xero): the month's TB from the Veracity Category + VSCON files → the same preview. */
+  @Post('tasks/:id/entities/:code/tb/veracity')
+  @Prepare()
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'category', maxCount: 1 },
+        { name: 'vscon', maxCount: 1 },
+      ],
+      { limits: { fileSize: MAX_UPLOAD_BYTES, files: 2 } },
+    ),
+  )
+  uploadVeracity(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('code', new ZodPipe(entityCode)) code: string,
+    @UploadedFiles() files: { category?: UploadedBlob[]; vscon?: UploadedBlob[] },
+    @ClientIp() ip: string | null,
+  ): Promise<TbPreviewDto> {
+    return this.step.uploadVeracity(
+      user,
+      id,
+      code,
+      { category: files?.category?.[0], vscon: files?.vscon?.[0] },
+      ip,
+    );
   }
 
   /** Zoho entities: fetch the TB for the task period from Zoho Books → the same preview. */

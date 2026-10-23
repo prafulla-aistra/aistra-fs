@@ -1061,6 +1061,9 @@ export class ConsolidationService {
           narration: m.narration,
           reason: m.reason,
           lines: m.lines as unknown as EngineManual['lines'],
+          replaces: m.replacesEntryId,
+          thisLevelOnly: m.thisLevelOnly,
+          sourceRef: m.sourceRef,
         })),
       fslis,
     };
@@ -1110,6 +1113,21 @@ export class ConsolidationService {
       where: { taskId, level: { lte: level } },
       include: {},
     });
+    // Generated entries a manual entry of this level can replace (as generated, without manual).
+    const generatedOnly =
+      missing.length === 0
+        ? generateEliminations({ ...(await this.engineInput(task, l, members)), manual: [] }).entries
+        : entries.filter((e) => e.type !== 'MANUAL');
+    const titleOf = new Map(generatedOnly.map((e) => [e.id, e.title]));
+    const bfIds = manual.map((m) => m.broughtForwardFromId).filter((x): x is string => !!x);
+    const bfTasks = new Map(
+      (
+        await this.prisma.consolidationAdjustment.findMany({
+          where: { id: { in: bfIds } },
+          select: { id: true, task: { select: { number: true } } },
+        })
+      ).map((x) => [x.id, x.task.number]),
+    );
     const users = new Map(
       (await this.prisma.user.findMany({ select: { id: true, name: true } })).map((u) => [
         u.id,
@@ -1142,6 +1160,14 @@ export class ConsolidationService {
             : null,
           note: x.note,
         })),
+        totalDebit: e.lines
+          .filter((x) => new Decimal(x.amount).isPositive())
+          .reduce((t, x) => t.plus(x.amount), new Decimal('0'))
+          .toFixed(2),
+        totalCredit: e.lines
+          .filter((x) => new Decimal(x.amount).isNegative())
+          .reduce((t, x) => t.minus(x.amount), new Decimal('0'))
+          .toFixed(2),
         balanced: e.balanced,
         flagged: e.flagged,
         flags: e.flags,
@@ -1166,7 +1192,17 @@ export class ConsolidationService {
               reason: m.reason,
               createdBy: users.get(m.createdById) ?? 'Unknown user',
               createdAt: m.createdAt.toISOString(),
-              canDelete: m.level === level && m.createdById === user.id && h.editable,
+              canDelete: m.level === level && h.editable,
+              sourceRef: m.sourceRef,
+              replaces:
+                m.replacesEntryId && m.level === level
+                  ? { id: m.replacesEntryId, title: titleOf.get(m.replacesEntryId) ?? m.replacesEntryId }
+                  : null,
+              thisLevelOnly: m.thisLevelOnly,
+              broughtForwardFrom: m.broughtForwardFromId
+                ? (bfTasks.get(m.broughtForwardFromId) ?? 'previous month')
+                : null,
+              ownLevel: m.level === level,
             }
           : null,
       };
@@ -1194,8 +1230,132 @@ export class ConsolidationService {
         fslis: fslis
           .filter((f) => !['PROFIT'].includes(f.code))
           .map((f) => ({ code: f.code, name: f.name, statement: f.statement })),
+        replaceable: generatedOnly
+          .filter((e) => e.type !== 'NCI')
+          .map((e) => ({ id: e.id, title: e.title })),
       },
+      bringForward: await this.bringForwardInfo(task, l),
     };
+  }
+
+  /** The same level (same parent entity) in the previous month's CFS task, if there is one. */
+  private async previousLevel(task: CfsTask, l: LevelRow) {
+    if (task.period.type !== 'MONTHLY') return null;
+    const prevEnd = new Date(task.period.startDate.getTime() - 86_400_000);
+    const prev = await this.prisma.task.findFirst({
+      where: { type: 'CFS', period: { type: 'MONTHLY', endDate: prevEnd } },
+      include: { levels: true, period: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const pl = prev?.levels.find((x) => x.parentEntityCode === l.parentEntityCode);
+    return prev && pl ? { task: prev, level: pl } : null;
+  }
+
+  private async bringForwardInfo(task: CfsTask, l: LevelRow): Promise<EliminationsDto['bringForward']> {
+    const p = await this.previousLevel(task, l);
+    if (!p) return null;
+    const rows = await this.prisma.consolidationAdjustment.findMany({
+      where: { taskId: p.task.id, level: p.level.level },
+      select: { id: true },
+    });
+    const brought = await this.prisma.consolidationAdjustment.count({
+      where: { taskId: task.id, level: l.level, broughtForwardFromId: { in: rows.map((r) => r.id) } },
+    });
+    return {
+      taskNumber: p.task.number,
+      period: p.task.period.label,
+      levelStatus: p.level.status,
+      available: rows.length,
+      alreadyBrought: brought,
+    };
+  }
+
+  /**
+   * Copies the previous month's manual entries of this level (same parent entity) into this
+   * task — the starting point the preparer then edits (delete / add). Entries already brought
+   * forward are skipped; a different level currency blocks the copy.
+   */
+  async bringForward(
+    user: AuthUser,
+    taskId: string,
+    level: number,
+    ip: string | null,
+  ): Promise<EliminationsDto> {
+    const task = await this.load(user, taskId);
+    const l = this.levelRow(task, level);
+    const { waiting, sfs } = await this.availability(task);
+    this.assertEditable(this.header(user, task, l, waiting.get(level) ?? []));
+    const p = await this.previousLevel(task, l);
+    if (!p) throw ApiError.validation('There is no previous month consolidation for this level.');
+    if (p.level.currency !== l.currency)
+      throw ApiError.validation(
+        `The previous month's level is in ${p.level.currency}, this level in ${l.currency}: enter the entries again.`,
+      );
+    const rows = await this.prisma.consolidationAdjustment.findMany({
+      where: { taskId: p.task.id, level: p.level.level },
+      orderBy: { createdAt: 'asc' },
+    });
+    const done = new Set(
+      (
+        await this.prisma.consolidationAdjustment.findMany({
+          where: { taskId, level, broughtForwardFromId: { not: null } },
+          select: { broughtForwardFromId: true },
+        })
+      ).map((x) => x.broughtForwardFromId),
+    );
+    const todo = rows.filter((r) => !done.has(r.id));
+    if (todo.length === 0)
+      throw ApiError.validation(`Nothing to bring forward from ${p.task.number}.`);
+    const notMembers = todo.filter((r) =>
+      (r.lines as unknown as { entityCode: string | null }[]).some(
+        (x) => x.entityCode && !l.members.includes(x.entityCode),
+      ),
+    );
+    if (notMembers.length)
+      throw ApiError.validation(
+        `Not brought forward: ${notMembers.map((r) => `"${r.narration}"`).join(', ')} name entities that are not members of this level.`,
+      );
+    const members = await this.members(task, l, sfs);
+    await this.prisma.$transaction(async (tx) => {
+      for (const r of todo) {
+        const row = await tx.consolidationAdjustment.create({
+          data: {
+            taskId,
+            level,
+            currency: l.currency,
+            narration: r.narration,
+            reason: r.reason,
+            lines: r.lines as Prisma.InputJsonValue,
+            sourceRef: r.sourceRef,
+            replacesEntryId: r.replacesEntryId,
+            thisLevelOnly: r.thisLevelOnly,
+            broughtForwardFromId: r.id,
+            createdById: user.id,
+          },
+        });
+        await this.audit.record(
+          {
+            userId: user.id,
+            action: AuditAction.ConsolidationAdjustmentBringForward,
+            entityType: 'CONSOLIDATION_ADJUSTMENT',
+            entityId: row.id,
+            oldValue: null,
+            newValue: {
+              task: task.number,
+              level: `${level} ${l.name}`,
+              from: `${p.task.number} level ${p.level.level}`,
+              fromAdjustment: r.id,
+              narration: r.narration,
+              lines: r.lines,
+            },
+            ip,
+          },
+          tx,
+        );
+      }
+    });
+    await this.refreshRun(user, task, l, members);
+    return this.eliminations(user, taskId, level);
   }
 
   private async saveRun(
@@ -1311,12 +1471,27 @@ export class ConsolidationService {
         throw ApiError.validation(`Line ${i + 1}: choose an FSLI.`);
       if (x.entityCode && !l.members.includes(x.entityCode))
         throw ApiError.validation(`Line ${i + 1}: ${x.entityCode} is not a member of this level.`);
+      if (x.counterpartyCode && !l.members.includes(x.counterpartyCode))
+        throw ApiError.validation(
+          `Line ${i + 1}: counterparty ${x.counterpartyCode} is not a member of this level.`,
+        );
       return {
         entityCode: x.entityCode,
         fsliCode: x.fsliCode,
+        ...(x.counterpartyCode ? { counterpartyCode: x.counterpartyCode } : {}),
         amount: dr.minus(cr).toDecimalPlaces(2).toFixed(2),
+        ...(x.ref?.trim() ? { ref: x.ref.trim() } : {}),
       };
     });
+    const replaces = input.replacesEntryId?.trim() || null;
+    if (replaces) {
+      const generated = generateEliminations({
+        ...(await this.engineInput(task, l, await this.members(task, l, sfs))),
+        manual: [],
+      }).entries;
+      if (!generated.some((e) => e.id === replaces && e.type !== 'NCI'))
+        throw ApiError.validation('The entry to replace is not a generated entry of this level.');
+    }
     const problems = validateManualAdjustment(lines);
     if (problems.length) throw ApiError.validation(problems.join(' '));
     const members = await this.members(task, l, sfs);
@@ -1329,6 +1504,9 @@ export class ConsolidationService {
           narration: input.narration.trim(),
           reason: input.reason.trim(),
           lines,
+          sourceRef: input.sourceRef?.trim() || null,
+          replacesEntryId: replaces,
+          thisLevelOnly: input.thisLevelOnly ?? false,
           createdById: user.id,
         },
       });
@@ -1345,6 +1523,9 @@ export class ConsolidationService {
             currency: l.currency,
             narration: row.narration,
             reason: row.reason,
+            sourceRef: row.sourceRef,
+            replaces: row.replacesEntryId,
+            thisLevelOnly: row.thisLevelOnly,
             lines,
           },
           ip,
@@ -1382,8 +1563,6 @@ export class ConsolidationService {
       where: { id, taskId, level },
     });
     if (!row) throw ApiError.notFound('Adjustment not found.');
-    if (row.createdById !== user.id)
-      throw ApiError.notAllowed('Only the person who entered an adjustment can delete it.');
     const members = await this.members(task, l, sfs);
     await this.prisma.$transaction(async (tx) => {
       await tx.consolidationAdjustment.delete({ where: { id } });
@@ -1398,6 +1577,9 @@ export class ConsolidationService {
             level: `${level} ${l.name}`,
             narration: row.narration,
             reason: row.reason,
+            sourceRef: row.sourceRef,
+            replaces: row.replacesEntryId,
+            broughtForwardFrom: row.broughtForwardFromId,
             lines: row.lines,
           },
           newValue: null,
@@ -1658,6 +1840,9 @@ export class ConsolidationService {
         createdById: m.createdById,
         createdAt: m.createdAt.toISOString(),
         lines: m.lines as unknown as LevelSnapshotData['manual'][number]['lines'],
+        sourceRef: m.sourceRef,
+        replaces: m.replacesEntryId,
+        thisLevelOnly: m.thisLevelOnly,
       })),
     };
   }
@@ -1730,7 +1915,16 @@ export interface LevelSnapshotData {
     reason: string;
     createdById: string;
     createdAt: string;
-    lines: { entityCode: string | null; fsliCode: string; amount: string }[];
+    lines: {
+      entityCode: string | null;
+      fsliCode: string;
+      counterpartyCode?: string | null;
+      amount: string;
+      ref?: string | null;
+    }[];
+    sourceRef?: string | null;
+    replaces?: string | null;
+    thisLevelOnly?: boolean;
   }[];
   nci: { entityCode: string; nciProfit: string }[];
   [extra: string]: unknown;

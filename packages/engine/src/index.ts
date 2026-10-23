@@ -22,6 +22,7 @@ export * from './translation';
 export * from './consolidation';
 export * from './cfs-checks';
 export * from './client-groupings';
+export * from './veracity';
 export * from './tb-basis';
 export * from './acquisitions-template';
 export * from './zoho-tb';

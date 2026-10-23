@@ -54,12 +54,23 @@ const manualSchema = z.object({
           .regex(/^[A-Z0-9]{1,10}$/)
           .nullable(),
         fsliCode: z.string().regex(/^[A-Z0-9_]{1,30}$/, 'Choose an FSLI'),
+        counterpartyCode: z
+          .string()
+          .regex(/^[A-Z0-9]{1,10}$/)
+          .nullish(),
         debit: amount,
         credit: amount,
+        ref: z.string().trim().max(60).nullish(),
       }),
     )
     .min(2, 'Enter at least two lines')
     .max(50),
+  sourceRef: z.string().trim().max(300).nullish(),
+  replacesEntryId: z
+    .string()
+    .regex(/^[A-Z_]+:[A-Z0-9:]+$/, 'Choose the generated entry to replace')
+    .nullish(),
+  thisLevelOnly: z.boolean().optional(),
 });
 const currencySchema = z.object({ currency: z.string().regex(/^[A-Z]{3}$/, 'Choose a currency') });
 const continueSchema = z.object({
@@ -188,6 +199,17 @@ export class ConsolidationController {
     @ClientIp() ip: string | null,
   ): Promise<EliminationsDto> {
     return this.cfs.addManual(user, id, level, body, ip);
+  }
+
+  @Post('levels/:level/adjustments/bring-forward')
+  @Prepare()
+  bringForward(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('level', ParseIntPipe) level: number,
+    @ClientIp() ip: string | null,
+  ): Promise<EliminationsDto> {
+    return this.cfs.bringForward(user, id, level, ip);
   }
 
   @Delete('levels/:level/adjustments/:adjustmentId')

@@ -2,6 +2,7 @@ import { Controller, Get, HttpStatus, Logger, Res } from '@nestjs/common';
 import type { HealthResponse } from '@finance-close/shared';
 import type { Response } from 'express';
 import { Public } from '../auth/access-control';
+import { restartIfDatabaseCredentialsRotated } from '../prisma/credential-rotation';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DB_TIMEOUT_MS = 3000;
@@ -33,6 +34,7 @@ export class HealthController {
       await Promise.race([this.prisma.$queryRaw`SELECT 1`, timeout]);
       return true;
     } catch (err) {
+      restartIfDatabaseCredentialsRotated(err);
       this.logger.warn(
         `Database health check failed: ${err instanceof Error ? err.message : String(err)}`,
       );

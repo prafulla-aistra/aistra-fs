@@ -454,6 +454,45 @@ describe('NCI: P owns 60% of A, A owns 100% of B (one currency, so every rate is
     const r = generateEliminations({ ...base, level: 1, levelParentCode: 'A', members: [A, B] });
     expect(r.entries.map((e) => e.type)).toEqual(['INVESTMENT']);
   });
+
+  const workbookInvestment = {
+    id: 'm1',
+    level: 2,
+    currency: 'SGD',
+    narration: 'P purchased A (workbook)',
+    reason: 'Investment elimination as per the workbook',
+    replaces: 'INVESTMENT:P:A',
+    thisLevelOnly: true,
+    sourceRef: 'Financials · Elimination · AM24:AQ28',
+    lines: [
+      { entityCode: 'A', fsliCode: 'SHARE_CAP', amount: '6000.00', ref: 'AP25' },
+      { entityCode: null, fsliCode: 'GOODWILL', amount: '500.00', ref: 'AP26' },
+      { entityCode: 'P', fsliCode: 'INV_SUB', counterpartyCode: 'A', amount: '-6500.00', ref: 'AQ28' },
+    ],
+  };
+
+  it('a manual entry replacing a generated one: the generated entry is left out, the manual one counts for NCI', () => {
+    const r = generateEliminations({ ...base, manual: [workbookInvestment] });
+    expect(r.entries.map((e) => e.id)).not.toContain('INVESTMENT:P:A');
+    const m = r.entries.find((e) => e.id === 'MANUAL:m1')!;
+    expect(m.calculation).toContain('Replaces the generated entry INVESTMENT:P:A.');
+    expect(m.lines.find((l) => l.fsliCode === 'INV_SUB')!.counterpartyCode).toBe('A');
+    expect(m.lines[0]!.note).toBe('Source: AP25');
+    // P's investment in A is eliminated through the manual entry's counterparty line.
+    const checks = eliminationChecks([P3, A, B], r.entries, FSLIS);
+    expect(checks.find((c) => c.code === 'ENTRIES_BALANCE')!.passed).toBe(true);
+  });
+
+  it('a replacing entry of a lower level does not suppress the generated entry here, and thisLevelOnly is not carried', () => {
+    const r = generateEliminations({ ...base, manual: [{ ...workbookInvestment, level: 1 }] });
+    expect(r.entries.map((e) => e.id)).toContain('INVESTMENT:P:A');
+    expect(r.entries.map((e) => e.id)).not.toContain('MANUAL:m1');
+    const carried = generateEliminations({
+      ...base,
+      manual: [{ ...workbookInvestment, level: 1, thisLevelOnly: false, replaces: null }],
+    });
+    expect(carried.entries.map((e) => e.id)).toContain('MANUAL:m1');
+  });
 });
 
 describe('manual adjustments', () => {

@@ -268,6 +268,7 @@ export const AuditAction = {
   EliminationsGenerate: 'ELIMINATIONS_GENERATE',
   ConsolidationAdjustmentCreate: 'CONSOLIDATION_ADJUSTMENT_CREATE',
   ConsolidationAdjustmentDelete: 'CONSOLIDATION_ADJUSTMENT_DELETE',
+  ConsolidationAdjustmentBringForward: 'CONSOLIDATION_ADJUSTMENT_BRING_FORWARD',
   EliminationExplain: 'ELIMINATION_EXPLAIN',
   CfsLevelFinalise: 'CFS_LEVEL_FINALISE',
   CfsLevelReopen: 'CFS_LEVEL_REOPEN',
@@ -295,6 +296,9 @@ export const AuditAction = {
   // Client groupings
   MappingImport: 'MAPPING_IMPORT',
   LevelPreparesChange: 'LEVEL_PREPARES_CHANGE',
+  VeracityUpload: 'VERACITY_UPLOAD',
+  TbVersionRemove: 'TB_VERSION_REMOVE',
+  DocumentDelete: 'DOCUMENT_DELETE',
   MappingFreeze: 'MAPPING_FREEZE',
   MappingUnfreeze: 'MAPPING_UNFREEZE',
 } as const;

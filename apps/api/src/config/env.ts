@@ -56,6 +56,11 @@ export interface Env {
    * server token" stores it as the connection instead of the OAuth sign-in. Empty = not used.
    */
   ZOHO_REFRESH_TOKEN: string;
+  /**
+   * Built web app (apps/web/dist, relative to the repo root) served by the API on the same
+   * port, for a single-server deployment behind nginx. Empty = off (local: Vite serves it).
+   */
+  WEB_DIST_DIR: string;
 }
 
 /** Zoho accounts servers (one per data centre). */
@@ -169,6 +174,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     ZOHO_REDIRECT_URI: zohoRedirect,
     ZOHO_SCOPE: str(raw.ZOHO_SCOPE) || ZOHO_DEFAULT_SCOPE,
     ZOHO_REFRESH_TOKEN: str(raw.ZOHO_REFRESH_TOKEN),
+    WEB_DIST_DIR: str(raw.WEB_DIST_DIR),
   };
 }
 

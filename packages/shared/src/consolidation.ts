@@ -157,6 +157,9 @@ export interface EliminationEntryDto {
   originText: string;
   entities: string[];
   lines: EliminationLineDto[];
+  /** Σ debits / Σ credits of the entry (positive, 2 dp). */
+  totalDebit: string;
+  totalCredit: string;
   balanced: boolean;
   flagged: boolean;
   flags: string[];
@@ -173,6 +176,16 @@ export interface EliminationEntryDto {
     createdBy: string;
     createdAt: string;
     canDelete: boolean;
+    /** Where the entry comes from (e.g. a workbook sheet and cells). */
+    sourceRef: string | null;
+    /** The generated entry this one replaces (its title), when it is of this level. */
+    replaces: { id: string; title: string } | null;
+    /** Not carried to higher levels. */
+    thisLevelOnly: boolean;
+    /** Brought forward from the previous month's consolidation (task number). */
+    broughtForwardFrom: string | null;
+    /** Entered at this level (false: carried from a lower level). */
+    ownLevel: boolean;
   } | null;
 }
 
@@ -201,17 +214,36 @@ export interface EliminationsDto {
   manualOptions: {
     entities: { code: string; shortName: string }[];
     fslis: { code: string; name: string; statement: 'BS' | 'PL' }[];
+    /** Generated entries of this level a manual entry can replace. */
+    replaceable: { id: string; title: string }[];
   };
+  /** The previous month's consolidation of this level, to bring its manual entries forward. */
+  bringForward: {
+    taskNumber: string;
+    period: string;
+    levelStatus: string;
+    /** Manual entries entered at that level. */
+    available: number;
+    /** Of those, already brought into this task. */
+    alreadyBrought: number;
+  } | null;
 }
 
 export interface ManualAdjustmentInput {
   narration: string;
   reason: string;
+  sourceRef?: string | null;
+  /** A generated entry of this level the manual entry replaces (e.g. INVESTMENT:IN:AE). */
+  replacesEntryId?: string | null;
+  thisLevelOnly?: boolean;
   lines: {
     entityCode: string | null;
     fsliCode: string;
+    counterpartyCode?: string | null;
     debit: string | null;
     credit: string | null;
+    /** Where the figure comes from (e.g. a workbook cell). */
+    ref?: string | null;
   }[];
 }
 

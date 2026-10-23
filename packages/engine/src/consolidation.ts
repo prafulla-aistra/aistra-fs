@@ -15,7 +15,10 @@ import { fsliAmounts } from './statements';
  *   5. entries of lower levels are recomputed here from the same data, labelled with their
  *      origin level; manual adjustments of lower levels are carried at closing (BS) or average
  *      (P&L) rates with the difference to FCTR;
- *   6. manual adjustments of this level.
+ *   6. manual adjustments of this level. A manual adjustment can replace a generated entry of
+ *      the same level (replaces = its id, e.g. INVESTMENT:IN:AE: the generated one is left out
+ *      and the manual one counts within the sub-group for NCI), and can be kept to its own level
+ *      (thisLevelOnly: not carried up, e.g. when each level books its own figures).
  *
  * Every line is rounded to 2 dp (half away from zero); every entry balances to 0.00.
  */
@@ -81,8 +84,12 @@ export interface IcPairInput {
 export interface ManualLineInput {
   entityCode: string | null;
   fsliCode: string;
+  /** The other group entity (an investment's subsidiary, an intercompany balance's party). */
+  counterpartyCode?: string | null;
   /** In the adjustment's currency (the level where it was entered), debit +. */
   amount: string;
+  /** Where the figure comes from (e.g. a workbook cell). */
+  ref?: string | null;
 }
 
 export interface ManualAdjustmentInput {
@@ -93,6 +100,12 @@ export interface ManualAdjustmentInput {
   narration: string;
   reason: string;
   lines: readonly ManualLineInput[];
+  /** The generated entry of the same level this adjustment replaces (e.g. INVESTMENT:IN:AE). */
+  replaces?: string | null;
+  /** Not carried to higher levels. */
+  thisLevelOnly?: boolean;
+  /** Where the entry comes from (e.g. "Financials Aug'26.xlsx · Aistra Group Elimination"). */
+  sourceRef?: string | null;
 }
 
 export interface LevelInfo {
@@ -534,13 +547,21 @@ function manualEntry(
   const lines: EliminationLine[] = m.lines.map((l) => ({
     entityCode: l.entityCode,
     fsliCode: l.fsliCode,
-    counterpartyCode: null,
+    counterpartyCode: l.counterpartyCode ?? null,
     amount: two(D(l.amount).times(pl.has(l.fsliCode) ? average : closing)).toFixed(2),
-    note: same
-      ? ''
-      : `${fmt(D(l.amount))} ${m.currency} at the ${pl.has(l.fsliCode) ? 'average' : 'closing'} rate ${fmtRate(pl.has(l.fsliCode) ? average : closing)}`,
+    note: [
+      l.ref ? `Source: ${l.ref}` : '',
+      same
+        ? ''
+        : `${fmt(D(l.amount))} ${m.currency} at the ${pl.has(l.fsliCode) ? 'average' : 'closing'} rate ${fmtRate(pl.has(l.fsliCode) ? average : closing)}`,
+    ]
+      .filter(Boolean)
+      .join('; '),
   }));
   const calc: string[] = [`Reason: ${m.reason}`];
+  if (m.sourceRef) calc.push(`Source: ${m.sourceRef}`);
+  if (m.replaces && m.level === input.level)
+    calc.push(`Replaces the generated entry ${m.replaces}.`);
   const rest = lines.reduce((s, l) => s.plus(l.amount), D('0'));
   if (!rest.isZero()) {
     lines.push({
@@ -612,6 +633,25 @@ export function generateEliminations(input: GenerateEliminationsInput): Generate
   }
   entries.push(...investments);
 
+  // 5–6. Manual adjustments (this level, and carried from lower levels unless kept to their
+  // level). Those replacing a generated entry of this level take its place.
+  const manual: EliminationEntry[] = [];
+  const replaced = new Set<string>();
+  for (const m of [...input.manual].sort((a, b) => a.level - b.level)) {
+    if (m.level > input.level || (m.level < input.level && m.thisLevelOnly)) continue;
+    const r = manualEntry(input, m);
+    if (r.issue) issues.push(r.issue);
+    if (!r.entry) continue;
+    manual.push(r.entry);
+    if (m.replaces && m.level === input.level) replaced.add(m.replaces);
+  }
+  for (let i = entries.length - 1; i >= 0; i--)
+    if (replaced.has(entries[i]!.id)) entries.splice(i, 1);
+  const replacing = manual.filter((e) => {
+    const m = input.manual.find((x) => `MANUAL:${x.id}` === e.id);
+    return !!m?.replaces && m.level === input.level;
+  });
+
   // 4. NCI: members (not the level parent) whose parent holds less than 100%.
   const descendants = (code: string): string[] =>
     input.members
@@ -622,8 +662,9 @@ export function generateEliminations(input: GenerateEliminationsInput): Generate
       continue;
     if (!D(m.heldByParentPct).lessThan(100)) continue;
     const codes = [m.code, ...descendants(m.code)];
-    const internal = entries.filter(
-      (e) => e.type !== 'NCI' && e.entities.every((c) => codes.includes(c)),
+    const internal = [...entries, ...replacing].filter(
+      (e) =>
+        e.type !== 'NCI' && e.entities.length > 0 && e.entities.every((c) => codes.includes(c)),
     );
     entries.push(
       nciEntry(
@@ -636,14 +677,7 @@ export function generateEliminations(input: GenerateEliminationsInput): Generate
     );
   }
 
-  // 5–6. Manual adjustments (this level, and carried from lower levels).
-  for (const m of [...input.manual].sort((a, b) => a.level - b.level)) {
-    if (m.level > input.level) continue;
-    const r = manualEntry(input, m);
-    if (r.issue) issues.push(r.issue);
-    if (r.entry) entries.push(r.entry);
-  }
-
+  entries.push(...manual);
   return { entries, issues };
 }
 

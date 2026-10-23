@@ -1344,8 +1344,16 @@ model ConsolidationAdjustment {
   currency    String   @db.Char(3)
   narration   String   @db.VarChar(300)
   reason      String   @db.VarChar(1000)
-  /// [{ entityCode | null, fsliCode, amount (signed, debit +) }]
+  /// [{ entityCode | null, fsliCode, counterpartyCode?, amount (signed, debit +), ref? }]
   lines       Json
+  /// Where the entry comes from (e.g. "Financials Aug'26.xlsx · AistragenAI Group Elimination · AM24:AQ28").
+  sourceRef            String?  @map("source_ref") @db.VarChar(300)
+  /// A generated entry of the same level this one replaces (e.g. INVESTMENT:IN:AE).
+  replacesEntryId      String?  @map("replaces_entry_id") @db.VarChar(80)
+  /// Not carried to higher levels (each level books its own figures).
+  thisLevelOnly        Boolean  @default(false) @map("this_level_only")
+  /// The previous month's adjustment this one was brought forward from.
+  broughtForwardFromId String?  @map("brought_forward_from_id") @db.Uuid
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

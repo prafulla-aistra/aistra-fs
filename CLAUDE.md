@@ -50,9 +50,10 @@
   them): every active parent with subsidiaries prepares a level, unless its
   entity.preparesConsolidation is off (Configuration → Group structure → "Not a level"); then its
   members are consolidated in the next level up. The ultimate parent always prepares one.
-  Decision 2026-10-15 (user): no separate Unconstrained level, as in the Financials workbook:
-  L1 India (IN+AE+UK+UC+Veracity, INR), L2 US (all, USD). (Was four levels incl. Veracity and
-  Unconstrained; the client process doc v2 §5.1 also lists an Unconstrained level.)
+  Decision 2026-10-22 (user, per process flow "Intermediate – Unconstrained INC"): three levels,
+  L1 Unconstrained (UC + Veracity Group, USD), L2 India (IN+AE+UK+UC+Veracity, INR), L3 US (all,
+  USD). Veracity is not a level of its own (VS holds the combined group). (2026-10-15 had 2
+  levels without Unconstrained; earlier four levels incl. Veracity.)
 - Veracity (provisional, Aug-2026): VS holds Veracity Group combined (VS+VM) in USD from the
   workbook; VM is inactive. Revert (SGD, reactivate VM) when Xero trial balances per entity exist.
 - A level can start only when every level below it is finalised.
@@ -121,7 +122,7 @@
 - Replace illustrative historical rates and holidays with confirmed values.
 
 ## Decisions
-- Consolidation levels: see Consolidation (2 levels since 2026-10-15; Unconstrained not a level).
+- Consolidation levels: see Consolidation (3 levels since 2026-10-22: Unconstrained, India, US).
 - Veracity currencies: SGD (VS) and LKR (VM), flagged "to be confirmed", editable.
 - Rounding: round half away from zero (matches Excel ROUND). No banker's rounding.
 
@@ -280,6 +281,19 @@
   translated from the snapshot's functional accounts with translateTB.
 - consolidation_run holds the generated entries per level (replaced on regenerate; stale when a
   fresh computation differs); consolidation_adjustment holds manual adjustments (level currency).
+- Manual elimination entries (consolidation_adjustment, "Manual elimination entries" on the
+  Eliminations step): sourceRef (e.g. workbook sheet · cells) and a ref per line; replacesEntryId
+  = a generated entry of the same level it replaces (engine leaves the generated one out and counts
+  the manual one within the sub-group for NCI); thisLevelOnly = not carried up; counterpartyCode on
+  lines (INV_SUB needs it for the "investments eliminated" check). "Bring forward" copies the
+  previous month's entries of the same level (same parent entity) as the starting point
+  (broughtForwardFromId); any preparer may delete an entry (audited).
+  Decision 2026-10-23 (user): Aug-2026 entries come from the Financials Aug'26 Eliminations tabs
+  (L1 and L2 from the AistragenAI sheet, L3 from the Aistra Group sheet; UC→VS at 3,250,000 USD at
+  every level), replacing the generated investment entries; the translation residual on
+  investments (closing vs workbook historical) goes to FCTR per investment, replacing the
+  workbook's lump AT13 line; the India-sheet FCTR balancing line (AT17) is not posted (the app
+  computes FCTR). These residual entries change monthly: update them after bringing forward.
 - Configuration: intercompany_pair (matrix with tolerance) and acquisition + acquisition_rate (a
   rate into the parent's currency and every level currency); seed runs once (marker
   SEED_APPLIED page9-consolidation).

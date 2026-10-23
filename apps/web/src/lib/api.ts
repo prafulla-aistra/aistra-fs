@@ -177,6 +177,12 @@ export const api = {
     form.append('file', file);
     return apiFetch<T>(path, { method: 'POST', body: form });
   },
+  /** Multipart upload of several named files (e.g. { category, vscon }). */
+  uploadFiles: <T>(path: string, files: Record<string, File>) => {
+    const form = new FormData();
+    for (const [k, f] of Object.entries(files)) form.append(k, f);
+    return apiFetch<T>(path, { method: 'POST', body: form });
+  },
   /** Multipart upload of one file ("file") with extra text fields. */
   uploadWith: <T>(path: string, file: File, fields: Record<string, string>) => {
     const form = new FormData();

@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import type { Env } from '../config/env';
+import { restartIfDatabaseCredentialsRotated } from './credential-rotation';
 import { withConnectionDefaults } from './database-url';
 
 /**
@@ -23,11 +24,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private warmUp: Promise<void> = Promise.resolve();
 
   onModuleInit(): void {
-    this.warmUp = this.$connect().catch((err: unknown) =>
+    this.warmUp = this.$connect().catch((err: unknown) => {
+      restartIfDatabaseCredentialsRotated(err);
       this.logger.warn(
         `Database not reachable yet: ${err instanceof Error ? err.message.trim().split('\n').at(-1) : String(err)}`,
-      ),
-    );
+      );
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

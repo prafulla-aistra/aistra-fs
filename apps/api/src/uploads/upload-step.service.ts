@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import type { Prisma, TbVersion, UploadKind } from '@prisma/client';
+import { Prisma, type TbVersion, type UploadKind } from '@prisma/client';
 import {
   type Cell,
   checkTrialBalance,
@@ -19,6 +19,12 @@ import {
   zohoFetchRange,
   zohoCoaCsv,
   zohoTbCsv,
+  buildVeracityTb,
+  counterpartyInName,
+  GROUPING_FSLI,
+  groupingKey,
+  type VeracityLine,
+  veracityTbCsv,
 } from '@finance-close/engine';
 import {
   ApiErrorCode,
@@ -55,7 +61,7 @@ import {
 import { ChartOfAccountsService } from './chart-of-accounts.service';
 import { toFileRef } from './file-ref';
 import { RatesService } from './rates.service';
-import { columnLetter, readSheetRows } from './sheets';
+import { columnLetter, readSheetRows, readWorkbookSheets } from './sheets';
 import { ZohoService } from '../integrations/zoho.service';
 import { storeUpload } from './stored-files';
 import { saveTbVersion } from './tb-versions';
@@ -465,6 +471,365 @@ export class UploadStepService {
     );
   }
 
+  /**
+   * Veracity (Xero, not connected): the month's TB built from the Veracity Category file (P&L)
+   * and the VSCON file (balance sheet notes), as in "Veracity Group – Monthly Financial Statements
+   * Process" (engine buildVeracityTb). Both originals are kept; the TB is stored as a CSV with a
+   * Source column (file › tab › cell per line) and goes through the usual preview → confirm.
+   * New accounts are added to the chart of accounts and mapped by their grouping; existing
+   * mappings are never changed (the mapping freeze holds).
+   */
+  async uploadVeracity(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    files: { category?: UploadedBlob; vscon?: UploadedBlob },
+    ip: string | null,
+  ): Promise<TbPreviewDto> {
+    const { task, te } = await this.editable(user, taskId, entityCode);
+    if (te.entity.erp !== 'XERO')
+      throw ApiError.validation(`${entityCode} is not a Veracity (Xero) entity.`);
+    if (task.period.type !== 'MONTHLY')
+      throw ApiError.validation('The Veracity files are monthly: use them in a monthly task.');
+    if (!files.category) throw ApiError.validation('Choose the Veracity Category file.');
+    if (!files.vscon) throw ApiError.validation('Choose the VSCON file.');
+    const cat = this.checkFile(files.category, ['.ods', '.xlsx', '.xls', '.csv']);
+    const vs = this.checkFile(files.vscon, ['.xlsx', '.xls']);
+    const read = (f: UploadedBlob, label: string) => {
+      try {
+        return readWorkbookSheets(f.buffer, f.originalname);
+      } catch {
+        throw ApiError.validation(
+          `${label} "${f.originalname}" could not be read: the file looks damaged or incomplete. Download it again and retry.`,
+        );
+      }
+    };
+    const catSheets = read(cat, 'The Veracity Category file');
+    const vsSheets = read(vs, 'The VSCON file');
+    const tab = (name: string) =>
+      vsSheets.find((s) => s.name.trim().toLowerCase() === name.toLowerCase()) ?? null;
+    const notes = tab('Notes');
+    if (!notes) throw ApiError.validation(`The VSCON file has no "Notes" tab.`);
+    const catSheet = catSheets.find((s) => s.rows.length > 0) ?? catSheets[0]!;
+    const from = fromDbDate(task.period.startDate);
+    const to = fromDbDate(task.period.endDate);
+    const built = buildVeracityTb({
+      periodEnd: to,
+      category: { rows: catSheet.rows, fileName: cat.originalname, sheet: catSheet.name },
+      vscon: {
+        notes: notes.rows,
+        summary: tab('BS')?.rows ?? null,
+        pl: tab('PL')?.rows ?? null,
+        fileName: vs.originalname,
+      },
+    });
+    if (built.problems.length > 0) throw ApiError.validation(built.problems.join(' '));
+
+    await this.mapVeracityAccounts(user, entityCode, built.lines, task.number, ip);
+
+    const name = `Veracity TB ${entityCode} ${from} to ${to}.csv`;
+    const csv = Buffer.from(
+      `\uFEFF${veracityTbCsv({
+        entityName: te.entity.legalName,
+        periodStart: from,
+        periodEnd: to,
+        files: `${cat.originalname} (P&L) + ${vs.originalname} (balance sheet notes)`,
+        lines: built.lines,
+      })}`,
+      'utf8',
+    );
+    const stored = await this.prisma.$transaction(async (tx) => {
+      const originals = [];
+      for (const f of [cat, vs])
+        originals.push(
+          await storeUpload(tx, this.storage, {
+            kind: 'OTHER',
+            body: f.buffer,
+            originalName: f.originalname,
+            contentType: f.mimetype,
+            taskId,
+            entityCode,
+            uploadedById: user.id,
+          }),
+        );
+      const meta = {
+        provider: 'VERACITY_FILES',
+        files: { category: cat.originalname, vscon: vs.originalname },
+        fileIds: originals.map((o) => o.id),
+        monthColumn: built.monthColumn,
+        monthProfit: built.monthProfit,
+        priorProfit: built.priorProfit,
+        difference: built.difference,
+        checks: built.checks.map((c) => ({ ...c })),
+      };
+      const f = await storeUpload(tx, this.storage, {
+        kind: 'TB',
+        body: csv,
+        originalName: name,
+        contentType: 'text/csv',
+        taskId,
+        entityCode,
+        uploadedById: user.id,
+        source: 'VERACITY',
+        sourceMeta: meta,
+      });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.VeracityUpload,
+          entityType: 'UPLOADED_FILE',
+          entityId: f.id,
+          newValue: {
+            task: task.number,
+            entity: entityCode,
+            file: name,
+            lines: built.lines.length,
+            ...meta,
+            checks: built.checks.map((c) => `${c.passed ? 'PASS' : 'FAIL'} ${c.label}`),
+          },
+          ip,
+        },
+        tx,
+      );
+      return f;
+    });
+    const rows = this.readRows({ buffer: csv, originalname: name });
+    return this.preview(
+      task,
+      te.entity,
+      stored.id,
+      name,
+      rows,
+      detectTbLayout(rows),
+      ZOHO_TB_SETTINGS,
+      'ERP',
+    );
+  }
+
+  /**
+   * Veracity accounts in the chart of accounts: new ones added and mapped by their grouping
+   * (engine GROUPING_FSLI, or an FSLI with that name); intercompany only with an active group
+   * entity. Accounts already mapped keep their mapping.
+   */
+  private async mapVeracityAccounts(
+    user: AuthUser,
+    entityCode: string,
+    lines: readonly VeracityLine[],
+    taskNumber: string,
+    ip: string | null,
+  ): Promise<void> {
+    const [accounts, fslis, active] = await Promise.all([
+      this.prisma.entityAccount.findMany({ where: { entityCode } }),
+      this.prisma.fsli.findMany({ where: { isActive: true } }),
+      this.prisma.entity.findMany({ where: { isActive: true }, select: { code: true } }),
+    ]);
+    const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
+    const activeCodes = new Set(active.map((e) => e.code));
+    const IC: Record<string, string> = {
+      CUR_OTH: 'IC_REC',
+      TRADE_REC: 'IC_REC',
+      CUR_OTH_LIAB: 'IC_PAY',
+      TRADE_PAY: 'IC_PAY',
+      CUR_INV: 'INV_SUB',
+    };
+    const added: string[] = [];
+    const mapped: string[] = [];
+    await this.prisma.$transaction(async (tx) => {
+      for (const l of lines) {
+        if (l.code === YTD_PRIOR_PROFIT_CODE) continue;
+        const before = byCode.get(l.code);
+        if (before?.fsliCode) continue;
+        let fsli =
+          GROUPING_FSLI.get(groupingKey(l.grouping)) ??
+          fslis.find(
+            (f) =>
+              !f.computed &&
+              !f.consolidationOnly &&
+              groupingKey(f.name) === groupingKey(l.grouping),
+          )?.code ??
+          null;
+        let cp: string | null = null;
+        const named = counterpartyInName(l.name, entityCode);
+        if (fsli && named && activeCodes.has(named) && IC[fsli]) {
+          fsli = IC[fsli]!;
+          cp = named;
+        }
+        const data = {
+          accountName: l.name.slice(0, 200),
+          accountType: l.type,
+          fsliCode: fsli,
+          counterpartyCode: cp,
+          grouping: fsli ? l.grouping.slice(0, 200) : null,
+          suggested: false,
+          updatedById: user.id,
+        };
+        if (before) await tx.entityAccount.update({ where: { id: before.id }, data });
+        else
+          await tx.entityAccount.create({
+            data: { entityCode, accountCode: l.code.slice(0, 40), source: 'COA_UPLOAD', ...data },
+          });
+        if (!before) added.push(l.code);
+        if (fsli) mapped.push(l.code);
+      }
+      if (added.length || mapped.length)
+        await this.audit.record(
+          {
+            userId: user.id,
+            action: AuditAction.AccountUpdate,
+            entityType: 'ENTITY',
+            entityId: entityCode,
+            newValue: {
+              task: taskNumber,
+              source: 'Veracity files upload (accounts mapped by grouping)',
+              added,
+              mapped,
+            },
+            ip,
+          },
+          tx,
+        );
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Removing uploads
+  // ---------------------------------------------------------------------------------------
+
+  /** Refuses changes while the entity is submitted for review (withdraw or return it first). */
+  private async assertNotInReview(taskId: string, entityCode: string): Promise<void> {
+    const active = await this.prisma.reviewSubmission.findFirst({
+      where: { taskId, entityCode, status: 'ACTIVE' },
+    });
+    if (active)
+      throw ApiError.conflict(
+        `${entityCode} is submitted for review. Withdraw the submission (or have it returned) before removing uploads.`,
+      );
+  }
+
+  /** Deletes a stored file and its record when nothing else refers to it. */
+  private async dropFile(tx: Prisma.TransactionClient, fileId: string): Promise<boolean> {
+    const used = await tx.tbVersion.count({ where: { fileId } });
+    if (used > 0) return false;
+    const f = await tx.uploadedFile.delete({ where: { id: fileId } });
+    try {
+      await this.storage.delete(f.storageKey);
+    } catch {
+      /* the record is gone; a stray object in storage does no harm */
+    }
+    return true;
+  }
+
+  /**
+   * Removes the latest trial balance version of the task period (e.g. the wrong file was
+   * uploaded). The entity falls back to the previous version, or to "nothing uploaded", and goes
+   * back to the Upload step, since later steps were built on the removed version. Not while in
+   * review; never once finalised. Audited with what was removed.
+   */
+  async removeLatestTb(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    ip: string | null,
+  ): Promise<{ removedVersion: number; remainingVersion: number | null }> {
+    const { task, te } = await this.editable(user, taskId, entityCode);
+    await this.assertNotInReview(taskId, entityCode);
+    const latest = await this.prisma.tbVersion.findFirst({
+      where: { taskId, entityCode, purpose: 'CURRENT' },
+      orderBy: { createdAt: 'desc' },
+      include: { file: true },
+    });
+    if (!latest) throw ApiError.notFound('There is no trial balance to remove.');
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.tbVersion.delete({ where: { id: latest.id } });
+      const fileDeleted = await this.dropFile(tx, latest.fileId);
+      const previous = await tx.tbVersion.findFirst({
+        where: { taskId, entityCode, purpose: 'CURRENT' },
+        orderBy: { createdAt: 'desc' },
+      });
+      await tx.taskEntity.update({
+        where: { taskId_entityCode: { taskId, entityCode } },
+        data: {
+          currentStep: 'UPLOAD_DATA',
+          rollForward: Prisma.DbNull,
+          ...(previous ? {} : { status: 'NOT_STARTED' as const }),
+          lastEditedById: user.id,
+        },
+      });
+      await tx.task.update({ where: { id: taskId }, data: { updatedAt: new Date() } });
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.TbVersionRemove,
+          entityType: 'TB_VERSION',
+          entityId: latest.id,
+          oldValue: {
+            task: task.number,
+            entity: entityCode,
+            version: latest.version,
+            file: latest.file.originalName,
+            source: latest.file.source,
+            status: latest.status,
+            entityStep: te.currentStep,
+          },
+          newValue: {
+            remainingVersion: previous?.version ?? null,
+            entityStep: 'UPLOAD_DATA',
+            fileDeleted,
+          },
+          ip,
+        },
+        tx,
+      );
+      return { removedVersion: latest.version, remainingVersion: previous?.version ?? null };
+    });
+    return result;
+  }
+
+  /** Deletes a supporting document (or an unconfirmed upload) of the entity in this task. */
+  async deleteDocument(
+    user: AuthUser,
+    taskId: string,
+    entityCode: string,
+    fileId: string,
+    ip: string | null,
+  ): Promise<void> {
+    const { task } = await this.editable(user, taskId, entityCode);
+    await this.assertNotInReview(taskId, entityCode);
+    const file = await this.prisma.uploadedFile.findUnique({ where: { id: fileId } });
+    if (!file || file.taskId !== taskId || file.entityCode !== entityCode)
+      throw ApiError.notFound('File not found in this task.');
+    if (file.kind === 'COA')
+      throw ApiError.validation(
+        'A chart-of-accounts file has already been merged into the chart of accounts; change accounts in Configuration → Chart of accounts instead.',
+      );
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await this.dropFile(tx, fileId);
+      if (!deleted)
+        throw ApiError.conflict(
+          'This file is a confirmed trial balance version; use "Remove latest version" instead.',
+        );
+      await this.audit.record(
+        {
+          userId: user.id,
+          action: AuditAction.DocumentDelete,
+          entityType: 'UPLOADED_FILE',
+          entityId: fileId,
+          oldValue: {
+            task: task.number,
+            entity: entityCode,
+            file: file.originalName,
+            kind: file.kind,
+            source: file.source,
+            sha256: file.sha256,
+          },
+          newValue: null,
+          ip,
+        },
+        tx,
+      );
+    });
+  }
+
   async previewTb(
     user: AuthUser,
     taskId: string,
@@ -734,13 +1099,47 @@ export class UploadStepService {
       sameFileElsewhere: elsewhere,
     });
     if (file.source === 'ZOHO') this.addErpNotes(result, file.sourceMeta);
+    if (file.source === 'VERACITY') this.addVeracityNotes(result, file.sourceMeta);
     const profile = await this.prisma.uploadProfile.findUnique({
       where: { entityCode: entity.code },
     });
     // A TB fetched from Zoho is already on the period basis (fetchZohoTb).
-    return profile?.plBasis === 'YTD' && file.source !== 'ZOHO' && result.errors.length === 0
+    return profile?.plBasis === 'YTD' &&
+      file.source !== 'ZOHO' &&
+      file.source !== 'VERACITY' &&
+      result.errors.length === 0
       ? this.toPeriodBasis(result, entity.code, period)
       : result;
+  }
+
+  /** The Veracity files a TB was built from, and the result of every process check. */
+  private addVeracityNotes(result: TbCheckResult, meta: Prisma.JsonValue): void {
+    const m = (meta ?? {}) as {
+      files?: { category?: string; vscon?: string };
+      monthColumn?: string;
+      monthProfit?: string;
+      priorProfit?: string;
+      difference?: string;
+      checks?: {
+        label: string;
+        value: string;
+        expected: string;
+        passed: boolean;
+        source: string;
+      }[];
+    };
+    const checks = m.checks ?? [];
+    result.info.push({
+      code: 'VERACITY_SOURCE',
+      message: `Built from ${m.files?.category ?? '?'} (P&L, column ${m.monthColumn ?? '?'}) and ${m.files?.vscon ?? '?'} (balance sheet notes, column F). Month profit ${m.monthProfit ?? '?'}; profit of earlier months ${m.priorProfit ?? '?'}. ${checks.filter((c) => c.passed).length} of ${checks.length} process checks passed. Each line's source is in the Source column of the stored file.`,
+    });
+    for (const c of checks.filter((x) => !x.passed))
+      result.warnings.push({
+        code: 'VERACITY_CHECK',
+        message: `${c.label}: ${c.value} vs ${c.expected} (${c.source}).${m.difference && m.difference !== '0.00' ? ` The difference (with rounding, ${m.difference}) is on line VG-DIFF.` : ''}`,
+      });
+    if (result.status === 'VALIDATED' && result.warnings.length > 0)
+      result.status = 'VALIDATED_WITH_WARNINGS';
   }
 
   /** Where a TB built from Zoho came from, and what the reader noticed (no account codes). */

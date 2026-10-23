@@ -4,6 +4,8 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  FileSpreadsheet,
+  History,
   Plus,
   RefreshCw,
   Trash2,
@@ -18,7 +20,7 @@ import type {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, Field, Input, Select } from '@/components/ui/form';
+import { Alert, Checkbox, Field, Input, Select } from '@/components/ui/form';
 import { Dialog, Table, Td, Th } from '@/components/ui/overlay';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, errorMessage } from '@/lib/api';
@@ -76,7 +78,14 @@ export function EliminationsStep({
   const remove = useMutation({
     mutationFn: (id: string) => api.delete<EliminationsDto>(`${base}/adjustments/${id}`),
     onSuccess: (d) => {
-      toast('Adjustment deleted.');
+      toast('Entry deleted.');
+      done(d);
+    },
+  });
+  const bringForward = useMutation({
+    mutationFn: () => api.post<EliminationsDto>(`${base}/adjustments/bring-forward`),
+    onSuccess: (d) => {
+      toast('Entries brought forward from the previous month.');
       done(d);
     },
   });
@@ -93,9 +102,6 @@ export function EliminationsStep({
             : `Not generated yet · level currency ${d.currency}`}
         </p>
         <div className="flex gap-2">
-          <Button variant="outline" disabled={!d.level.editable} onClick={() => setAdding(true)}>
-            <Plus /> Manual adjustment
-          </Button>
           <Button
             disabled={!d.canGenerate || generate.isPending}
             onClick={() => generate.mutate()}
@@ -105,9 +111,7 @@ export function EliminationsStep({
           </Button>
         </div>
       </div>
-      {(generate.error || remove.error) && (
-        <Alert>{errorMessage(generate.error ?? remove.error)}</Alert>
-      )}
+      {generate.error && <Alert>{errorMessage(generate.error)}</Alert>}
       {d.membersChanged.length > 0 && (
         <Alert>
           Member data changed – regenerate eliminations ({d.membersChanged.join(', ')}). A member’s
@@ -182,16 +186,29 @@ export function EliminationsStep({
         </Card>
       )}
 
-      {d.entries.map((e) => (
-        <EntryCard
-          key={e.id}
-          e={e}
-          onDelete={(id) => remove.mutate(id)}
-          deleting={remove.isPending}
-          onExplain={(text) => explain.mutate({ id: e.id, text })}
-          explaining={explain.isPending}
-        />
-      ))}
+      <ManualEntries
+        d={d}
+        onAdd={() => setAdding(true)}
+        onBringForward={() => bringForward.mutate()}
+        bringing={bringForward.isPending}
+        onDelete={(id) => remove.mutate(id)}
+        deleting={remove.isPending}
+        error={bringForward.error ?? remove.error}
+      />
+
+      <h3 className="pt-2 text-sm font-semibold">Generated eliminations</h3>
+      {d.entries
+        .filter((e) => e.type !== 'MANUAL')
+        .map((e) => (
+          <EntryCard
+            key={e.id}
+            e={e}
+            onDelete={(id) => remove.mutate(id)}
+            deleting={remove.isPending}
+            onExplain={(text) => explain.mutate({ id: e.id, text })}
+            explaining={explain.isPending}
+          />
+        ))}
       {explain.error && <Alert>{errorMessage(explain.error)}</Alert>}
       {next.error && <Alert>{errorMessage(next.error)}</Alert>}
       <div className="flex justify-end">
@@ -202,7 +219,7 @@ export function EliminationsStep({
           Continue to statements <ArrowRight />
         </Button>
       </div>
-      {d.generated && d.entries.length === 0 && (
+      {d.generated && d.entries.filter((e) => e.type !== 'MANUAL').length === 0 && (
         <p className="text-sm text-muted-foreground">No eliminations for this level.</p>
       )}
 
@@ -327,7 +344,11 @@ function EntryCard({
         {e.manual && (
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
-              Entered by {e.manual.createdBy} · {formatDateTime(e.manual.createdAt)}
+              {e.manual.broughtForwardFrom
+                ? `Brought forward from ${e.manual.broughtForwardFrom} by ${e.manual.createdBy}`
+                : `Entered by ${e.manual.createdBy}`}{' '}
+              · {formatDateTime(e.manual.createdAt)}
+              {e.manual.thisLevelOnly && ' · this level only'}
             </span>
             {e.manual.canDelete && (
               <Button
@@ -335,7 +356,11 @@ function EntryCard({
                 size="sm"
                 className="text-destructive"
                 disabled={deleting}
-                onClick={() => onDelete(e.manual!.id)}
+                onClick={() =>
+                  window.confirm(
+                    `Delete "${e.title}"? The eliminations are refreshed and the deletion is recorded in the audit trail.`,
+                  ) && onDelete(e.manual!.id)
+                }
               >
                 <Trash2 /> Delete
               </Button>
@@ -347,8 +372,165 @@ function EntryCard({
   );
 }
 
+/** The space for manual elimination entries: add, bring forward from last month, delete. */
+function ManualEntries({
+  d,
+  onAdd,
+  onBringForward,
+  bringing,
+  onDelete,
+  deleting,
+  error,
+}: {
+  d: EliminationsDto;
+  onAdd: () => void;
+  onBringForward: () => void;
+  bringing: boolean;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+  error: unknown;
+}) {
+  const manual = d.entries.filter((e) => e.type === 'MANUAL');
+  const own = manual.filter((e) => e.manual?.ownLevel);
+  const bf = d.bringForward;
+  const toBring = bf ? bf.available - bf.alreadyBrought : 0;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle>Manual elimination entries</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            In {d.currency}. Entries brought forward from last month are the starting point; add or
+            delete entries for this month. An entry can replace a generated elimination.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {bf && (
+            <Button
+              variant="outline"
+              disabled={!d.level.editable || toBring === 0 || bringing}
+              onClick={onBringForward}
+              title={
+                toBring === 0
+                  ? bf.available === 0
+                    ? `${bf.taskNumber} has no manual entries at this level.`
+                    : `All ${bf.available} entries of ${bf.taskNumber} are already here.`
+                  : undefined
+              }
+            >
+              <History /> Bring forward from {bf.period}
+              {toBring > 0 && ` (${toBring})`}
+            </Button>
+          )}
+          <Button disabled={!d.level.editable} onClick={onAdd}>
+            <Plus /> Add entry
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error != null && <Alert>{errorMessage(error)}</Alert>}
+        {bf && toBring > 0 && d.level.editable && (
+          <Alert variant="info">
+            {toBring} manual {toBring === 1 ? 'entry' : 'entries'} of {bf.taskNumber} ({bf.period}
+            {bf.levelStatus !== 'FINALISED' && ', not finalised yet'}) can be brought forward as the
+            starting point for this month.
+          </Alert>
+        )}
+        {manual.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No manual entries{d.generated ? '' : ' (generate the eliminations to see their effect)'}.
+          </p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Entry</Th>
+                <Th>Source</Th>
+                <Th className="text-right">Dr</Th>
+                <Th className="text-right">Cr</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {manual.map((e) => (
+                <tr key={e.id} className="align-top">
+                  <Td>
+                    <div className="font-medium">{e.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {e.manual?.ownLevel ? 'This level' : e.originText}
+                      {e.manual?.replaces && ` · replaces “${e.manual.replaces.title}”`}
+                      {e.manual?.thisLevelOnly && ' · this level only'}
+                      {e.manual?.broughtForwardFrom &&
+                        ` · brought forward from ${e.manual.broughtForwardFrom}`}
+                    </div>
+                    <ul className="mt-1 space-y-0.5 text-xs tabular-nums">
+                      {e.lines.map((l, i) => (
+                        <li key={i}>
+                          <span className="text-muted-foreground">
+                            {l.debit ? 'Dr' : 'Cr'} {l.entityCode ?? 'Group'}
+                          </span>{' '}
+                          {l.fsliName}
+                          {l.counterpartyCode && ` (${l.counterpartyCode})`}{' '}
+                          {amountText(l.debit ?? l.credit ?? '0')}
+                          {l.note && <span className="text-muted-foreground"> · {l.note}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </Td>
+                  <Td className="max-w-64 text-xs">
+                    {e.manual?.sourceRef ? (
+                      <span className="inline-flex gap-1">
+                        <FileSpreadsheet className="size-3.5 shrink-0 text-primary" />
+                        {e.manual.sourceRef}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </Td>
+                  <Td className="text-right tabular-nums">{amountText(e.totalDebit)}</Td>
+                  <Td className="text-right tabular-nums">{amountText(e.totalCredit)}</Td>
+                  <Td>
+                    {e.manual?.canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        aria-label={`Delete ${e.title}`}
+                        disabled={deleting}
+                        onClick={() =>
+                          window.confirm(
+                            `Delete "${e.title}"? The eliminations are refreshed and the deletion is recorded in the audit trail.`,
+                          ) && onDelete(e.manual!.id)
+                        }
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        {own.length > 0 && !d.generated && (
+          <p className="text-xs text-muted-foreground">
+            Generate the eliminations to include these entries.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 type Line = ManualAdjustmentInput['lines'][number];
-const emptyLine = (): Line => ({ entityCode: null, fsliCode: '', debit: null, credit: null });
+const emptyLine = (): Line => ({
+  entityCode: null,
+  fsliCode: '',
+  counterpartyCode: null,
+  debit: null,
+  credit: null,
+  ref: null,
+});
 
 function ManualDialog({
   d,
@@ -363,16 +545,22 @@ function ManualDialog({
 }) {
   const [narration, setNarration] = useState('');
   const [reason, setReason] = useState('');
+  const [sourceRef, setSourceRef] = useState('');
+  const [replaces, setReplaces] = useState('');
+  const [thisLevelOnly, setThisLevelOnly] = useState(false);
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()]);
   const save = useMutation({
     mutationFn: () =>
       api.post<EliminationsDto>(`${base}/adjustments`, {
         narration,
         reason,
+        sourceRef: sourceRef.trim() || null,
+        replacesEntryId: replaces || null,
+        thisLevelOnly,
         lines,
       } satisfies ManualAdjustmentInput),
     onSuccess: (r) => {
-      toast('Adjustment added.');
+      toast('Entry added.');
       onDone(r);
       onClose();
     },
@@ -387,14 +575,14 @@ function ManualDialog({
     <Dialog
       open
       onClose={onClose}
-      title={`Manual adjustment (in ${d.currency})`}
+      title={`Manual elimination entry (in ${d.currency})`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button disabled={!ready || save.isPending} onClick={() => save.mutate()}>
-            Save adjustment
+            Save entry
           </Button>
         </>
       }
@@ -421,13 +609,38 @@ function ManualDialog({
             onChange={(e) => setReason(e.target.value)}
           />
         </Field>
+        <Field label="Source reference (optional)" htmlFor="ma-src">
+          <Input
+            id="ma-src"
+            value={sourceRef}
+            maxLength={300}
+            placeholder="e.g. Financials Aug'26.xlsx · Aistra Group Elimination · AQ25:AU30"
+            onChange={(e) => setSourceRef(e.target.value)}
+          />
+        </Field>
+        <Field label="Replaces a generated elimination (optional)" htmlFor="ma-repl">
+          <Select id="ma-repl" value={replaces} onChange={(e) => setReplaces(e.target.value)}>
+            <option value="">No – in addition to the generated eliminations</option>
+            {d.manualOptions.replaceable.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={thisLevelOnly} onChange={(e) => setThisLevelOnly(e.target.checked)} />
+          This level only (do not carry it to higher levels)
+        </label>
         <Table>
           <thead>
             <tr>
               <Th>Entity</Th>
               <Th>FSLI</Th>
+              <Th>Counterparty</Th>
               <Th className="text-right">Dr</Th>
               <Th className="text-right">Cr</Th>
+              <Th>Ref</Th>
               <Th />
             </tr>
           </thead>
@@ -462,6 +675,20 @@ function ManualDialog({
                   />
                 </Td>
                 <Td>
+                  <Select
+                    aria-label={`Line ${i + 1} counterparty`}
+                    value={l.counterpartyCode ?? ''}
+                    onChange={(e) => set(i, { counterpartyCode: e.target.value || null })}
+                  >
+                    <option value="">—</option>
+                    {d.manualOptions.entities.map((x) => (
+                      <option key={x.code} value={x.code}>
+                        {x.code}
+                      </option>
+                    ))}
+                  </Select>
+                </Td>
+                <Td>
                   <Input
                     aria-label={`Line ${i + 1} debit`}
                     className="w-28 text-right"
@@ -487,6 +714,16 @@ function ManualDialog({
                         debit: e.target.value ? null : l.debit,
                       })
                     }
+                  />
+                </Td>
+                <Td>
+                  <Input
+                    aria-label={`Line ${i + 1} source cell`}
+                    className="w-20"
+                    maxLength={60}
+                    placeholder="AR27"
+                    value={l.ref ?? ''}
+                    onChange={(e) => set(i, { ref: e.target.value || null })}
                   />
                 </Td>
                 <Td>

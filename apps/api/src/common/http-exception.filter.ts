@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { ApiErrorCode } from '@finance-close/shared';
 import type { Response } from 'express';
+import { restartIfDatabaseCredentialsRotated } from '../prisma/credential-rotation';
 import { ApiError } from './api-error';
 
 /**
@@ -41,7 +42,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
-    if (isDatabaseUnavailable(err)) {
+    if (isDatabaseUnavailable(err) || restartIfDatabaseCredentialsRotated(err)) {
       const lastLine = (err as Error).message.trim().split('\n').at(-1);
       this.logger.error(`Database unavailable: ${lastLine}`);
       res.status(HttpStatus.SERVICE_UNAVAILABLE).json({

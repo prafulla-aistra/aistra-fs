@@ -35,3 +35,6 @@ Thumbs.db
 # Playwright
 test-results/
 playwright-report/
+
+# docs/ holds client files (workbooks, process documents) and internal trackers - never commit
+docs/

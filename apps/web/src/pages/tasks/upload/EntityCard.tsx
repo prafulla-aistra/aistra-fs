@@ -6,6 +6,7 @@ import {
   History,
   Lock,
   RefreshCw,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
@@ -25,6 +26,7 @@ import { Badge, ItemStatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, Select } from '@/components/ui/form';
+import { Dialog } from '@/components/ui/overlay';
 import { api, downloadFile, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { toast } from '@/lib/toast';
@@ -69,6 +71,26 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
     onSuccess: setPreview,
   });
   // Zoho entities: fetch the TB for the task period → the same preview as an uploaded file.
+  const [veracityOpen, setVeracityOpen] = useState(false);
+  const removeTb = useMutation({
+    mutationFn: () =>
+      api.delete<{ removedVersion: number; remainingVersion: number | null }>(`${base}/tb/latest`),
+    onSuccess: async (r) => {
+      toast(
+        r.remainingVersion
+          ? `Trial balance v${r.removedVersion} removed; v${r.remainingVersion} is current again.`
+          : `Trial balance v${r.removedVersion} removed; nothing uploaded for ${card.code} now.`,
+      );
+      await refresh();
+    },
+  });
+  const removeDoc = useMutation({
+    mutationFn: (id: string) => api.delete<void>(`${base}/files/${id}`),
+    onSuccess: async () => {
+      toast('Document deleted.');
+      await refresh();
+    },
+  });
   const zoho = useMutation({
     mutationFn: () => api.post<TbPreviewDto>(`${base}/tb/zoho`),
     onSuccess: setPreview,
@@ -110,9 +132,23 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
   });
   const error =
     localError ??
-    ((tb.error ?? zoho.error ?? coa.error ?? coaZoho.error ?? docs.error ?? basis.error)
+    ((tb.error ??
+    zoho.error ??
+    coa.error ??
+    coaZoho.error ??
+    docs.error ??
+    basis.error ??
+    removeTb.error ??
+    removeDoc.error)
       ? errorMessage(
-          tb.error ?? zoho.error ?? coa.error ?? coaZoho.error ?? docs.error ?? basis.error,
+          tb.error ??
+            zoho.error ??
+            coa.error ??
+            coaZoho.error ??
+            docs.error ??
+            basis.error ??
+            removeTb.error ??
+            removeDoc.error,
         )
       : null);
   const pick = (files: File[], run: (files: File[]) => void) => {
@@ -190,24 +226,55 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
           last={latest ? latest.file : null}
           onFiles={(f) => pick(f.slice(0, 1), ([file]) => tb.mutate(file!))}
           onVersions={card.tb.versionCount > 0 ? () => setVersions('TB') : undefined}
+          onRemove={
+            latest && card.canEdit
+              ? {
+                  label: 'Remove',
+                  title: `Remove trial balance v${latest.version} (${latest.file.name}); ${card.code} goes back to the Upload step`,
+                  busy: removeTb.isPending,
+                  run: () => {
+                    if (
+                      window.confirm(
+                        `Remove trial balance v${latest.version} (${latest.file.name}) of ${card.code}?\n\n${card.tb.versionCount > 1 ? 'The previous version becomes current again.' : 'Nothing will be uploaded for this entity.'} The entity goes back to the Upload step. This is recorded in the audit trail.`,
+                      )
+                    )
+                      removeTb.mutate();
+                  },
+                }
+              : undefined
+          }
           extra={
-            card.erpFetch &&
-            card.canEdit && (
+            card.erp === 'XERO' && card.canEdit ? (
               <Button
                 size="sm"
-                disabled={!card.erpFetch.available || tb.isPending || zoho.isPending}
-                title={
-                  card.erpFetch.available
-                    ? `GL-wise trial balance of "${card.erpFetch.organizationName}" for the task period, from Zoho Books`
-                    : (card.erpFetch.reason ?? undefined)
-                }
+                disabled={tb.isPending}
+                title="Build the month's trial balance from the Veracity Category file (P&L) and the VSCON file (balance sheet notes)"
                 onClick={() => {
                   setLocalError(null);
-                  zoho.mutate();
+                  setVeracityOpen(true);
                 }}
               >
-                <CloudDownload /> {zoho.isPending ? 'Fetching from Zoho…' : 'Fetch from Zoho'}
+                <Upload /> Upload Veracity files
               </Button>
+            ) : (
+              card.erpFetch &&
+              card.canEdit && (
+                <Button
+                  size="sm"
+                  disabled={!card.erpFetch.available || tb.isPending || zoho.isPending}
+                  title={
+                    card.erpFetch.available
+                      ? `GL-wise trial balance of "${card.erpFetch.organizationName}" for the task period, from Zoho Books`
+                      : (card.erpFetch.reason ?? undefined)
+                  }
+                  onClick={() => {
+                    setLocalError(null);
+                    zoho.mutate();
+                  }}
+                >
+                  <CloudDownload /> {zoho.isPending ? 'Fetching from Zoho…' : 'Fetch from Zoho'}
+                </Button>
+              )
             )
           }
         >
@@ -272,11 +339,30 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
           {card.documents.length > 0 && (
             <ul className="space-y-0.5 text-xs">
               {card.documents.map((d) => (
-                <li key={d.id}>
-                  <FileLink file={d} />{' '}
-                  <span className="text-muted-foreground">
-                    · {d.uploadedBy}, {formatDateTime(d.uploadedAt)}
+                <li key={d.id} className="flex items-center gap-1.5">
+                  <span className="min-w-0 truncate">
+                    <FileLink file={d} />{' '}
+                    <span className="text-muted-foreground">
+                      · {d.uploadedBy}, {formatDateTime(d.uploadedAt)}
+                    </span>
                   </span>
+                  {card.canEdit && (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${d.name}`}
+                      title={`Delete ${d.name}`}
+                      disabled={removeDoc.isPending}
+                      className="ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                      onClick={() => {
+                        if (
+                          window.confirm(`Delete ${d.name}? This is recorded in the audit trail.`)
+                        )
+                          removeDoc.mutate(d.id);
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -290,6 +376,17 @@ export function EntityCard({ taskId, card }: { taskId: string; card: UploadEntit
         )}
       </CardContent>
 
+      {veracityOpen && (
+        <VeracityUploadDialog
+          base={base}
+          entityName={card.legalName}
+          onClose={() => setVeracityOpen(false)}
+          onPreview={(p) => {
+            setVeracityOpen(false);
+            setPreview(p);
+          }}
+        />
+      )}
       {preview && (
         <TbColumnsDialog
           taskId={taskId}
@@ -337,6 +434,7 @@ function UploadRow({
   last,
   onFiles,
   onVersions,
+  onRemove,
   extra,
   children,
 }: {
@@ -350,6 +448,8 @@ function UploadRow({
   last: FileRefDto | null;
   onFiles?: (files: File[]) => void;
   onVersions?: () => void;
+  /** Removes the current upload (shown as a quiet destructive button). */
+  onRemove?: { label: string; title: string; busy: boolean; run: () => void };
   /** Another way to provide it (e.g. "Fetch from Zoho"), next to the file button. */
   extra?: ReactNode;
   children?: ReactNode;
@@ -405,7 +505,7 @@ function UploadRow({
           onFiles?.(files);
         }}
       />
-      {(extra || canEdit || onVersions) && (
+      {(extra || canEdit || onVersions || onRemove) && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-[42px]">
           {extra}
           {canEdit && (
@@ -430,6 +530,21 @@ function UploadRow({
               <History /> Versions
             </Button>
           )}
+          {onRemove && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn(
+                'text-muted-foreground hover:bg-red-50 hover:text-destructive',
+                !onVersions && 'ml-auto',
+              )}
+              disabled={onRemove.busy}
+              onClick={onRemove.run}
+              title={onRemove.title}
+            >
+              <Trash2 /> {onRemove.busy ? 'Removing…' : onRemove.label}
+            </Button>
+          )}
         </div>
       )}
       <div className="mt-2 pl-[42px] text-xs text-muted-foreground">
@@ -439,6 +554,15 @@ function UploadRow({
               <span className="min-w-0 truncate" title={last.name}>
                 <FileLink file={last} />
               </span>
+              {last.source === 'VERACITY' && (
+                <Badge
+                  variant="review"
+                  className="shrink-0 px-1.5 py-0 text-[10px]"
+                  title="Built from the Veracity Category and VSCON files; the Source column of this file shows where each line came from"
+                >
+                  <FileSpreadsheet className="size-3" /> From Veracity files
+                </Badge>
+              )}
               {last.source === 'ZOHO' && (
                 <Badge
                   variant="review"
@@ -460,6 +584,111 @@ function UploadRow({
         )}
       </div>
       {children && <div className="mt-3 pl-[42px]">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Veracity (Xero, not connected): the two monthly input files of the "Veracity Group – Monthly
+ * Financial Statements Process". The API builds the TB (P&L from Category, balance sheet from the
+ * VSCON notes) and returns the usual preview with the process checks.
+ */
+function VeracityUploadDialog({
+  base,
+  entityName,
+  onClose,
+  onPreview,
+}: {
+  base: string;
+  entityName: string;
+  onClose: () => void;
+  onPreview: (p: TbPreviewDto) => void;
+}) {
+  const [category, setCategory] = useState<File | null>(null);
+  const [vscon, setVscon] = useState<File | null>(null);
+  const send = useMutation({
+    mutationFn: () =>
+      api.uploadFiles<TbPreviewDto>(`${base}/tb/veracity`, { category: category!, vscon: vscon! }),
+    onSuccess: onPreview,
+  });
+  const tooBigFile = [category, vscon].find((f) => f && f.size > MAX_UPLOAD_BYTES);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Upload Veracity files · ${entityName}`}
+      description="The P&L comes from the Veracity Category file (the task month's column); the balance sheet from the VSCON file's Notes tab (column F, Group USD). The checks of the process are run and every line keeps its source."
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!category || !vscon || !!tooBigFile || send.isPending}
+            onClick={() => send.mutate()}
+          >
+            {send.isPending ? 'Building…' : 'Build trial balance'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {send.error && <Alert>{errorMessage(send.error)}</Alert>}
+        {tooBigFile && <Alert>{tooBigFile.name} is larger than the 10 MB limit.</Alert>}
+        <FilePick
+          id="veracity-category"
+          label="1. Veracity Category file (P&L)"
+          hint="Sheet1: Name, Category and one column per month (.ods or .xlsx)"
+          accept=".ods,.xlsx,.xls,.csv"
+          file={category}
+          onFile={setCategory}
+        />
+        <FilePick
+          id="veracity-vscon"
+          label="2. VSCON file (balance sheet)"
+          hint="Tabs Notes (notes to the balance sheet), BS (summary) and PL (.xlsx)"
+          accept=".xlsx,.xls"
+          file={vscon}
+          onFile={setVscon}
+        />
+      </div>
+    </Dialog>
+  );
+}
+
+function FilePick({
+  id,
+  label,
+  hint,
+  accept,
+  file,
+  onFile,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  accept: string;
+  file: File | null;
+  onFile: (f: File | null) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-sm font-semibold text-ink">
+        {label}
+      </label>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      <input
+        id={id}
+        type="file"
+        accept={accept}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-card file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent"
+      />
+      {file && (
+        <p className="text-xs text-muted-foreground">
+          {file.name} · {(file.size / 1024).toFixed(0)} KB
+        </p>
+      )}
     </div>
   );
 }
